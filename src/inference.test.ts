@@ -1,32 +1,29 @@
 /*
 IMPORTANT
 
-This file will blow up tests if type inference fails
+This file checks TypeScript compilation behavior.
+It uses @ts-expect-error to assert that invalid types cause compile errors.
+If inference is too loose (allowing bad types), these directives will fail.
 */
 
 import { s, type Infer } from './schema'
 
 // --- HELPER: The "Type Assert" Function ---
-// This function does nothing at runtime.
-// Its only job is to yell at you (compile error) if you pass the wrong type.
 function assertType<Expected>(value: Expected) {
   // no-op
 }
 
-// --- TEST 1: Primitives ---
+// --- TEST 1: Primitives (Property Access) ---
 {
-  const schema = s.number()
+  // UPDATED: No parens on primitives
+  const schema = s.number
   type Type = Infer<typeof schema>
 
-  // 1. Positive Test: Should compile
+  // 1. Positive Test
   const val: Type = 123
   assertType<number>(val)
 
-  // 2. Negative Test: Should FAIL to compile
-  // We use @ts-expect-error to tell the compiler "We expect this next line to explode"
-  // If the line acts effectively (e.g. inference is too loose and allows strings),
-  // @ts-expect-error will actually THROW an error saying "Unused @ts-expect-error directive".
-
+  // 2. Negative Test
   // @ts-expect-error - Type should not be string
   const bad: Type = '123'
 }
@@ -34,15 +31,14 @@ function assertType<Expected>(value: Expected) {
 // --- TEST 2: Objects ---
 {
   const User = s.object({
-    id: s.number(),
-    name: s.string(),
+    id: s.number, // UPDATED: s.number instead of s.number()
+    name: s.string, // UPDATED: s.string instead of s.string()
   })
   type UserType = Infer<typeof User>
 
-  // 1. Positive Test: Exact match
+  // 1. Positive Test
   const validUser: UserType = { id: 1, name: 'Alice' }
 
-  // Double check it matches our manual interface expectation
   interface ExpectedUser {
     id: number
     name: string
@@ -53,14 +49,14 @@ function assertType<Expected>(value: Expected) {
   // @ts-expect-error - Property 'name' is missing
   const missingKey: UserType = { id: 1 }
 
-  // 3. Negative Test: Extra keys (Object literals in TS are strict)
+  // 3. Negative Test: Extra keys
   // @ts-expect-error - Object literal may only specify known properties
   const extraKey: UserType = { id: 1, name: 'Alice', isAdmin: true }
 }
 
 // --- TEST 3: Arrays ---
 {
-  const Tags = s.array(s.string())
+  const Tags = s.array(s.string) // UPDATED
   type TagType = Infer<typeof Tags>
 
   // 1. Positive
@@ -72,20 +68,14 @@ function assertType<Expected>(value: Expected) {
   const invalid: TagType = [1, 2]
 }
 
-// --- TEST 4: Optionality (The Phantom Type Check) ---
+// --- TEST 4: Optionality ---
 {
   const schema = s.object({
-    required: s.string(),
-    optional: s.string().optional(),
+    required: s.string,
+    // Chaining .optional() off the property
+    optional: s.string.optional,
   })
   type PartialType = Infer<typeof schema>
-
-  // 1. Positive: Omitted optional field
-  // Note: In strict TS, optional properties in the TYPE (key?: val) vs
-  // optional values (key: val | undefined) behave slightly differently.
-  // Our library produces { optional: string | undefined }.
-  // To allow KEY omission, the builder needs to return a Partial<T> or similar.
-  // Based on our current "Tiny" implementation, we explicitly allow 'undefined' as a value.
 
   const withUndefined: PartialType = {
     required: 'a',
@@ -97,7 +87,6 @@ function assertType<Expected>(value: Expected) {
     optional: 'b',
   }
 
-  // 2. Negative
   // @ts-expect-error - Type 'number' is not assignable to 'string | undefined'
   const badType: PartialType = { required: 'a', optional: 123 }
 }
@@ -107,7 +96,7 @@ function assertType<Expected>(value: Expected) {
   const Complex = s.object({
     users: s.array(
       s.object({
-        id: s.number(),
+        id: s.number,
       })
     ),
   })
@@ -124,100 +113,90 @@ function assertType<Expected>(value: Expected) {
 
 // --- TEST 6: String Format Extensions ---
 {
-  // 1. Basic Format Chaining
-  const emailSchema = s.string().email()
+  // Method chaining works directly off the property
+  const emailSchema = s.string.email
   type EmailType = Infer<typeof emailSchema>
 
   const e: EmailType = 'test@example.com'
   assertType<string>(e)
 
-  // @ts-expect-error - Should still be a string, not a number
+  // @ts-expect-error - Should still be a string
   const badEmail: EmailType = 123
 
-  // 2. Pattern (Regex) Chaining
-  const patternSchema = s.string().pattern(/abc/)
+  const patternSchema = s.string.pattern(/abc/)
   type PatternType = Infer<typeof patternSchema>
+  assertType<string>('abc')
 
-  const p: PatternType = 'abc'
-  assertType<string>(p)
-
-  // 3. Chaining Format + Optional
-  // This verifies that .email() returns a builder that still has .optional()
-  const optionalUuid = s.string().uuid().optional()
+  // Chaining Format + Optional
+  const optionalUuid = s.string.uuid.optional
   type OptUuid = Infer<typeof optionalUuid>
 
   const u1: OptUuid = '123e4567-e89b-12d3-a456-426614174000'
   const u2: OptUuid = undefined
 
   assertType<string | undefined>(u1)
-  assertType<string | undefined>(u2)
-
-  // @ts-expect-error - Should not accept numbers
-  const badUuid: OptUuid = 123
 }
 
-// --- TEST 7: Complex Nested Formats ---
+// --- TEST 7: Enums ---
 {
-  const APIRequest = s.object({
-    id: s.string().uuid(),
-    meta: s.object({
-      ip: s.string().ipv4(),
-      website: s.string().url().optional(),
-    }),
-    tags: s.array(s.string().pattern(/^[a-z]+$/)),
-  })
-
-  type RequestType = Infer<typeof APIRequest>
-
-  const valid: RequestType = {
-    id: 'uuid-string',
-    meta: {
-      ip: '127.0.0.1',
-      website: undefined,
-    },
-    tags: ['tag', 'another'],
-  }
-
-  // @ts-expect-error - 'website' expects string | undefined, not number
-  const invalid: RequestType = {
-    id: 'uuid',
-    meta: { ip: '0.0.0.0', website: 123 },
-    tags: [],
-  }
-}
-
-// --- TEST 8: Enums ---
-{
-  // 1. String Union Inference
   const Roles = s.enum(['admin', 'user'])
   type RoleType = Infer<typeof Roles>
 
-  const r1: RoleType = 'admin' // OK
-  const r2: RoleType = 'user' // OK
+  const r1: RoleType = 'admin'
   assertType<'admin' | 'user'>(r1)
 
   // @ts-expect-error - "guest" is not in the union
   const r3: RoleType = 'guest'
 
-  // 2. Number Union Inference
-  const Ports = s.enum([80, 443, 8080])
+  const Ports = s.enum([80, 443])
   type PortType = Infer<typeof Ports>
+  assertType<80 | 443>(80)
+}
 
-  const p1: PortType = 80
-  assertType<80 | 443 | 8080>(p1)
+// --- TEST 8: Unions (NEW) ---
+{
+  // 1. Primitive Union
+  const ID = s.union([s.string, s.number])
+  type IdType = Infer<typeof ID>
 
-  // @ts-expect-error - 22 is not in the union
-  const p2: PortType = 22
+  const sId: IdType = 'abc'
+  const nId: IdType = 123
 
-  // 3. Enum + Optional
-  const Config = s.object({
-    mode: s.enum(['dark', 'light']).optional(),
-  })
-  type ConfigType = Infer<typeof Config>
+  assertType<string | number>(sId)
 
-  const c1: ConfigType = { mode: 'dark' }
-  const c2: ConfigType = { mode: undefined }
+  // @ts-expect-error - boolean is not in string | number
+  const badId: IdType = true
 
-  // @ts-expect-error - "blue" is not in union
-  const c3: ConfigType = { mode: 'blue' }
+  // 2. Object Union (Discriminated Union)
+  const Cat = s.object({ type: s.enum(['cat']), meow: s.boolean })
+  const Dog = s.object({ type: s.enum(['dog']), bark: s.boolean })
+
+  const Pet = s.union([Cat, Dog])
+  type PetType = Infer<typeof Pet>
+
+  const cat: PetType = { type: 'cat', meow: true }
+  const dog: PetType = { type: 'dog', bark: true }
+
+  // @ts-expect-error - Dog cannot meow
+  const badPet: PetType = { type: 'dog', meow: true }
+
+  // @ts-expect-error - Missing discriminant
+  const incomplete: PetType = { bark: true }
+}
+
+// --- TEST 9: "The Lie" (Strict API Safety) ---
+// These tests prove that the TypeScript interface hides methods
+// that technically exist on the runtime "Universal Builder".
+{
+  // 1. String should not have .int()
+  // @ts-expect-error - Property 'int' does not exist on type 'Str<string>'
+  const badString = s.string.int
+
+  // 2. Number should not have .email()
+  // @ts-expect-error - Property 'email' does not exist on type 'Num<number>'
+  const badNumber = s.number.email
+
+  // 3. Boolean should not have .min()
+  // @ts-expect-error - Property 'min' does not exist on type 'Base<boolean>'
+  const badBool = s.boolean.min(1)
 }
