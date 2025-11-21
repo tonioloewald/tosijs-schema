@@ -219,3 +219,34 @@ describe('Implementation Details', () => {
     expect(dirtyBool.schema.minimum).toBe(5)
   })
 })
+
+describe('Tuples', () => {
+  test('validates fixed-length tuples', () => {
+    const Coordinate = s.tuple([s.number, s.number])
+
+    expect(validate([10, 20], Coordinate.schema)).toBeTrue()
+
+    // Wrong Types
+    expect(validate(['10', 20], Coordinate.schema)).toBeFalse()
+
+    // Wrong Length
+    expect(validate([10], Coordinate.schema)).toBeFalse()
+    expect(validate([10, 20, 30], Coordinate.schema)).toBeFalse()
+  })
+
+  test('validates mixed-type tuples', () => {
+    const UserRow = s.tuple([s.number, s.string, s.boolean]) // [ID, Name, IsActive]
+
+    expect(validate([1, 'Alice', true], UserRow.schema)).toBeTrue()
+    expect(validate([1, 'Alice', 'yes'], UserRow.schema)).toBeFalse()
+  })
+
+  test('Infers Tuple Types correctly', () => {
+    const t = s.tuple([s.string, s.number])
+    type T = Infer<typeof t>
+
+    const val: T = ['a', 1]
+    // @ts-expect-error
+    const bad: T = ['a', 'b']
+  })
+})

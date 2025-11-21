@@ -131,6 +131,14 @@ const methods = {
   array: <T>(items: Base<T>) =>
     create({ type: 'array', items: items.schema }) as Arr<T[]>,
 
+  tuple: <T extends [Base<any>, ...Base<any>[]]>(items: T) =>
+    create({
+      type: 'array',
+      items: items.map((s) => s.schema),
+      minItems: items.length,
+      maxItems: items.length,
+    }) as Base<{ [K in keyof T]: Infer<T[K]> }>,
+
   object: <P extends Record<string, Base<any>>>(props: P) => {
     const properties: any = {}
     const required: string[] = []
@@ -248,6 +256,14 @@ export function validate(val: any, schema: any): boolean {
     if (schema.minItems !== undefined && len < schema.minItems) return false
     if (schema.maxItems !== undefined && len > schema.maxItems) return false
 
+    // tuples
+    if (Array.isArray(schema.items)) {
+      for (let i = 0; i < schema.items.length; i++) {
+        if (!validate(val[i], schema.items[i])) return false
+      }
+      return true
+    }
+
     if (len > 0) {
       // Unified Logic:
       // - Small arrays (len < 97): step=1 (Full Scan)
@@ -313,8 +329,29 @@ export function diff(a: any, b: any): any {
   }
 
   if (a.type === 'array') {
-    const d = diff(a.items, b.items)
-    return d ? { items: d } : null
+    // Tuple vs Tuple
+    if (Array.isArray(a.items) && Array.isArray(b.items)) {
+      if (a.items.length !== b.items.length)
+        return { error: 'Tuple length mismatch' }
+      const d: any = {}
+      let has = false
+      for (let i = 0; i < a.items.length; i++) {
+        const sub = diff(a.items[i], b.items[i])
+        if (sub) {
+          d[i] = sub
+          has = true
+        }
+      }
+      return has ? { items: d } : null
+    }
+
+    // List vs List
+    if (!Array.isArray(a.items) && !Array.isArray(b.items)) {
+      const d = diff(a.items, b.items)
+      return d ? { items: d } : null
+    }
+
+    return { error: 'Array type mismatch (Tuple vs List)' }
   }
 
   const d: any = {}

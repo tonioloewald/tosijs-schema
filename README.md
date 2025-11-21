@@ -16,7 +16,7 @@ Oh and it cheats when validating large arrays…
 
 🥊 FIGHT! (Union + Optionality)
 
-tosjis: 0.3919 ms  (✅ Valid)
+tosijs: 0.3919 ms  (✅ Valid)
 zod:    184.8533 ms  (✅ Valid)
 
 🚀 Speed Factor: 471x faster
@@ -65,7 +65,7 @@ export type User = Infer<typeof UserSchema>
 
 The validator returns `true` or `false`.
 
-**Note on Performance:** For large arrays, `tosijs-schema` uses a "prime-jump" strategy. Instead of checking every single item (which freezes the main thread on large datasets), for arrays of length > 97, it only checks every (length / 97) items, but _always_ the first and last item. This provides O(1) performance while maintaining a high statistical probability of catching homogeneous errors and 100% chance of catching the most common errors.
+**Note on Performance:** For large arrays, `tosijs-schema` uses a "prime-jump" strategy. Instead of checking every single item (which freezes the main thread on large datasets), for arrays of length > 97, it checks a fixed sample of items (~100 checks) regardless of array size, plus the first and last item. This provides O(1) performance while maintaining a high statistical probability of catching homogeneous errors and 100% chance of catching the most common errors.
 
 ```typescript
 import { validate } from 'tosijs-schema'
@@ -116,12 +116,12 @@ Use these as chainable methods.
 - **Objects:** `s.object({ key: s.string })`
 - **Enums:** `s.enum(['a', 'b'])`
 - **Unions:** `s.union([s.string, s.number])` — Maps to TypeScript unions (`|`) and JSON Schema `anyOf`.
+- **Tuples** `s.tuple([s.string, s.number])` — Fixed-length arrays.
 
 ## Limitations
 
 To keep the library _tiny_ and _fast_, specific JSON Schema features are **not** implemented:
 
-- **Tuples:** Arrays must be homogeneous (e.g., `string[]`). Mixed tuples (e.g., `[string, number]`) are not supported.
 - **Complex Constraints:** `uniqueItems`, `minProperties`, and `dependencies` are omitted for performance.
 - **Error Reporting:** `validate` returns a boolean. For detailed error trails, use `diff` or a generic JSON Schema validator.
 

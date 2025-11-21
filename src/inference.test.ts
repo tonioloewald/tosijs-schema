@@ -200,3 +200,58 @@ function assertType<Expected>(value: Expected) {
   // @ts-expect-error - Property 'min' does not exist on type 'Base<boolean>'
   const badBool = s.boolean.min(1)
 }
+
+// --- TEST 10: Tuples (Fixed Length & Mixed Types) ---
+{
+  // 1. Homogeneous Tuple (Coordinates)
+  const Point = s.tuple([s.number, s.number])
+  type PointType = Infer<typeof Point>
+
+  const p1: PointType = [10, 20]
+  assertType<[number, number]>(p1)
+
+  // @ts-expect-error - Type mismatch at index 1
+  const p2: PointType = [10, '20']
+
+  // @ts-expect-error - Length mismatch (Too short)
+  const p3: PointType = [10]
+
+  // @ts-expect-error - Length mismatch (Too long)
+  const p4: PointType = [10, 20, 30]
+
+  // 2. Heterogeneous Tuple (CSV Row style)
+  const UserRow = s.tuple([
+    s.number, // ID
+    s.string, // Name
+    s.boolean.optional, // IsActive?
+  ])
+  type RowType = Infer<typeof UserRow>
+
+  const r1: RowType = [1, 'Alice', true]
+  const r2: RowType = [2, 'Bob', undefined]
+
+  assertType<[number, string, boolean | undefined]>(r1)
+
+  // @ts-expect-error - Order matters (Boolean at index 1 is wrong)
+  const r3: RowType = [1, true, 'Alice']
+}
+
+// --- TEST 11: Tuple inside Array (Matrix/Grid) ---
+{
+  // Array of [x, y] coordinates
+  const Path = s.array(s.tuple([s.number, s.number]))
+  type PathType = Infer<typeof Path>
+
+  const validPath: PathType = [
+    [0, 0],
+    [10, 20],
+    [15, 30],
+  ]
+  assertType<[number, number][]>(validPath)
+
+  // @ts-expect-error - One element is not a valid tuple
+  const invalidPath: PathType = [
+    [0, 0],
+    [10, '20'],
+  ]
+}

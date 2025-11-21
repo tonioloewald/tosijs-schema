@@ -31,6 +31,7 @@ declare const methods: {
     union: <T extends Base<any>[]>(schemas: T) => Base<Infer<T[number]>>;
     enum: <T extends string | number>(vals: T[]) => Base<T>;
     array: <T>(items: Base<T>) => Arr<T[]>;
+    tuple: <T extends [Base<any>, ...Base<any>[]]>(items: T) => Base<{ [K in keyof T]: Infer<T[K]>; }>;
     object: <P extends Record<string, Base<any>>>(props: P) => Base<{ [K in keyof P]: Infer<P[K]>; }>;
 };
 type TinySchema = typeof methods & {
