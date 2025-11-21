@@ -1,11 +1,26 @@
 # tosijs-schema
 
-A schema-first Typescript / Javascript library for generating a single, standards-compliant source of truth for data types.
+A **schema-first** Typescript / Javascript library for generating a single, standards-compliant source of truth for data types.
 
 1.  **Define** data types once using standard [json-schema](https://json-schema.org/)
 2.  **Infer** Typescript types automatically
 3.  **Validate** efficiently, using "prime-jump" sampling for O(1) performance on massive arrays
 4.  **Diff** schemas to detect breaking changes or structural drift
+
+Smaller, faster, smarter, and safer.
+
+Oh and it cheats when validating large arrays…
+
+```
+🔥 SETUP: Generating 1,000,000 complex union items...
+
+🥊 FIGHT! (Union + Optionality)
+
+tosjis: 0.3919 ms  (✅ Valid)
+zod:    184.8533 ms  (✅ Valid)
+
+🚀 Speed Factor: 471x faster
+```
 
 ## Installation
 
@@ -50,7 +65,7 @@ export type User = Infer<typeof UserSchema>
 
 The validator returns `true` or `false`.
 
-**Note on Performance:** For large arrays, `tosijs-schema` uses a "prime-jump" strategy. Instead of checking every single item (which freezes the main thread on large datasets), it checks items at a prime-number interval. This provides O(1) performance while maintaining a high statistical probability of catching homogeneous errors.
+**Note on Performance:** For large arrays, `tosijs-schema` uses a "prime-jump" strategy. Instead of checking every single item (which freezes the main thread on large datasets), for arrays of length > 97, it only checks every (length / 97) items, but _always_ the first and last item. This provides O(1) performance while maintaining a high statistical probability of catching homogeneous errors and 100% chance of catching the most common errors.
 
 ```typescript
 import { validate } from 'tosijs-schema'
@@ -117,7 +132,7 @@ To keep the library _tiny_ and _fast_, specific JSON Schema features are **not**
 `tosijs-schema` is **Schema-first** and **Functional**.
 
 - **Portable:** The output is standard JSON Schema, usable by other tools/languages.
-- **Tiny:** Truly \< 2kB. You only pay for the builders you use.
+- **Tiny:** Truly \< 2kB (closer to 1kB). There's no tree to shake.
 - **Performance:** Uses "prime-jump" sampling for **O(1)** validation of massive arrays (vs Zod's O(N)).
 
 Both have zero dependencies. Choose the one that meets your needs.

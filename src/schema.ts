@@ -170,8 +170,7 @@ export const s = new Proxy(methods, {
 /* 4. THE VALIDATOR                                                           */
 /* -------------------------------------------------------------------------- */
 
-const ARR_THR = 100
-const PRIME = 37
+const STRIDE = 97
 const FMT: Record<string, (v: string) => boolean> = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
   uuid: (v) =>
@@ -249,13 +248,20 @@ export function validate(val: any, schema: any): boolean {
     if (schema.minItems !== undefined && len < schema.minItems) return false
     if (schema.maxItems !== undefined && len > schema.maxItems) return false
 
-    if (len <= ARR_THR) {
-      for (let i = 0; i < len; i++)
+    if (len > 0) {
+      // Unified Logic:
+      // - Small arrays (len < 97): step=1 (Full Scan)
+      // - Large arrays (len > 97): step>1 (Sampled Scan)
+      const step = len <= STRIDE ? 1 : Math.floor(len / STRIDE)
+
+      // 1. Check Head & Body
+      // Start at 0. Stop before the last item because it will be explicitly checked.
+      for (let i = 0; i < len - 1; i += step) {
         if (!validate(val[i], schema.items)) return false
-    } else {
-      const stride = Math.floor(len / PRIME) || 1
-      for (let i = 0; i < len; i += stride)
-        if (!validate(val[i], schema.items)) return false
+      }
+
+      // 2. Always check the Tail (Critical for append errors)
+      if (!validate(val[len - 1], schema.items)) return false
     }
   }
 

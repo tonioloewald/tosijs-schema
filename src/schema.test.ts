@@ -118,10 +118,14 @@ describe('Validation: Complex Types', () => {
 describe('Optimization: Array Stride', () => {
   test('skips validation for indices not matching the stride', () => {
     const listSchema = s.array(s.number)
-    // Stride for 200 items / 37 prime ~= 5.
+
+    // Setup: Array length 200, STRIDE 97.
+    // Logic: step = floor(200 / 97) = 2.
+    // Validator checks: 0, 2, 4, 6... AND 199 (Tail)
     const largeData = new Array(200).fill(1)
 
-    largeData[3] = 'bad_string' // Index 3 is skipped by stride 5
+    // Index 3 is ODD, so it is skipped by the step of 2
+    largeData[3] = 'bad_string'
     expect(validate(largeData, listSchema.schema)).toBeTrue()
   })
 
@@ -129,7 +133,24 @@ describe('Optimization: Array Stride', () => {
     const listSchema = s.array(s.number)
     const largeData = new Array(200).fill(1)
 
-    largeData[5] = 'bad_string' // Index 5 is hit by stride 5
+    // Index 4 is EVEN, so it is hit by the step of 2
+    largeData[4] = 'bad_string'
+    expect(validate(largeData, listSchema.schema)).toBeFalse()
+  })
+
+  test('catches validation errors on the first element', () => {
+    const listSchema = s.array(s.number)
+    const largeData = new Array(200).fill(1)
+
+    largeData[0] = 'bad_string' // Head check
+    expect(validate(largeData, listSchema.schema)).toBeFalse()
+  })
+
+  test('catches validation errors on the last element', () => {
+    const listSchema = s.array(s.number)
+    const largeData = new Array(200).fill(1)
+
+    largeData[199] = 'bad_string' // Tail check
     expect(validate(largeData, listSchema.schema)).toBeFalse()
   })
 })

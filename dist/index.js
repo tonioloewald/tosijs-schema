@@ -76,8 +76,7 @@ var s = new Proxy(methods, {
     return;
   }
 });
-var ARR_THR = 100;
-var PRIME = 37;
+var STRIDE = 97;
 var FMT = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
   uuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
@@ -152,15 +151,14 @@ function validate(val, schema) {
       return false;
     if (schema.maxItems !== undefined && len > schema.maxItems)
       return false;
-    if (len <= ARR_THR) {
-      for (let i = 0;i < len; i++)
+    if (len > 0) {
+      const step = len <= STRIDE ? 1 : Math.floor(len / STRIDE);
+      for (let i = 0;i < len - 1; i += step) {
         if (!validate(val[i], schema.items))
           return false;
-    } else {
-      const stride = Math.floor(len / PRIME) || 1;
-      for (let i = 0;i < len; i += stride)
-        if (!validate(val[i], schema.items))
-          return false;
+      }
+      if (!validate(val[len - 1], schema.items))
+        return false;
     }
   }
   return true;
