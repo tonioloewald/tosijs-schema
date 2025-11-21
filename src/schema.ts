@@ -135,7 +135,7 @@ const methods = {
     const properties: any = {}
     const required: string[] = []
     for (const k in props) {
-      properties[k] = props[k].schema
+      properties[k] = props[k]!.schema
       required.push(k)
     }
     return create({
@@ -232,7 +232,7 @@ export function validate(val: any, schema: any): boolean {
       )
     )
       return false
-    if (schema.format && FMT[schema.format] && !FMT[schema.format](val))
+    if (schema.format && FMT[schema.format] && !FMT[schema.format]!(val))
       return false
   }
 
