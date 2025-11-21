@@ -1,0 +1,16 @@
+{
+  "name": "tosijs-schema",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "pack": "bun test && bun build index.ts --outdir=dist && tsc index.ts --declaration --emitDeclarationOnly --outDir dist",
+    "test": "bun test",
+    "latest": "rm -rf node_modules && bun install"
+  }
+}
