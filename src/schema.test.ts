@@ -123,3 +123,97 @@ describe('did', () => {
     expect(delta.b.error).toContain('Added in B')
   })
 })
+
+import { describe, test, expect } from 'bun:test'
+import { s, validate } from './schema'
+
+describe('String Formats & Constraints', () => {
+  test('validates Regex Pattern', () => {
+    // Pattern: Starts with 'user_' followed by 3 digits
+    const schema = s.string().pattern('^user_\\d{3}$')
+
+    expect(validate('user_123', schema.schema)).toBeTrue()
+    expect(validate('user_abc', schema.schema)).toBeFalse() // Letters
+    expect(validate('admin_123', schema.schema)).toBeFalse() // Wrong prefix
+
+    // Verify schema output
+    expect(schema.schema.pattern).toBe('^user_\\d{3}$')
+  })
+
+  test('validates Email', () => {
+    const schema = s.string().email()
+
+    expect(validate('test@example.com', schema.schema)).toBeTrue()
+    expect(validate('not-an-email', schema.schema)).toBeFalse()
+    expect(schema.schema.format).toBe('email')
+  })
+
+  test('validates UUID', () => {
+    const schema = s.string().uuid()
+    const validUUID = '123e4567-e89b-12d3-a456-426614174000'
+
+    expect(validate(validUUID, schema.schema)).toBeTrue()
+    expect(validate(validUUID.toUpperCase(), schema.schema)).toBeTrue() // Case insensitive
+    expect(validate('123-456', schema.schema)).toBeFalse() // Bad format
+  })
+
+  test('validates IPv4', () => {
+    const schema = s.string().ipv4()
+
+    expect(validate('192.168.1.1', schema.schema)).toBeTrue()
+    expect(validate('255.255.255.255', schema.schema)).toBeTrue()
+    expect(validate('999.999.999.999', schema.schema)).toBeFalse() // Out of range
+    expect(validate('192.168.1', schema.schema)).toBeFalse() // Too short
+    expect(validate('abc.def.ghi.jkl', schema.schema)).toBeFalse() // Not numbers
+  })
+
+  test('validates URI/URL', () => {
+    const schema = s.string().url()
+
+    expect(validate('https://google.com', schema.schema)).toBeTrue()
+    expect(
+      validate('ftp://files.server.net:8080/path', schema.schema)
+    ).toBeTrue()
+    expect(validate('google.com', schema.schema)).toBeFalse() // Missing protocol
+    expect(validate('/local/path', schema.schema)).toBeFalse() // Not a full URI
+  })
+
+  test('validates Date-Time (ISO 8601)', () => {
+    const schema = s.string().datetime()
+
+    expect(validate('2023-11-21T10:00:00Z', schema.schema)).toBeTrue()
+    expect(validate('2023-11-21', schema.schema)).toBeTrue() // Date.parse accepts this
+    expect(validate('Hello World', schema.schema)).toBeFalse()
+  })
+})
+
+describe('Enum Constraints', () => {
+  test('validates string enums', () => {
+    const Role = s.enum(['admin', 'user', 'guest'])
+
+    expect(validate('admin', Role.schema)).toBeTrue()
+    expect(validate('user', Role.schema)).toBeTrue()
+
+    expect(validate('superadmin', Role.schema)).toBeFalse() // Not in list
+    expect(validate(123, Role.schema)).toBeFalse() // Wrong type
+  })
+
+  test('validates number enums', () => {
+    const Status = s.enum([200, 404, 500])
+
+    expect(validate(200, Status.schema)).toBeTrue()
+    expect(validate(404, Status.schema)).toBeTrue()
+
+    expect(validate(201, Status.schema)).toBeFalse() // Not in list
+  })
+
+  test('works correctly when nested in objects', () => {
+    const Config = s.object({
+      env: s.enum(['dev', 'prod']),
+      retries: s.enum([1, 2, 3]),
+    })
+
+    expect(validate({ env: 'dev', retries: 1 }, Config.schema)).toBeTrue()
+    expect(validate({ env: 'staging', retries: 1 }, Config.schema)).toBeFalse()
+  })
+})
