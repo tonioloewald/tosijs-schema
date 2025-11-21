@@ -5,6 +5,14 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "keywords": [
+    "typescript",
+    "javascript",
+    "json",
+    "schema",
+    "validation",
+    "inference"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
