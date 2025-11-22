@@ -2,7 +2,13 @@
 
 [npm](https://www.npmjs.com/package/tosijs-schema) | [github](https://github.com/tonioloewald/tosijs-schema) | [discord](https://discord.gg/ramJ9rgky5) | [examples](https://github.com/tonioloewald/tosijs-schema/blob/main/examples.md)
 
-![tosijs-schema icon / logo](https://github.com/tonioloewald/tosijs-schema/blob/main/tosijs-schema.svg)
+<center>
+  <img 
+    alt="tosijs-schema icon / logo"
+    style="width: 512px; height: 512px"
+    src="https://github.com/tonioloewald/tosijs-schema/blob/main/tosijs-schema.svg"
+  >
+</center>
 
 A **schema-first** Typescript / Javascript library for generating a single, standards-compliant source of truth for data types.
 
