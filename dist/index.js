@@ -9,6 +9,10 @@ var create = (s) => ({
       type: Array.isArray(s.type) ? [...s.type, "null"] : [s.type, "null"]
     });
   },
+  title: (t) => create({ ...s, title: t }),
+  describe: (d) => create({ ...s, description: d }),
+  default: (v) => create({ ...s, default: v }),
+  meta: (m) => create({ ...s, ...m }),
   min: (v) => {
     const key = s.type === "string" ? "minLength" : s.type === "array" ? "minItems" : s.type === "object" ? "minProperties" : "minimum";
     return create({ ...s, [key]: v });
@@ -35,9 +39,6 @@ var create = (s) => ({
   },
   get emoji() {
     return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: "emoji" });
-  },
-  get int() {
-    return create({ ...s, type: "integer" });
   },
   step: (v) => create({ ...s, multipleOf: v })
 });
@@ -74,7 +75,7 @@ var s = new Proxy(methods, {
   get(target, prop) {
     if (prop in target)
       return target[prop];
-    if (prop === "string" || prop === "number" || prop === "boolean") {
+    if (prop === "string" || prop === "number" || prop === "boolean" || prop === "integer") {
       const schema = create({ type: prop });
       target[prop] = schema;
       return schema;

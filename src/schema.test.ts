@@ -38,7 +38,7 @@ describe('Validation: Primitives', () => {
     expect(validate(0, Rating.schema)).toBeFalse()
     expect(validate(6, Rating.schema)).toBeFalse()
 
-    const Int = s.number.int
+    const Int = s.integer
     expect(validate(5, Int.schema)).toBeTrue()
     expect(validate(5.5, Int.schema)).toBeFalse()
 
@@ -347,9 +347,9 @@ describe('Implementation Details', () => {
   test('The Lie: Runtime builder is universal', () => {
     // TS would block this, but runtime allows it
 
-    // .int is a getter
-    const dirtyString = (s.string as any).int
-    expect(dirtyString.schema.type).toBe('integer')
+    // .url is a getter
+    const dirtyString = (s.number as any).url
+    expect(dirtyString.schema.format).toBe('uri')
 
     // .min() is a function
     const dirtyBool = (s.boolean as any).min(5)
@@ -376,5 +376,63 @@ describe('Tuples', () => {
 
     expect(validate([1, 'Alice', true], UserRow.schema)).toBeTrue()
     expect(validate([1, 'Alice', 'yes'], UserRow.schema)).toBeFalse()
+  })
+})
+
+describe('Metadata & Documentation', () => {
+  test('Attaches standard metadata', () => {
+    const schema = s.string
+      .title('Username')
+      .describe('Unique identifier')
+      .default('guest')
+
+    expect(schema.schema.title).toBe('Username')
+    expect(schema.schema.description).toBe('Unique identifier')
+    expect(schema.schema.default).toBe('guest')
+  })
+
+  test('Attaches arbitrary metadata via .meta()', () => {
+    const schema = s
+      .object({ id: s.number })
+      .meta({
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        examples: [{ id: 1 }],
+      })
+
+    expect(schema.schema.$schema).toContain('draft-07')
+    expect(schema.schema.examples[0].id).toBe(1)
+  })
+
+  test('Chaining metadata does not break types', () => {
+    // Ensure .min() is still available after .title() on a string
+    const schema = s.string.title('Code').min(3)
+    expect(schema.schema.minLength).toBe(3)
+    expect(schema.schema.title).toBe('Code')
+  })
+})
+
+describe('First-Class Integer', () => {
+  test('s.integer generates correct schema type', () => {
+    const schema = s.integer
+    expect(schema.schema.type).toBe('integer')
+  })
+
+  test('s.integer validates integers only', () => {
+    const schema = s.integer
+    expect(validate(10, schema.schema)).toBeTrue()
+    expect(validate(10.5, schema.schema)).toBeFalse() // Float
+    expect(validate('10', schema.schema)).toBeFalse() // String
+  })
+
+  test('s.integer supports numeric constraints', () => {
+    const schema = s.integer.min(0).max(10)
+    expect(validate(5, schema.schema)).toBeTrue()
+    expect(validate(-1, schema.schema)).toBeFalse()
+    expect(validate(11, schema.schema)).toBeFalse()
+  })
+
+  test('Diff detects integer vs number', () => {
+    const d = diff(s.number.schema, s.integer.schema)
+    expect(d.error).toContain('Type mismatch: number vs integer')
   })
 })

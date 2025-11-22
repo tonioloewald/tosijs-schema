@@ -15,6 +15,12 @@ const create = (s: any): any => ({
     })
   },
 
+  // --- Metadata ---
+  title: (t: string) => create({ ...s, title: t }),
+  describe: (d: string) => create({ ...s, description: d }),
+  default: (v: any) => create({ ...s, default: v }),
+  meta: (m: Record<string, any>) => create({ ...s, ...m }),
+
   // --- Polymorphic Constraints ---
   min: (v: number) => {
     const key =
@@ -63,9 +69,6 @@ const create = (s: any): any => ({
   },
 
   // --- Number Specific ---
-  get int() {
-    return create({ ...s, type: 'integer' })
-  },
   step: (v: number) => create({ ...s, multipleOf: v }),
 })
 
@@ -79,9 +82,22 @@ interface Base<T> {
   schema: any
   _type: T
   get optional(): Base<T | undefined>
+
+  // Metadata
+  title(t: string): Base<T>
+  describe(d: string): Base<T>
+  default(v: T): Base<T>
+  meta(m: Record<string, any>): Base<T>
 }
 
 interface Str<T = string> extends Base<T> {
+  // Metadata Overrides (to return Str)
+  title(t: string): Str<T>
+  describe(d: string): Str<T>
+  default(v: T): Str<T>
+  meta(m: Record<string, any>): Str<T>
+
+  // Constraints
   min(len: number): Str<T>
   max(len: number): Str<T>
   pattern(r: RegExp | string): Str<T>
@@ -94,18 +110,38 @@ interface Str<T = string> extends Base<T> {
 }
 
 interface Num<T = number> extends Base<T> {
+  // Metadata Overrides
+  title(t: string): Num<T>
+  describe(d: string): Num<T>
+  default(v: T): Num<T>
+  meta(m: Record<string, any>): Num<T>
+
+  // Constraints
   min(val: number): Num<T>
   max(val: number): Num<T>
   step(val: number): Num<T>
-  get int(): Num<T>
 }
 
 interface Arr<T> extends Base<T> {
+  // Metadata Overrides
+  title(t: string): Arr<T>
+  describe(d: string): Arr<T>
+  default(v: T): Arr<T>
+  meta(m: Record<string, any>): Arr<T>
+
+  // Constraints
   min(count: number): Arr<T>
   max(count: number): Arr<T>
 }
 
 interface Obj<T> extends Base<T> {
+  // Metadata Overrides
+  title(t: string): Obj<T>
+  describe(d: string): Obj<T>
+  default(v: T): Obj<T>
+  meta(m: Record<string, any>): Obj<T>
+
+  // Constraints
   min(count: number): Obj<T>
   max(count: number): Obj<T>
 }
@@ -157,13 +193,20 @@ const methods = {
 type TinySchema = typeof methods & {
   string: Str
   number: Num
+  integer: Num // Integer shares the numeric interface
   boolean: Base<boolean>
 }
 
 export const s = new Proxy(methods, {
   get(target: any, prop: string) {
     if (prop in target) return target[prop]
-    if (prop === 'string' || prop === 'number' || prop === 'boolean') {
+
+    if (
+      prop === 'string' ||
+      prop === 'number' ||
+      prop === 'boolean' ||
+      prop === 'integer'
+    ) {
       const schema = create({ type: prop })
       target[prop] = schema
       return schema
