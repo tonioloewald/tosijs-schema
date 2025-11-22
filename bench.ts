@@ -5,7 +5,6 @@ const ARRAY_SIZE = 1_000_000
 const OBJECT_KEYS = 100_000
 
 const fmt = (n: number) => n.toFixed(4) + ' ms'
-const heading = (str: string) => console.log(`\n👉 ${str}`)
 
 // --- DATA GENERATORS ---
 
@@ -31,14 +30,9 @@ const makeItem = (i: number) => {
   return m === 0 ? makeMsg(i) : m === 1 ? makeImg(i) : makeReply(i)
 }
 
-console.log(`\n🔥 GENERATING DATA...`)
-
-console.log(`   - Array:  ${ARRAY_SIZE.toLocaleString()} items (Complex Union)`)
+console.log(`\n📦 GENERATING DATA...`)
 const arrayData = new Array(ARRAY_SIZE).fill(null).map((_, i) => makeItem(i))
 
-console.log(
-  `   - Object: ${OBJECT_KEYS.toLocaleString()} keys  (Complex Union)`
-)
 const objectData: Record<string, any> = {}
 for (let i = 0; i < OBJECT_KEYS; i++) {
   const key = (i + 9_000_000_000_000).toString(36)
@@ -47,7 +41,7 @@ for (let i = 0; i < OBJECT_KEYS; i++) {
 
 // --- SCHEMA DEFINITIONS ---
 
-// 1. TOSI
+// TOSI
 const T_Msg = s.object({
   type: s.enum(['msg']),
   text: s.string,
@@ -64,12 +58,11 @@ const T_Reply = s.object({
   text: s.string,
   thread: s.number,
 })
-
 const TosiUnion = s.union([T_Msg, T_Img, T_Reply])
 const TosiArr = s.array(TosiUnion)
 const TosiDict = s.record(TosiUnion)
 
-// 2. ZOD
+// ZOD
 const Z_Msg = z.object({
   type: z.literal('msg'),
   text: z.string(),
@@ -86,84 +79,91 @@ const Z_Reply = z.object({
   text: z.string(),
   thread: z.number(),
 })
-
 const ZodUnion = z.union([Z_Msg, Z_Img, Z_Reply])
 const ZodArr = z.array(ZodUnion)
 const ZodDict = z.record(z.string(), ZodUnion)
 
-// --- ROUND 1: ARRAYS ---
+// --- BENCHMARK RUNNER ---
 
-heading('ROUND 1: Huge Array (Complex Union)')
+function runSuite(label: string) {
+  console.log(`\n👉 ${label}`)
 
-// 1A. Tosi Skip
-const a1_start = performance.now()
-const a1_valid = validate(arrayData, TosiArr.schema)
-const a1_end = performance.now()
+  // 1. ARRAY
+  const a1_start = performance.now()
+  validate(arrayData, TosiArr.schema)
+  const a1_end = performance.now()
 
-// 1B. Tosi Full
-const a2_start = performance.now()
-const a2_valid = validate(arrayData, TosiArr.schema, { fullScan: true })
-const a2_end = performance.now()
+  const a2_start = performance.now()
+  validate(arrayData, TosiArr.schema, { fullScan: true })
+  const a2_end = performance.now()
 
-// 1C. Zod
-const a3_start = performance.now()
-const a3_valid = ZodArr.safeParse(arrayData).success
-const a3_end = performance.now()
+  const a3_start = performance.now()
+  ZodArr.safeParse(arrayData)
+  const a3_end = performance.now()
 
-const resArr = {
-  opt: a1_end - a1_start,
-  full: a2_end - a2_start,
-  zod: a3_end - a3_start,
+  const rArr = {
+    skip: a1_end - a1_start,
+    full: a2_end - a2_start,
+    zod: a3_end - a3_start,
+  }
+
+  console.log(`   [Array 1M] Tosi (Skip): ${fmt(rArr.skip)}`)
+  console.log(`   [Array 1M] Tosi (Full): ${fmt(rArr.full)}`)
+  console.log(`   [Array 1M] Zod:         ${fmt(rArr.zod)}`)
+  console.log(`   ----------------------------------`)
+  console.log(
+    `   🚀 vs Zod: ${(rArr.zod / rArr.skip).toFixed(1)}x faster (Optimized)`
+  )
+  console.log(
+    `   🏎️  vs Zod: ${(rArr.zod / rArr.full).toFixed(1)}x faster (Raw Speed)`
+  )
+  console.log(``)
+
+  // 2. OBJECT
+  const o1_start = performance.now()
+  validate(objectData, TosiDict.schema)
+  const o1_end = performance.now()
+
+  const o2_start = performance.now()
+  validate(objectData, TosiDict.schema, { fullScan: true })
+  const o2_end = performance.now()
+
+  const o3_start = performance.now()
+  ZodDict.safeParse(objectData)
+  const o3_end = performance.now()
+
+  const rObj = {
+    skip: o1_end - o1_start,
+    full: o2_end - o2_start,
+    zod: o3_end - o3_start,
+  }
+
+  console.log(`   [Dict 100k] Tosi (Skip): ${fmt(rObj.skip)}`)
+  console.log(`   [Dict 100k] Tosi (Full): ${fmt(rObj.full)}`)
+  console.log(`   [Dict 100k] Zod:         ${fmt(rObj.zod)}`)
+  console.log(`   ----------------------------------`)
+  console.log(
+    `   🚀 vs Zod: ${(rObj.zod / rObj.skip).toFixed(1)}x faster (Optimized)`
+  )
+  console.log(
+    `   🏎️  vs Zod: ${(rObj.zod / rObj.full).toFixed(1)}x faster (Raw Speed)`
+  )
 }
 
-console.log(`   Tosi (Skip): ${fmt(resArr.opt)}   (${a1_valid ? '✅' : '❌'})`)
-console.log(`   Tosi (Full): ${fmt(resArr.full)}   (${a2_valid ? '✅' : '❌'})`)
-console.log(`   Zod:         ${fmt(resArr.zod)}   (${a3_valid ? '✅' : '❌'})`)
-console.log(`   ----------------------------------`)
-console.log(
-  `   🚀 vs Zod: ${(resArr.zod / resArr.opt).toFixed(1)}x faster (Optimized)`
-)
-console.log(
-  `   🏎️  vs Zod: ${(resArr.zod / resArr.full).toFixed(
-    1
-  )}x faster (Raw Engine Speed)`
-)
+// --- EXECUTION ---
 
-// --- ROUND 2: OBJECTS ---
+console.log(`\n❄️  PHASE 1: COLD START (Simulating Serverless / CLI) ❄️`)
+runSuite('Cold Run')
 
-heading('ROUND 2: Huge Object (Complex Union)')
-
-// 2A. Tosi Skip
-const o1_start = performance.now()
-const o1_valid = validate(objectData, TosiDict.schema)
-const o1_end = performance.now()
-
-// 2B. Tosi Full
-const o2_start = performance.now()
-const o2_valid = validate(objectData, TosiDict.schema, { fullScan: true })
-const o2_end = performance.now()
-
-// 2C. Zod
-const o3_start = performance.now()
-const o3_valid = ZodDict.safeParse(objectData).success
-const o3_end = performance.now()
-
-const resObj = {
-  opt: o1_end - o1_start,
-  full: o2_end - o2_start,
-  zod: o3_end - o3_start,
+console.log(`\n\n👟 WARMING UP JIT...`)
+const warmData = arrayData.slice(0, 1000)
+// Run enough iterations to force TurboFan optimization (usually >5k calls)
+for (let i = 0; i < 10000; i++) {
+  validate(warmData, TosiArr.schema)
+  validate(warmData, TosiArr.schema, { fullScan: true })
+  ZodArr.safeParse(warmData)
 }
+console.log(`   (Engine is hot)`)
 
-console.log(`   Tosi (Skip): ${fmt(resObj.opt)}    (${o1_valid ? '✅' : '❌'})`)
-console.log(`   Tosi (Full): ${fmt(resObj.full)}   (${o2_valid ? '✅' : '❌'})`)
-console.log(`   Zod:         ${fmt(resObj.zod)}   (${o3_valid ? '✅' : '❌'})`)
-console.log(`   ----------------------------------`)
-console.log(
-  `   🚀 vs Zod: ${(resObj.zod / resObj.opt).toFixed(1)}x faster (Optimized)`
-)
-console.log(
-  `   🏎️  vs Zod: ${(resObj.zod / resObj.full).toFixed(
-    1
-  )}x faster (Raw Engine Speed)`
-)
-console.log(`\n`)
+console.log(`\n\n🔥 PHASE 2: HOT JIT (Simulating Long-Running Server) 🔥`)
+runSuite('Hot Run')
