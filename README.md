@@ -14,28 +14,49 @@ Smaller, faster, smarter, and safer.
 Oh and it cheats when validating large datasets…
 
 ```text
-🔥 GENERATING DATA...
-   - Array:  1,000,000 items (Complex Union)
-   - Object: 100,000 keys  (Complex Union)
+📦 GENERATING DATA...
 
-👉 ROUND 1: Huge Array (Complex Union)
-   Tosi (Skip): 0.7073 ms   (✅)
-   Tosi (Full): 185.0291 ms   (✅)
-   Zod:         347.2791 ms   (✅)
-   ----------------------------------
-   🚀 vs Zod: 491.0x faster (Optimized)
-   🏎  vs Zod: 1.9x faster (Raw Engine Speed)
+❄️  PHASE 1: COLD START (Simulating Serverless / CLI) ❄️
 
-👉 ROUND 2: Huge Object (Complex Union)
-   Tosi (Skip): 5.5037 ms    (✅)
-   Tosi (Full): 27.8601 ms   (✅)
-   Zod:         55.7039 ms   (✅)
+👉 Cold Run
+   [Array 1M] Tosi (Skip): 0.6629 ms
+   [Array 1M] Tosi (Full): 186.9792 ms
+   [Array 1M] Zod:         334.3249 ms
    ----------------------------------
-   🚀 vs Zod: 10.1x faster (Optimized)
-   🏎  vs Zod: 2.0x faster (Raw Engine Speed)
+   🚀 vs Zod: 504.4x faster (Optimized)
+   🏎  vs Zod: 1.8x faster (Raw Speed)
+
+   [Dict 100k] Tosi (Skip): 5.4868 ms
+   [Dict 100k] Tosi (Full): 25.3275 ms
+   [Dict 100k] Zod:         54.1105 ms
+   ----------------------------------
+   🚀 vs Zod: 9.9x faster (Optimized)
+   🏎  vs Zod: 2.1x faster (Raw Speed)
+
+
+👟 WARMING UP JIT...
+   (Engine is hot)
+
+
+🔥 PHASE 2: HOT JIT (Simulating Long-Running Server) 🔥
+
+👉 Hot Run
+   [Array 1M] Tosi (Skip): 0.3265 ms
+   [Array 1M] Tosi (Full): 182.9595 ms
+   [Array 1M] Zod:         367.2505 ms
+   ----------------------------------
+   🚀 vs Zod: 1124.8x faster (Optimized)
+   🏎  vs Zod: 2.0x faster (Raw Speed)
+
+   [Dict 100k] Tosi (Skip): 3.1230 ms
+   [Dict 100k] Tosi (Full): 18.3557 ms
+   [Dict 100k] Zod:         59.0150 ms
+   ----------------------------------
+   🚀 vs Zod: 18.9x faster (Optimized)
+   🏎  vs Zod: 3.2x faster (Raw Speed)
 ```
 
-> By the way: these test results get better and better for tosijs-schema as I run them repeatedly, suggesting that tosijs-schema also benefits more greatly from hotspot optimization.
+> The reason for the two benchmarks is that `tosijs-schema` when cheating is so efficient that it never gets JITed if you just do one run (it only checks 100 elements per object or array). It was winning without getting JITed! So now there are two scenarios which let you see just how big an advantage you get at scale.
 
 ## Installation
 
