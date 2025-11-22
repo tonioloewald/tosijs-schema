@@ -12,7 +12,7 @@ var create = (s) => ({
   title: (t) => create({ ...s, title: t }),
   describe: (d) => create({ ...s, description: d }),
   default: (v) => create({ ...s, default: v }),
-  meta: (m) => create({ ...s, ...m }),
+  meta: (m) => create({ ...m, ...s, ...m }),
   min: (v) => {
     const key = s.type === "string" ? "minLength" : s.type === "array" ? "minItems" : s.type === "object" ? "minProperties" : "minimum";
     return create({ ...s, [key]: v });

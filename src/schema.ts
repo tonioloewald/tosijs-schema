@@ -19,7 +19,7 @@ const create = (s: any): any => ({
   title: (t: string) => create({ ...s, title: t }),
   describe: (d: string) => create({ ...s, description: d }),
   default: (v: any) => create({ ...s, default: v }),
-  meta: (m: Record<string, any>) => create({ ...s, ...m }),
+  meta: (m: Record<string, any>) => create({ ...m, ...s, ...m }),
 
   // --- Polymorphic Constraints ---
   min: (v: number) => {
