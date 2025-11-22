@@ -27,12 +27,17 @@ interface Arr<T> extends Base<T> {
     min(count: number): Arr<T>;
     max(count: number): Arr<T>;
 }
+interface Obj<T> extends Base<T> {
+    min(count: number): Obj<T>;
+    max(count: number): Obj<T>;
+}
 declare const methods: {
     union: <T extends Base<any>[]>(schemas: T) => Base<Infer<T[number]>>;
     enum: <T extends string | number>(vals: T[]) => Base<T>;
     array: <T>(items: Base<T>) => Arr<T[]>;
     tuple: <T extends [Base<any>, ...Base<any>[]]>(items: T) => Base<{ [K in keyof T]: Infer<T[K]>; }>;
-    object: <P extends Record<string, Base<any>>>(props: P) => Base<{ [K in keyof P]: Infer<P[K]>; }>;
+    object: <P extends Record<string, Base<any>>>(props: P) => Obj<{ [K in keyof P]: Infer<P[K]>; }>;
+    record: <T>(value: Base<T>) => Obj<Record<string, T>>;
 };
 type TinySchema = typeof methods & {
     string: Str;
@@ -40,6 +45,11 @@ type TinySchema = typeof methods & {
     boolean: Base<boolean>;
 };
 export declare const s: TinySchema;
-export declare function validate(val: any, schema: any): boolean;
+export type ErrorHandler = (path: string, msg: string) => void;
+export interface ValidateOptions {
+    onError?: ErrorHandler;
+    fullScan?: boolean;
+}
+export declare function validate(val: any, schema: any, opts?: ValidateOptions | ErrorHandler): boolean;
 export declare function diff(a: any, b: any): any;
 export {};

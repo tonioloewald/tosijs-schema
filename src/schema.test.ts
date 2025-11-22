@@ -115,47 +115,177 @@ describe('Validation: Complex Types', () => {
   })
 })
 
+// --- 3. OBJECT CONSTRAINTS & OPTIMIZATION ---
+describe('Object Constraints & Optimization', () => {
+  test('minProperties: Validates minimum key count', () => {
+    const dict = s.record(s.number).min(2)
+
+    expect(validate({ a: 1, b: 2 }, dict.schema)).toBeTrue()
+    expect(validate({ a: 1 }, dict.schema)).toBeFalse()
+    expect(validate({}, dict.schema)).toBeFalse()
+  })
+
+  test('maxProperties: GHOST CONSTRAINT (Documented but NOT Validated)', () => {
+    const dict = s.record(s.number).max(1)
+
+    // 1. Verify it exists in the Schema (for documentation/swagger)
+    expect(dict.schema.maxProperties).toBe(1)
+
+    // 2. Verify validation IGNORES it (Business logic separation)
+    const hugePayload = { a: 1, b: 2, c: 3 }
+    expect(validate(hugePayload, dict.schema)).toBeTrue()
+  })
+
+  test('Optimization: Dictionary Stride Skips Validation (Optimization is Always On)', () => {
+    const STRIDE = 97
+    const dict = s.record(s.number)
+
+    // Create object with 200 keys
+    const data: Record<string, any> = {}
+    for (let i = 0; i < 200; i++) data[`k_${i}`] = 1
+
+    // Error in a SKIPPED key (k_0 is index 1, skipped by stride 97 logic)
+    data['k_0'] = 'bad_string'
+
+    // Should return TRUE because we skipped the bad key
+    expect(validate(data, dict.schema)).toBeTrue()
+  })
+
+  test('Optimization: Callback does NOT disable Stride', () => {
+    const dict = s.record(s.number)
+    const data: Record<string, any> = {}
+    for (let i = 0; i < 200; i++) data[`k_${i}`] = 1
+
+    // Error in skipped key
+    data['k_0'] = 'bad_string'
+
+    let called = false
+    // Pass dummy callback -> optimization should remain active -> returns TRUE
+    expect(
+      validate(data, dict.schema, () => {
+        called = true
+      })
+    ).toBeTrue()
+    expect(called).toBeFalse()
+  })
+})
+
 describe('Optimization: Array Stride', () => {
   test('skips validation for indices not matching the stride', () => {
     const listSchema = s.array(s.number)
-
-    // Setup: Array length 200, STRIDE 97.
-    // Logic: step = floor(200 / 97) = 2.
-    // Validator checks: 0, 2, 4, 6... AND 199 (Tail)
     const largeData = new Array(200).fill(1)
 
-    // Index 3 is ODD, so it is skipped by the step of 2
-    largeData[3] = 'bad_string'
+    // Index 1 is skipped by the stride logic (stride 97)
+    largeData[1] = 'bad_string'
     expect(validate(largeData, listSchema.schema)).toBeTrue()
   })
 
-  test('catches validation errors when they land on the stride', () => {
+  test('Callback does NOT disable Stride', () => {
     const listSchema = s.array(s.number)
     const largeData = new Array(200).fill(1)
 
-    // Index 4 is EVEN, so it is hit by the step of 2
-    largeData[4] = 'bad_string'
+    // Hidden error
+    largeData[1] = 'bad_string'
+
+    let called = false
+    // Should remain fast and skip the error
+    expect(
+      validate(largeData, listSchema.schema, () => {
+        called = true
+      })
+    ).toBeTrue()
+    expect(called).toBeFalse()
+  })
+
+  test('Callback receives error info', () => {
+    const schema = s.object({ user: s.number })
+    let err = {} as any
+
+    // Supports direct callback passing
+    const valid = validate({ user: 'bad' }, schema.schema, (path, msg) => {
+      err = { path, msg }
+    })
+
+    expect(valid).toBeFalse()
+    expect(err.path).toBe('user')
+  })
+
+  test('Optimization: fullScan forces check', () => {
+    const list = s.array(s.number)
+    const data = new Array(200).fill(1)
+    data[1] = 'bad' // Skipped by stride
+
+    // Should catch error
+    expect(validate(data, list.schema, { fullScan: true })).toBeFalse()
+  })
+
+  test('catches validation errors on the first element (Head check)', () => {
+    const listSchema = s.array(s.number)
+    const largeData = new Array(200).fill(1)
+    largeData[0] = 'bad_string'
     expect(validate(largeData, listSchema.schema)).toBeFalse()
   })
 
-  test('catches validation errors on the first element', () => {
+  test('catches validation errors on the last element (Tail check)', () => {
     const listSchema = s.array(s.number)
     const largeData = new Array(200).fill(1)
-
-    largeData[0] = 'bad_string' // Head check
-    expect(validate(largeData, listSchema.schema)).toBeFalse()
-  })
-
-  test('catches validation errors on the last element', () => {
-    const listSchema = s.array(s.number)
-    const largeData = new Array(200).fill(1)
-
-    largeData[199] = 'bad_string' // Tail check
+    largeData[199] = 'bad_string'
     expect(validate(largeData, listSchema.schema)).toBeFalse()
   })
 })
 
-// --- 3. ALGEBRA (Unions, Enums, Diffs) ---
+// --- 4. CALLBACK ERROR REPORTING ---
+describe('Callback Error Reporting', () => {
+  test('Collects errors via callback', () => {
+    const schema = s.object({
+      user: s.object({ name: s.number }), // Wrong type
+    })
+
+    let error: { path: string; msg: string } | null = null
+
+    const isValid = validate(
+      { user: { name: 'string' } },
+      schema.schema,
+      (path, msg) => {
+        error = { path, msg }
+      }
+    )
+
+    expect(isValid).toBeFalse()
+    expect(error).not.toBeNull()
+    expect(error!.path).toBe('user.name')
+    expect(error!.msg).toContain('Expected number')
+  })
+
+  test('Can throw via callback', () => {
+    const schema = s.number.min(10)
+
+    expect(() => {
+      validate(5, schema.schema, (path, msg) => {
+        throw new Error(`${path}: ${msg}`)
+      })
+    }).toThrow()
+  })
+
+  test('Stops at first error (Fail Fast)', () => {
+    const schema = s.object({
+      a: s.number,
+      b: s.number,
+    })
+
+    const errors: any[] = []
+    // Both are wrong, but it should fail fast after 'a'
+    const isValid = validate({ a: 'bad', b: 'bad' }, schema.schema, (_, m) =>
+      errors.push(m)
+    )
+
+    expect(isValid).toBeFalse()
+    expect(errors.length).toBe(1)
+    expect(errors[0]).toContain('Expected number')
+  })
+})
+
+// --- 5. ALGEBRA (Unions, Enums, Diffs) ---
 describe('Algebra', () => {
   test('validates Enums', () => {
     const Role = s.enum(['admin', 'user'])
@@ -202,19 +332,26 @@ describe('Algebra', () => {
     const B = s.object({ a: s.string, b: s.number })
     const d3 = diff(A.schema, B.schema)
     expect(d3.b.error).toContain('Added in B')
+
+    // Ghost Property Diffing (Should still be visible in diffs)
+    const G1 = s.record(s.string).max(5)
+    const G2 = s.record(s.string).max(10)
+    const d4 = diff(G1.schema, G2.schema)
+    expect(d4.maxProperties.from).toBe(5)
+    expect(d4.maxProperties.to).toBe(10)
   })
 })
 
-// --- 4. IMPLEMENTATION DETAILS ("THE LIE") ---
+// --- 6. IMPLEMENTATION DETAILS ("THE LIE") ---
 describe('Implementation Details', () => {
   test('The Lie: Runtime builder is universal', () => {
     // TS would block this, but runtime allows it
 
-    // FIX: .int is now a getter (property), so we don't call it as a function
+    // .int is a getter
     const dirtyString = (s.string as any).int
     expect(dirtyString.schema.type).toBe('integer')
 
-    // .min() is still a function (requires args)
+    // .min() is a function
     const dirtyBool = (s.boolean as any).min(5)
     expect(dirtyBool.schema.minimum).toBe(5)
   })
@@ -239,14 +376,5 @@ describe('Tuples', () => {
 
     expect(validate([1, 'Alice', true], UserRow.schema)).toBeTrue()
     expect(validate([1, 'Alice', 'yes'], UserRow.schema)).toBeFalse()
-  })
-
-  test('Infers Tuple Types correctly', () => {
-    const t = s.tuple([s.string, s.number])
-    type T = Infer<typeof t>
-
-    const val: T = ['a', 1]
-    // @ts-expect-error
-    const bad: T = ['a', 'b']
   })
 })

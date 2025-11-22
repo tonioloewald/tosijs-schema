@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* 1. THE LIE (Universal Builder & Runtime)                                   */
+/* 1. THE TRUTH (Universal Builder & Runtime Implementation)                  */
 /* -------------------------------------------------------------------------- */
 const RX_EMOJI_ATOM = '\\p{Extended_Pictographic}'
 
@@ -8,9 +8,6 @@ const create = (s: any): any => ({
   _type: null as any,
 
   // --- Modifiers ---
-  // Kept as function because it technically toggles state, but could be getter too.
-  // We'll keep it as function for "action" semantics, or getter for "state".
-  // Let's make it a GETTER for maximum clean syntax: s.string.optional
   get optional() {
     return create({
       ...s,
@@ -18,13 +15,15 @@ const create = (s: any): any => ({
     })
   },
 
-  // --- Polymorphic Constraints (Functions - Require Args) ---
+  // --- Polymorphic Constraints ---
   min: (v: number) => {
     const key =
       s.type === 'string'
         ? 'minLength'
         : s.type === 'array'
         ? 'minItems'
+        : s.type === 'object'
+        ? 'minProperties'
         : 'minimum'
     return create({ ...s, [key]: v })
   },
@@ -34,15 +33,16 @@ const create = (s: any): any => ({
         ? 'maxLength'
         : s.type === 'array'
         ? 'maxItems'
+        : s.type === 'object'
+        ? 'maxProperties' // Generated for docs, ignored by validator (Ghost)
         : 'maximum'
     return create({ ...s, [key]: v })
   },
 
-  // --- String Specific (Functions - Require Args) ---
+  // --- String Specific ---
   pattern: (r: RegExp | string) =>
     create({ ...s, pattern: typeof r === 'string' ? r : r.source }),
 
-  // --- String Specific (Getters - No Args) ---
   get email() {
     return create({ ...s, format: 'email' })
   },
@@ -59,24 +59,18 @@ const create = (s: any): any => ({
     return create({ ...s, format: 'date-time' })
   },
   get emoji() {
-    return create({
-      ...s,
-      pattern: `^${RX_EMOJI_ATOM}+$`,
-      format: 'emoji',
-    })
+    return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: 'emoji' })
   },
 
-  // --- Number Specific (Getters) ---
+  // --- Number Specific ---
   get int() {
     return create({ ...s, type: 'integer' })
   },
-
-  // --- Number Specific (Functions) ---
   step: (v: number) => create({ ...s, multipleOf: v }),
 })
 
 /* -------------------------------------------------------------------------- */
-/* 2. THE TRUTH (Type Definitions)                                            */
+/* 2. THE LIE (Type Definitions / Declarations)                               */
 /* -------------------------------------------------------------------------- */
 
 export type Infer<S> = S extends { _type: infer T } ? T : never
@@ -84,37 +78,36 @@ export type Infer<S> = S extends { _type: infer T } ? T : never
 interface Base<T> {
   schema: any
   _type: T
-  // Optional is now a property too!
   get optional(): Base<T | undefined>
 }
 
 interface Str<T = string> extends Base<T> {
-  // Functions (Need args)
   min(len: number): Str<T>
   max(len: number): Str<T>
   pattern(r: RegExp | string): Str<T>
-
-  // Properties (No args)
   get email(): Str<T>
   get uuid(): Str<T>
   get ipv4(): Str<T>
   get url(): Str<T>
   get datetime(): Str<T>
-  get emoji(): Str<T> // Bonus!
+  get emoji(): Str<T>
 }
 
 interface Num<T = number> extends Base<T> {
   min(val: number): Num<T>
   max(val: number): Num<T>
   step(val: number): Num<T>
-
-  // Properties
   get int(): Num<T>
 }
 
 interface Arr<T> extends Base<T> {
   min(count: number): Arr<T>
   max(count: number): Arr<T>
+}
+
+interface Obj<T> extends Base<T> {
+  min(count: number): Obj<T>
+  max(count: number): Obj<T>
 }
 
 /* -------------------------------------------------------------------------- */
@@ -151,8 +144,14 @@ const methods = {
       properties,
       required,
       additionalProperties: false,
-    }) as Base<{ [K in keyof P]: Infer<P[K]> }>
+    }) as Obj<{ [K in keyof P]: Infer<P[K]> }>
   },
+
+  record: <T>(value: Base<T>) =>
+    create({
+      type: 'object',
+      additionalProperties: value.schema,
+    }) as Obj<Record<string, T>>,
 }
 
 type TinySchema = typeof methods & {
@@ -164,7 +163,6 @@ type TinySchema = typeof methods & {
 export const s = new Proxy(methods, {
   get(target: any, prop: string) {
     if (prop in target) return target[prop]
-
     if (prop === 'string' || prop === 'number' || prop === 'boolean') {
       const schema = create({ type: prop })
       target[prop] = schema
@@ -175,7 +173,7 @@ export const s = new Proxy(methods, {
 }) as TinySchema
 
 /* -------------------------------------------------------------------------- */
-/* 4. THE VALIDATOR                                                           */
+/* 4. THE VALIDATOR (Configurable & Fast)                                     */
 /* -------------------------------------------------------------------------- */
 
 const STRIDE = 97
@@ -196,92 +194,165 @@ const FMT: Record<string, (v: string) => boolean> = {
       v
     ),
   'date-time': (v) => !isNaN(Date.parse(v)),
-  // Unicode compliant emoji check
   emoji: (v) => new RegExp(RX_EMOJI_ATOM, 'u').test(v),
 }
 
-export function validate(val: any, schema: any): boolean {
-  if (schema.anyOf) {
-    for (const sub of schema.anyOf) if (validate(val, sub)) return true
+export type ErrorHandler = (path: string, msg: string) => void
+
+export interface ValidateOptions {
+  onError?: ErrorHandler
+  fullScan?: boolean
+}
+
+export function validate(
+  val: any,
+  schema: any,
+  opts?: ValidateOptions | ErrorHandler
+): boolean {
+  // Normalize options: support passing just a callback OR an options object
+  const onError = typeof opts === 'function' ? opts : opts?.onError
+  const fullScan = typeof opts === 'object' ? opts?.fullScan : false
+
+  const path: string[] = []
+
+  const err = (msg: string) => {
+    if (onError) onError(path.join('.') || 'root', msg)
     return false
   }
 
-  if (val === null || val === undefined) {
-    return Array.isArray(schema.type) && schema.type.includes('null')
-  }
-
-  const t = Array.isArray(schema.type) ? schema.type[0] : schema.type
-  if (schema.enum && !schema.enum.includes(val)) return false
-
-  if (t === 'integer') {
-    if (typeof val !== 'number' || !Number.isInteger(val)) return false
-  } else if (t === 'array') {
-    if (!Array.isArray(val)) return false
-  } else if (t === 'object') {
-    if (typeof val !== 'object' || Array.isArray(val)) return false
-  } else if (t && typeof val !== t) return false
-
-  if (typeof val === 'number') {
-    if (schema.minimum !== undefined && val < schema.minimum) return false
-    if (schema.maximum !== undefined && val > schema.maximum) return false
-    if (schema.multipleOf !== undefined && val % schema.multipleOf !== 0)
-      return false
-  }
-  if (typeof val === 'string') {
-    if (schema.minLength !== undefined && val.length < schema.minLength)
-      return false
-    if (schema.maxLength !== undefined && val.length > schema.maxLength)
-      return false
-    if (
-      schema.pattern &&
-      !new RegExp(schema.pattern, schema.format === 'emoji' ? 'u' : '').test(
-        val
-      )
-    )
-      return false
-    if (schema.format && FMT[schema.format] && !FMT[schema.format]!(val))
-      return false
-  }
-
-  if (t === 'object' && schema.properties) {
-    if (schema.required)
-      for (const k of schema.required) if (!(k in val)) return false
-    for (const k in schema.properties) {
-      if (k in val && !validate(val[k], schema.properties[k])) return false
+  const walk = (v: any, s: any): boolean => {
+    if (s.anyOf) {
+      for (const sub of s.anyOf) {
+        // Pass NO options to sub-checks.
+        // We only want top-level logic to control scanning/reporting.
+        if (validate(v, sub)) return true
+      }
+      return err('Union mismatch')
     }
-  }
 
-  if (t === 'array' && schema.items) {
-    const len = val.length
-    if (schema.minItems !== undefined && len < schema.minItems) return false
-    if (schema.maxItems !== undefined && len > schema.maxItems) return false
+    if (v === null || v === undefined) {
+      return (
+        (Array.isArray(s.type) && s.type.includes('null')) ||
+        err('Expected value')
+      )
+    }
 
-    // tuples
-    if (Array.isArray(schema.items)) {
-      for (let i = 0; i < schema.items.length; i++) {
-        if (!validate(val[i], schema.items[i])) return false
+    const t = Array.isArray(s.type) ? s.type[0] : s.type
+    if (s.enum && !s.enum.includes(v)) return err('Enum mismatch')
+
+    // Type Checks
+    if (t === 'integer') {
+      if (typeof v !== 'number' || !Number.isInteger(v))
+        return err('Expected integer')
+    } else if (t === 'array') {
+      if (!Array.isArray(v)) return err('Expected array')
+    } else if (t === 'object') {
+      if (typeof v !== 'object' || Array.isArray(v))
+        return err('Expected object')
+    } else if (t && typeof v !== t) return err(`Expected ${t}`)
+
+    // Primitive Constraints
+    if (typeof v === 'number') {
+      if (s.minimum !== undefined && v < s.minimum) return err('Value < min')
+      if (s.maximum !== undefined && v > s.maximum) return err('Value > max')
+      if (s.multipleOf !== undefined && v % s.multipleOf !== 0)
+        return err('Value not step')
+    }
+    if (typeof v === 'string') {
+      if (s.minLength !== undefined && v.length < s.minLength)
+        return err('Len < min')
+      if (s.maxLength !== undefined && v.length > s.maxLength)
+        return err('Len > max')
+      if (
+        s.pattern &&
+        !new RegExp(s.pattern, s.format === 'emoji' ? 'u' : '').test(v)
+      )
+        return err('Pattern mismatch')
+      if (s.format && FMT[s.format] && !FMT[s.format]!(v))
+        return err('Format invalid')
+    }
+
+    // Object Recursion
+    if (t === 'object') {
+      if (s.minProperties !== undefined) {
+        let c = 0
+        for (const k in v) if (Object.prototype.hasOwnProperty.call(v, k)) c++
+        if (c < s.minProperties) return err('Too few props')
+      }
+
+      if (s.required) {
+        for (const k of s.required) if (!(k in v)) return err(`Missing ${k}`)
+      }
+
+      if (s.properties) {
+        for (const k in s.properties) {
+          if (k in v) {
+            path.push(k)
+            const ok = walk(v[k], s.properties[k])
+            path.pop()
+            if (!ok) return false // Fail Fast
+          }
+        }
+      }
+      if (s.additionalProperties) {
+        let i = 0
+        for (const k in v) {
+          if (s.properties && k in s.properties) continue
+
+          if (!fullScan) {
+            i++
+            if (i % STRIDE !== 0) continue
+          }
+
+          path.push(k)
+          const ok = walk(v[k], s.additionalProperties)
+          path.pop()
+          if (!ok) return false // Fail Fast
+        }
       }
       return true
     }
 
-    if (len > 0) {
-      // Unified Logic:
-      // - Small arrays (len < 97): step=1 (Full Scan)
-      // - Large arrays (len > 97): step>1 (Sampled Scan)
-      const step = len <= STRIDE ? 1 : Math.floor(len / STRIDE)
+    // Array Recursion
+    if (t === 'array' && s.items) {
+      const len = v.length
+      if (s.minItems !== undefined && len < s.minItems)
+        return err('Array too short')
+      if (s.maxItems !== undefined && len > s.maxItems)
+        return err('Array too long')
 
-      // 1. Check Head & Body
-      // Start at 0. Stop before the last item because it will be explicitly checked.
-      for (let i = 0; i < len - 1; i += step) {
-        if (!validate(val[i], schema.items)) return false
+      if (Array.isArray(s.items)) {
+        // Tuple
+        for (let i = 0; i < s.items.length; i++) {
+          path.push(String(i))
+          if (!walk(v[i], s.items[i])) {
+            path.pop()
+            return false
+          }
+          path.pop()
+        }
+        return true
       }
 
-      // 2. Always check the Tail (Critical for append errors)
-      if (!validate(val[len - 1], schema.items)) return false
+      // List
+      const step = fullScan || len <= STRIDE ? 1 : Math.floor(len / STRIDE)
+      for (let i = 0; i < len; i += step) {
+        const idx = step > 1 && i > len - 1 - step ? len - 1 : i
+
+        path.push(String(idx))
+        const ok = walk(v[idx], s.items)
+        path.pop()
+
+        if (!ok) return false // Fail Fast
+        if (idx === len - 1) break
+      }
+      return true
     }
+
+    return true
   }
 
-  return true
+  return walk(val, schema)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -290,14 +361,11 @@ export function validate(val: any, schema: any): boolean {
 
 export function diff(a: any, b: any): any {
   if (JSON.stringify(a) === JSON.stringify(b)) return null
-
   if (a.anyOf || b.anyOf) {
-    if (JSON.stringify(a.anyOf) !== JSON.stringify(b.anyOf)) {
+    if (JSON.stringify(a.anyOf) !== JSON.stringify(b.anyOf))
       return { error: 'Union mismatch', from: a.anyOf, to: b.anyOf }
-    }
     return null
   }
-
   if (a.type !== b.type)
     return { error: `Type mismatch: ${a.type} vs ${b.type}` }
 
@@ -308,6 +376,7 @@ export function diff(a: any, b: any): any {
       ...Object.keys(b.properties || {}),
     ])
     let has = false
+
     keys.forEach((k) => {
       const pA = a.properties?.[k],
         pB = b.properties?.[k]
@@ -325,11 +394,17 @@ export function diff(a: any, b: any): any {
         }
       }
     })
+    ;['minProperties', 'maxProperties'].forEach((k) => {
+      if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
+        d[k] = { from: a[k], to: b[k] }
+        has = true
+      }
+    })
+
     return has ? d : null
   }
 
   if (a.type === 'array') {
-    // Tuple vs Tuple
     if (Array.isArray(a.items) && Array.isArray(b.items)) {
       if (a.items.length !== b.items.length)
         return { error: 'Tuple length mismatch' }
@@ -344,13 +419,10 @@ export function diff(a: any, b: any): any {
       }
       return has ? { items: d } : null
     }
-
-    // List vs List
     if (!Array.isArray(a.items) && !Array.isArray(b.items)) {
       const d = diff(a.items, b.items)
       return d ? { items: d } : null
     }
-
     return { error: 'Array type mismatch (Tuple vs List)' }
   }
 

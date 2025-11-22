@@ -1,1 +1,307 @@
-var D=(x)=>({schema:x,_type:null,get optional(){return D({...x,type:Array.isArray(x.type)?[...x.type,"null"]:[x.type,"null"]})},min:(j)=>{let C=x.type==="string"?"minLength":x.type==="array"?"minItems":"minimum";return D({...x,[C]:j})},max:(j)=>{let C=x.type==="string"?"maxLength":x.type==="array"?"maxItems":"maximum";return D({...x,[C]:j})},pattern:(j)=>D({...x,pattern:typeof j==="string"?j:j.source}),get email(){return D({...x,format:"email"})},get uuid(){return D({...x,format:"uuid"})},get ipv4(){return D({...x,format:"ipv4"})},get url(){return D({...x,format:"uri"})},get datetime(){return D({...x,format:"date-time"})},get emoji(){return D({...x,pattern:"^\\p{Extended_Pictographic}+$",format:"emoji"})},get int(){return D({...x,type:"integer"})},step:(j)=>D({...x,multipleOf:j})}),Q={union:(x)=>D({anyOf:x.map((j)=>j.schema)}),enum:(x)=>D({type:typeof x[0],enum:x}),array:(x)=>D({type:"array",items:x.schema}),tuple:(x)=>D({type:"array",items:x.map((j)=>j.schema),minItems:x.length,maxItems:x.length}),object:(x)=>{let j={},C=[];for(let z in x)j[z]=x[z].schema,C.push(z);return D({type:"object",properties:j,required:C,additionalProperties:!1})}},R=new Proxy(Q,{get(x,j){if(j in x)return x[j];if(j==="string"||j==="number"||j==="boolean"){let C=D({type:j});return x[j]=C,C}return}});var P={email:(x)=>/^\S+@\S+\.\S+$/.test(x),uuid:(x)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x),uri:(x)=>{try{return new URL(x),!0}catch{return!1}},ipv4:(x)=>/^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(x),"date-time":(x)=>!isNaN(Date.parse(x)),emoji:(x)=>new RegExp("\\p{Extended_Pictographic}","u").test(x)};function I(x,j){if(j.anyOf){for(let z of j.anyOf)if(I(x,z))return!0;return!1}if(x===null||x===void 0)return Array.isArray(j.type)&&j.type.includes("null");let C=Array.isArray(j.type)?j.type[0]:j.type;if(j.enum&&!j.enum.includes(x))return!1;if(C==="integer"){if(typeof x!=="number"||!Number.isInteger(x))return!1}else if(C==="array"){if(!Array.isArray(x))return!1}else if(C==="object"){if(typeof x!=="object"||Array.isArray(x))return!1}else if(C&&typeof x!==C)return!1;if(typeof x==="number"){if(j.minimum!==void 0&&x<j.minimum)return!1;if(j.maximum!==void 0&&x>j.maximum)return!1;if(j.multipleOf!==void 0&&x%j.multipleOf!==0)return!1}if(typeof x==="string"){if(j.minLength!==void 0&&x.length<j.minLength)return!1;if(j.maxLength!==void 0&&x.length>j.maxLength)return!1;if(j.pattern&&!new RegExp(j.pattern,j.format==="emoji"?"u":"").test(x))return!1;if(j.format&&P[j.format]&&!P[j.format](x))return!1}if(C==="object"&&j.properties){if(j.required){for(let z of j.required)if(!(z in x))return!1}for(let z in j.properties)if(z in x&&!I(x[z],j.properties[z]))return!1}if(C==="array"&&j.items){let z=x.length;if(j.minItems!==void 0&&z<j.minItems)return!1;if(j.maxItems!==void 0&&z>j.maxItems)return!1;if(Array.isArray(j.items)){for(let w=0;w<j.items.length;w++)if(!I(x[w],j.items[w]))return!1;return!0}if(z>0){let w=z<=97?1:Math.floor(z/97);for(let G=0;G<z-1;G+=w)if(!I(x[G],j.items))return!1;if(!I(x[z-1],j.items))return!1}}return!0}function J(x,j){if(JSON.stringify(x)===JSON.stringify(j))return null;if(x.anyOf||j.anyOf){if(JSON.stringify(x.anyOf)!==JSON.stringify(j.anyOf))return{error:"Union mismatch",from:x.anyOf,to:j.anyOf};return null}if(x.type!==j.type)return{error:`Type mismatch: ${x.type} vs ${j.type}`};if(x.type==="object"){let w={},G=new Set([...Object.keys(x.properties||{}),...Object.keys(j.properties||{})]),E=!1;return G.forEach((H)=>{let K=x.properties?.[H],N=j.properties?.[H];if(!K)w[H]={error:"Added in B"},E=!0;else if(!N)w[H]={error:"Removed in B"},E=!0;else{let O=J(K,N);if(O)w[H]=O,E=!0}}),E?w:null}if(x.type==="array"){if(Array.isArray(x.items)&&Array.isArray(j.items)){if(x.items.length!==j.items.length)return{error:"Tuple length mismatch"};let w={},G=!1;for(let E=0;E<x.items.length;E++){let H=J(x.items[E],j.items[E]);if(H)w[E]=H,G=!0}return G?{items:w}:null}if(!Array.isArray(x.items)&&!Array.isArray(j.items)){let w=J(x.items,j.items);return w?{items:w}:null}return{error:"Array type mismatch (Tuple vs List)"}}let C={},z=!1;return["minimum","maximum","minLength","pattern","format","enum"].forEach((w)=>{if(JSON.stringify(x[w])!==JSON.stringify(j[w]))C[w]={from:x[w],to:j[w]},z=!0}),z?C:null}export{I as validate,R as s,J as diff};
+// src/schema.ts
+var RX_EMOJI_ATOM = "\\p{Extended_Pictographic}";
+var create = (s) => ({
+  schema: s,
+  _type: null,
+  get optional() {
+    return create({
+      ...s,
+      type: Array.isArray(s.type) ? [...s.type, "null"] : [s.type, "null"]
+    });
+  },
+  min: (v) => {
+    const key = s.type === "string" ? "minLength" : s.type === "array" ? "minItems" : s.type === "object" ? "minProperties" : "minimum";
+    return create({ ...s, [key]: v });
+  },
+  max: (v) => {
+    const key = s.type === "string" ? "maxLength" : s.type === "array" ? "maxItems" : s.type === "object" ? "maxProperties" : "maximum";
+    return create({ ...s, [key]: v });
+  },
+  pattern: (r) => create({ ...s, pattern: typeof r === "string" ? r : r.source }),
+  get email() {
+    return create({ ...s, format: "email" });
+  },
+  get uuid() {
+    return create({ ...s, format: "uuid" });
+  },
+  get ipv4() {
+    return create({ ...s, format: "ipv4" });
+  },
+  get url() {
+    return create({ ...s, format: "uri" });
+  },
+  get datetime() {
+    return create({ ...s, format: "date-time" });
+  },
+  get emoji() {
+    return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: "emoji" });
+  },
+  get int() {
+    return create({ ...s, type: "integer" });
+  },
+  step: (v) => create({ ...s, multipleOf: v })
+});
+var methods = {
+  union: (schemas) => create({ anyOf: schemas.map((s) => s.schema) }),
+  enum: (vals) => create({ type: typeof vals[0], enum: vals }),
+  array: (items) => create({ type: "array", items: items.schema }),
+  tuple: (items) => create({
+    type: "array",
+    items: items.map((s) => s.schema),
+    minItems: items.length,
+    maxItems: items.length
+  }),
+  object: (props) => {
+    const properties = {};
+    const required = [];
+    for (const k in props) {
+      properties[k] = props[k].schema;
+      required.push(k);
+    }
+    return create({
+      type: "object",
+      properties,
+      required,
+      additionalProperties: false
+    });
+  },
+  record: (value) => create({
+    type: "object",
+    additionalProperties: value.schema
+  })
+};
+var s = new Proxy(methods, {
+  get(target, prop) {
+    if (prop in target)
+      return target[prop];
+    if (prop === "string" || prop === "number" || prop === "boolean") {
+      const schema = create({ type: prop });
+      target[prop] = schema;
+      return schema;
+    }
+    return;
+  }
+});
+var STRIDE = 97;
+var FMT = {
+  email: (v) => /^\S+@\S+\.\S+$/.test(v),
+  uuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
+  uri: (v) => {
+    try {
+      new URL(v);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  ipv4: (v) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(v),
+  "date-time": (v) => !isNaN(Date.parse(v)),
+  emoji: (v) => new RegExp(RX_EMOJI_ATOM, "u").test(v)
+};
+function validate(val, schema, opts) {
+  const onError = typeof opts === "function" ? opts : opts?.onError;
+  const fullScan = typeof opts === "object" ? opts?.fullScan : false;
+  const path = [];
+  const err = (msg) => {
+    if (onError)
+      onError(path.join(".") || "root", msg);
+    return false;
+  };
+  const walk = (v, s2) => {
+    if (s2.anyOf) {
+      for (const sub of s2.anyOf) {
+        if (validate(v, sub))
+          return true;
+      }
+      return err("Union mismatch");
+    }
+    if (v === null || v === undefined) {
+      return Array.isArray(s2.type) && s2.type.includes("null") || err("Expected value");
+    }
+    const t = Array.isArray(s2.type) ? s2.type[0] : s2.type;
+    if (s2.enum && !s2.enum.includes(v))
+      return err("Enum mismatch");
+    if (t === "integer") {
+      if (typeof v !== "number" || !Number.isInteger(v))
+        return err("Expected integer");
+    } else if (t === "array") {
+      if (!Array.isArray(v))
+        return err("Expected array");
+    } else if (t === "object") {
+      if (typeof v !== "object" || Array.isArray(v))
+        return err("Expected object");
+    } else if (t && typeof v !== t)
+      return err(`Expected ${t}`);
+    if (typeof v === "number") {
+      if (s2.minimum !== undefined && v < s2.minimum)
+        return err("Value < min");
+      if (s2.maximum !== undefined && v > s2.maximum)
+        return err("Value > max");
+      if (s2.multipleOf !== undefined && v % s2.multipleOf !== 0)
+        return err("Value not step");
+    }
+    if (typeof v === "string") {
+      if (s2.minLength !== undefined && v.length < s2.minLength)
+        return err("Len < min");
+      if (s2.maxLength !== undefined && v.length > s2.maxLength)
+        return err("Len > max");
+      if (s2.pattern && !new RegExp(s2.pattern, s2.format === "emoji" ? "u" : "").test(v))
+        return err("Pattern mismatch");
+      if (s2.format && FMT[s2.format] && !FMT[s2.format](v))
+        return err("Format invalid");
+    }
+    if (t === "object") {
+      if (s2.minProperties !== undefined) {
+        let c = 0;
+        for (const k in v)
+          if (Object.prototype.hasOwnProperty.call(v, k))
+            c++;
+        if (c < s2.minProperties)
+          return err("Too few props");
+      }
+      if (s2.required) {
+        for (const k of s2.required)
+          if (!(k in v))
+            return err(`Missing ${k}`);
+      }
+      if (s2.properties) {
+        for (const k in s2.properties) {
+          if (k in v) {
+            path.push(k);
+            const ok = walk(v[k], s2.properties[k]);
+            path.pop();
+            if (!ok)
+              return false;
+          }
+        }
+      }
+      if (s2.additionalProperties) {
+        let i = 0;
+        for (const k in v) {
+          if (s2.properties && k in s2.properties)
+            continue;
+          if (!fullScan) {
+            i++;
+            if (i % STRIDE !== 0)
+              continue;
+          }
+          path.push(k);
+          const ok = walk(v[k], s2.additionalProperties);
+          path.pop();
+          if (!ok)
+            return false;
+        }
+      }
+      return true;
+    }
+    if (t === "array" && s2.items) {
+      const len = v.length;
+      if (s2.minItems !== undefined && len < s2.minItems)
+        return err("Array too short");
+      if (s2.maxItems !== undefined && len > s2.maxItems)
+        return err("Array too long");
+      if (Array.isArray(s2.items)) {
+        for (let i = 0;i < s2.items.length; i++) {
+          path.push(String(i));
+          if (!walk(v[i], s2.items[i])) {
+            path.pop();
+            return false;
+          }
+          path.pop();
+        }
+        return true;
+      }
+      const step = fullScan || len <= STRIDE ? 1 : Math.floor(len / STRIDE);
+      for (let i = 0;i < len; i += step) {
+        const idx = step > 1 && i > len - 1 - step ? len - 1 : i;
+        path.push(String(idx));
+        const ok = walk(v[idx], s2.items);
+        path.pop();
+        if (!ok)
+          return false;
+        if (idx === len - 1)
+          break;
+      }
+      return true;
+    }
+    return true;
+  };
+  return walk(val, schema);
+}
+function diff(a, b) {
+  if (JSON.stringify(a) === JSON.stringify(b))
+    return null;
+  if (a.anyOf || b.anyOf) {
+    if (JSON.stringify(a.anyOf) !== JSON.stringify(b.anyOf))
+      return { error: "Union mismatch", from: a.anyOf, to: b.anyOf };
+    return null;
+  }
+  if (a.type !== b.type)
+    return { error: `Type mismatch: ${a.type} vs ${b.type}` };
+  if (a.type === "object") {
+    const d2 = {};
+    const keys = new Set([
+      ...Object.keys(a.properties || {}),
+      ...Object.keys(b.properties || {})
+    ]);
+    let has2 = false;
+    keys.forEach((k) => {
+      const pA = a.properties?.[k], pB = b.properties?.[k];
+      if (!pA) {
+        d2[k] = { error: "Added in B" };
+        has2 = true;
+      } else if (!pB) {
+        d2[k] = { error: "Removed in B" };
+        has2 = true;
+      } else {
+        const sub = diff(pA, pB);
+        if (sub) {
+          d2[k] = sub;
+          has2 = true;
+        }
+      }
+    });
+    ["minProperties", "maxProperties"].forEach((k) => {
+      if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
+        d2[k] = { from: a[k], to: b[k] };
+        has2 = true;
+      }
+    });
+    return has2 ? d2 : null;
+  }
+  if (a.type === "array") {
+    if (Array.isArray(a.items) && Array.isArray(b.items)) {
+      if (a.items.length !== b.items.length)
+        return { error: "Tuple length mismatch" };
+      const d2 = {};
+      let has2 = false;
+      for (let i = 0;i < a.items.length; i++) {
+        const sub = diff(a.items[i], b.items[i]);
+        if (sub) {
+          d2[i] = sub;
+          has2 = true;
+        }
+      }
+      return has2 ? { items: d2 } : null;
+    }
+    if (!Array.isArray(a.items) && !Array.isArray(b.items)) {
+      const d2 = diff(a.items, b.items);
+      return d2 ? { items: d2 } : null;
+    }
+    return { error: "Array type mismatch (Tuple vs List)" };
+  }
+  const d = {};
+  let has = false;
+  ["minimum", "maximum", "minLength", "pattern", "format", "enum"].forEach((k) => {
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
+      d[k] = { from: a[k], to: b[k] };
+      has = true;
+    }
+  });
+  return has ? d : null;
+}
+export {
+  validate,
+  s,
+  diff
+};
