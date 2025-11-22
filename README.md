@@ -1,5 +1,7 @@
 # tosijs-schema
 
+[npm](https://www.npmjs.com/package/tosijs-schema) | [github](https://github.com/tonioloewald/tosijs-schema) | [discord](https://discord.gg/ramJ9rgky5) | [examples](/examples.md)
+
 A **schema-first** Typescript / Javascript library for generating a single, standards-compliant source of truth for data types.
 
 1.  **Define** data types once using standard [json-schema](https://json-schema.org/)
