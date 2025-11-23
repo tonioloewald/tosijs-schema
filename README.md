@@ -248,12 +248,56 @@ To keep the library _tiny_ and _fast_, specific JSON Schema features are **not**
 
 > In my opinion, `minProperties` makes perfect sense when checking for objects treated as hash-mapped arrays being non-empty, but `maxProperties` makes no sense and is non-trivial to implement.
 
+## LLM & OpenAI Structured Outputs
+
+`tosijs-schema` is "LLM-Native" by design.
+
+If you are building AI agents using OpenAI's `response_format: { type: "json_schema" }` or Anthropic's tool use, this library is likely a better fit than Zod.
+
+### 1. "Strict Mode" Ready
+OpenAI's Structured Outputs have strict requirements: all fields must be `required`, and `additionalProperties` must be `false`.
+* **Zod:** Defaults to flexible objects. You often have to aggressively chain `.required()` or use post-processors to satisfy the API.
+* **tosijs:** Defaults to strict. `s.object(...)` automatically marks all keys as required and sets `additionalProperties: false`. It works out of the box.
+
+### 2. Zero-Conversion Token Savings
+Zod requires a third-party adapter (`zod-to-json-schema`) to talk to LLMs. This often introduces verbose artifacts, nested `$defs`, or bloated schema structures that waste tokens.
+`tosijs` **is** JSON Schema. The `.schema` property is the literal object the LLM needs. It is cleaner, flatter, and consumes fewer tokens in the context window.
+
+### Example: OpenAI Extraction
+
+```typescript
+import OpenAI from "openai";
+import { s } from "tosijs-schema";
+
+const ExtractionSchema = s.object({
+  sentiment: s.enum(["positive", "neutral", "negative"]),
+  key_points: s.array(s.string).describe("List of main topics mentioned"),
+  urgency: s.integer.min(1).max(10)
+}).meta({
+  title: "SentimentAnalysis",
+  description: "Analyze the user input"
+});
+
+const completion = await openai.chat.completions.create({
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "I love this product but shipping was slow." }],
+  response_format: {
+    type: "json_schema",
+    json_schema: {
+      name: "analysis",
+      strict: true, // Works instantly because tosijs is strict by default
+      schema: ExtractionSchema.schema 
+    }
+  }
+});
+
 ## Why not Zod?
 
 [Zod](https://zod.dev/) is an excellent library, but it is **TypeScript-first** and relies on a heavy Object-Oriented class hierarchy. Real-world Zod bundles can be heavy because it does not tree-shake well.
 
 `tosijs-schema` is **Schema-first** and **Functional**.
 
+- **LLM Ready:** Generates strict, token-efficient JSON schemas compatible with OpenAI Structured Outputs without adapters.
 - **Portable:** The output is standard JSON Schema, usable by other tools/languages.
 - **Tiny:** \~3kB minified.
 - **Performance:** Uses "prime-jump" sampling for **O(1)** validation of massive arrays and dictionaries (vs Zod's O(N)). Even in full-scan mode, it is \~2x faster due to raw recursion.
