@@ -64,7 +64,6 @@ const Person = s.object({
     "id",
     "name",
     "age",
-    "email",
     "tags"
   ],
   "additionalProperties": false

@@ -40,9 +40,38 @@ var create = (s) => ({
   get emoji() {
     return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: "emoji" });
   },
+  get int() {
+    return create({ ...s, type: "integer" });
+  },
   step: (v) => create({ ...s, multipleOf: v })
 });
 var methods = {
+  get email() {
+    return create({ type: "string", format: "email" });
+  },
+  get uuid() {
+    return create({ type: "string", format: "uuid" });
+  },
+  get ipv4() {
+    return create({ type: "string", format: "ipv4" });
+  },
+  get url() {
+    return create({ type: "string", format: "uri" });
+  },
+  get datetime() {
+    return create({ type: "string", format: "date-time" });
+  },
+  get emoji() {
+    return create({
+      type: "string",
+      pattern: `^${RX_EMOJI_ATOM}+$`,
+      format: "emoji"
+    });
+  },
+  pattern: (r) => create({
+    type: "string",
+    pattern: typeof r === "string" ? r : r.source
+  }),
   union: (schemas) => create({ anyOf: schemas.map((s) => s.schema) }),
   enum: (vals) => create({ type: typeof vals[0], enum: vals }),
   array: (items) => create({ type: "array", items: items.schema }),
@@ -57,7 +86,9 @@ var methods = {
     const required = [];
     for (const k in props) {
       properties[k] = props[k].schema;
-      required.push(k);
+      if (!Array.isArray(properties[k].type) || !properties[k].type.includes("null")) {
+        required.push(k);
+      }
     }
     return create({
       type: "object",
@@ -293,7 +324,17 @@ function diff(a, b) {
   }
   const d = {};
   let has = false;
-  ["minimum", "maximum", "minLength", "pattern", "format", "enum"].forEach((k) => {
+  [
+    "minimum",
+    "maximum",
+    "minLength",
+    "pattern",
+    "format",
+    "enum",
+    "title",
+    "description",
+    "default"
+  ].forEach((k) => {
     if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
       d[k] = { from: a[k], to: b[k] };
       has = true;

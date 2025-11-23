@@ -1,12 +1,15 @@
 # tosijs-schema
 
-[npm](https://www.npmjs.com/package/tosijs-schema) | [github](https://github.com/tonioloewald/tosijs-schema) | [discord](https://discord.gg/ramJ9rgky5) | [examples](https://github.com/tonioloewald/tosijs-schema/blob/main/examples.md)
+[npm](https://www.npmjs.com/package/tosijs-schema) | [github](https://github.com/tonioloewald/tosijs-schema) | [discord](https://discord.gg/ramJ9rgky5) | [examples](./examples.md) 
+
+[![tosijs-schema is on NPM](https://badge.fury.io/js/tosijs-schema.svg)](https://www.npmjs.com/package/tosijs-schema)
+[![tosijs-schema is under 3kB gzipped](https://deno.bundlejs.com/?q=tosijs-schema&badge=)](https://bundlejs.com/?q=tosijs-schema&badge=)
 
 <center>
   <img 
-    alt="tosijs-schema icon / logo"
-    style="width: 512px; height: 512px"
-    src="https://github.com/tonioloewald/tosijs-schema/blob/main/tosijs-schema.svg"
+    alt="tosijs-schema icon / logo" 
+    style="width: 512px; height: 512px" 
+    src="https://raw.githubusercontent.com/tonioloewald/tosijs-schema/main/tosijs-schema.svg"
   >
 </center>
 
@@ -64,7 +67,7 @@ Oh and it cheats when validating large datasets…
    🏎  vs Zod: 3.2x faster (Raw Speed)
 ```
 
-> The reason for the two benchmarks is that `tosijs-schema` when cheating is so efficient that it never gets JITed if you just do one run (it only checks 100 elements per object or array). It was winning without getting JITed! So now there are two scenarios which let you see just how big an advantage you get at scale.
+> The reason for the two benchmarks is that `tosijs-schema` when cheating is so efficient that it never gets JITed if you just do one run. It was winning without getting JITed\! So now there are two scenarios which let you see just how big an advantage you get at scale.
 
 ## Installation
 
@@ -89,7 +92,8 @@ export const UserSchema = s
   .object({
     id: s.string.uuid, // Property access (no parentheses)
 
-    email: s.string.email
+    // First-class email support
+    email: s.email
       .describe("User's primary contact")
       .default('anon@example.com'), // Metadata
 
@@ -156,7 +160,7 @@ validate(data, UserSchema.schema, { fullScan: true })
 
 To get detailed error messages, provide an `onError` callback.
 
-_Note: The validator "Fails Fast". It stops at the **first** error it finds to save CPU cycles._
+> Note: The validator "Fails Fast". It stops at the **first** error it finds to save CPU cycles.
 
 ```typescript
 // Option A: Log Errors
@@ -211,6 +215,8 @@ Use these as static properties.
 - **String Formats:** `.email`, `.uuid`, `.ipv4`, `.url`, `.datetime`, `.emoji`
 - **Number Formats:** `.int` (casts number to integer schema)
 
+> **Note** that these formats are all treated as "first class". You can write `s.string.email` if you really want to, but just `s.email` will do, and you can still further constrain it with `.pattern(…)` etc.
+
 ### Constraints (Arguments Required)
 
 Use these as chainable methods.
@@ -254,42 +260,49 @@ To keep the library _tiny_ and _fast_, specific JSON Schema features are **not**
 
 If you are building AI agents using OpenAI's `response_format: { type: "json_schema" }` or Anthropic's tool use, this library is likely a better fit than Zod.
 
-### 1. "Strict Mode" Ready
-OpenAI's Structured Outputs have strict requirements: all fields must be `required`, and `additionalProperties` must be `false`.
-* **Zod:** Defaults to flexible objects. You often have to aggressively chain `.required()` or use post-processors to satisfy the API.
-* **tosijs:** Defaults to strict. `s.object(...)` automatically marks all keys as required and sets `additionalProperties: false`. It works out of the box.
+### 1\. "Strict Mode" Ready
 
-### 2. Zero-Conversion Token Savings
+OpenAI's Structured Outputs have strict requirements: all fields must be `required`, and `additionalProperties` must be `false`.
+
+- **Zod:** Defaults to flexible objects. You often have to aggressively chain `.required()` or use post-processors to satisfy the API.
+- **tosijs:** Defaults to strict. `s.object(...)` automatically marks all keys as required and sets `additionalProperties: false`. It works out of the box.
+
+### 2\. Zero-Conversion Token Savings
+
 Zod requires a third-party adapter (`zod-to-json-schema`) to talk to LLMs. This often introduces verbose artifacts, nested `$defs`, or bloated schema structures that waste tokens.
 `tosijs` **is** JSON Schema. The `.schema` property is the literal object the LLM needs. It is cleaner, flatter, and consumes fewer tokens in the context window.
 
 ### Example: OpenAI Extraction
 
 ```typescript
-import OpenAI from "openai";
-import { s } from "tosijs-schema";
+import OpenAI from 'openai'
+import { s } from 'tosijs-schema'
 
-const ExtractionSchema = s.object({
-  sentiment: s.enum(["positive", "neutral", "negative"]),
-  key_points: s.array(s.string).describe("List of main topics mentioned"),
-  urgency: s.integer.min(1).max(10)
-}).meta({
-  title: "SentimentAnalysis",
-  description: "Analyze the user input"
-});
+const ExtractionSchema = s
+  .object({
+    sentiment: s.enum(['positive', 'neutral', 'negative']),
+    key_points: s.array(s.string).describe('List of main topics mentioned'),
+    urgency: s.integer.min(1).max(10),
+  })
+  .meta({
+    title: 'SentimentAnalysis',
+    description: 'Analyze the user input',
+  })
 
 const completion = await openai.chat.completions.create({
-  model: "gpt-4o",
-  messages: [{ role: "user", content: "I love this product but shipping was slow." }],
+  model: 'gpt-4o',
+  messages: [
+    { role: 'user', content: 'I love this product but shipping was slow.' },
+  ],
   response_format: {
-    type: "json_schema",
+    type: 'json_schema',
     json_schema: {
-      name: "analysis",
+      name: 'analysis',
       strict: true, // Works instantly because tosijs is strict by default
-      schema: ExtractionSchema.schema 
-    }
-  }
-});
+      schema: ExtractionSchema.schema,
+    },
+  },
+})
 ```
 
 ## Why not Zod?

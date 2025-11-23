@@ -1,6 +1,19 @@
 export type Infer<S> = S extends {
     _type: infer T;
 } ? T : never;
+type OptionalKeys<T> = {
+    [K in keyof T]-?: undefined extends T[K] ? K : never;
+}[keyof T];
+type RequiredKeys<T> = {
+    [K in keyof T]-?: undefined extends T[K] ? never : K;
+}[keyof T];
+type SmartObject<T> = {
+    [K in OptionalKeys<T>]?: T[K];
+} & {
+    [K in RequiredKeys<T>]: T[K];
+} extends infer O ? {
+    [K in keyof O]: O[K];
+} : never;
 interface Base<T> {
     schema: any;
     _type: T;
@@ -33,6 +46,7 @@ interface Num<T = number> extends Base<T> {
     min(val: number): Num<T>;
     max(val: number): Num<T>;
     step(val: number): Num<T>;
+    get int(): Num<T>;
 }
 interface Arr<T> extends Base<T> {
     title(t: string): Arr<T>;
@@ -51,11 +65,18 @@ interface Obj<T> extends Base<T> {
     max(count: number): Obj<T>;
 }
 declare const methods: {
+    readonly email: Str;
+    readonly uuid: Str;
+    readonly ipv4: Str;
+    readonly url: Str;
+    readonly datetime: Str;
+    readonly emoji: Str;
+    pattern: (r: RegExp | string) => Str;
     union: <T extends Base<any>[]>(schemas: T) => Base<Infer<T[number]>>;
     enum: <T extends string | number>(vals: T[]) => Base<T>;
     array: <T>(items: Base<T>) => Arr<T[]>;
-    tuple: <T extends [Base<any>, ...Base<any>[]]>(items: T) => Base<{ [K in keyof T]: Infer<T[K]>; }>;
-    object: <P extends Record<string, Base<any>>>(props: P) => Obj<{ [K in keyof P]: Infer<P[K]>; }>;
+    tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never; }>;
+    object: <P extends Record<string, Base<any>>>(props: P) => Obj<SmartObject<{ [K in keyof P]: Infer<P[K]>; }>>;
     record: <T>(value: Base<T>) => Obj<Record<string, T>>;
 };
 type TinySchema = typeof methods & {

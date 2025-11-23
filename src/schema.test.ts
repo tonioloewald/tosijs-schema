@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { s, validate, diff } from './schema'
+import { s, validate, diff, type Infer } from './schema'
 
 // --- 1. BUILDER STRUCTURE CHECKS ---
 describe('Builder Output', () => {
@@ -392,12 +392,10 @@ describe('Metadata & Documentation', () => {
   })
 
   test('Attaches arbitrary metadata via .meta()', () => {
-    const schema = s
-      .object({ id: s.number })
-      .meta({
-        $schema: 'http://json-schema.org/draft-07/schema#',
-        examples: [{ id: 1 }],
-      })
+    const schema = s.object({ id: s.number }).meta({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      examples: [{ id: 1 }],
+    })
 
     expect(schema.schema.$schema).toContain('draft-07')
     expect(schema.schema.examples[0].id).toBe(1)
@@ -434,5 +432,88 @@ describe('First-Class Integer', () => {
   test('Diff detects integer vs number', () => {
     const d = diff(s.number.schema, s.integer.schema)
     expect(d.error).toContain('Type mismatch: number vs integer')
+  })
+})
+
+describe('First-Class Formats & Pattern', () => {
+  test('s.email generates correct schema', () => {
+    const schema = s.email
+    expect(schema.schema.type).toBe('string')
+    expect(schema.schema.format).toBe('email')
+  })
+
+  test('s.email.pattern() constraints both', () => {
+    const schema = s.email.pattern(/@gmail\.com$/)
+
+    expect(validate('test@gmail.com', schema.schema)).toBeTrue()
+    expect(validate('test@yahoo.com', schema.schema)).toBeFalse() // Valid email, wrong regex
+    expect(validate('not-an-email', schema.schema)).toBeFalse() // Invalid format
+  })
+
+  test('s.pattern() generates correct schema', () => {
+    const schema = s.pattern(/^\d+$/)
+    expect(schema.schema.type).toBe('string')
+    expect(schema.schema.pattern).toBe('^\\d+$')
+
+    expect(validate('123', schema.schema)).toBeTrue()
+    expect(validate('abc', schema.schema)).toBeFalse()
+  })
+
+  test('s.url and other formats work at root', () => {
+    expect(validate('https://example.com', s.url.schema)).toBeTrue()
+    expect(
+      validate('123e4567-e89b-12d3-a456-426614174000', s.uuid.schema)
+    ).toBeTrue()
+  })
+})
+
+// --- 12. STATIC TYPE INFERENCE ---
+describe('Static Type Inference', () => {
+  test('First-class types infer correct primitives', () => {
+    // Define a schema using the new first-class properties
+    const schema = s.object({
+      email: s.email, // Should infer string
+      uuid: s.uuid, // Should infer string
+      date: s.datetime, // Should infer string
+      count: s.integer, // Should infer number
+      regex: s.pattern(/^\d+$/), // Should infer string
+      flag: s.boolean, // Should infer boolean
+    })
+
+    // Extract the type
+    type DataType = Infer<typeof schema>
+
+    // 1. Compile-Time Check
+    // If inference is broken (e.g. mapped to 'any' or 'never'),
+    // or if integer mapped to string, this assignment would likely flag warnings in an IDE.
+    const data: DataType = {
+      email: 'test@test.com',
+      uuid: '123-456',
+      date: '2023-01-01',
+      count: 10,
+      regex: '123',
+      flag: true,
+    }
+
+    // 2. Runtime Check
+    // Verify that the runtime values actually match the expected primitives
+    expect(typeof data.email).toBe('string')
+    expect(typeof data.count).toBe('number')
+    expect(typeof data.flag).toBe('boolean')
+  })
+
+  test('Optional first-class types infer as union with undefined', () => {
+    const schema = s.object({
+      optEmail: s.email.optional,
+      optInt: s.integer.optional,
+    })
+
+    type DataType = Infer<typeof schema>
+
+    const valid: DataType = {} // Should be valid
+    const explicit: DataType = { optEmail: undefined, optInt: 5 }
+
+    expect(valid).toEqual({})
+    expect(explicit.optInt).toBe(5)
   })
 })

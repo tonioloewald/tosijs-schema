@@ -69,6 +69,9 @@ const create = (s: any): any => ({
   },
 
   // --- Number Specific ---
+  get int() {
+    return create({ ...s, type: 'integer' })
+  },
   step: (v: number) => create({ ...s, multipleOf: v }),
 })
 
@@ -78,12 +81,24 @@ const create = (s: any): any => ({
 
 export type Infer<S> = S extends { _type: infer T } ? T : never
 
+// --- Type Helpers for Object Optionality ---
+type OptionalKeys<T> = {
+  [K in keyof T]-?: undefined extends T[K] ? K : never
+}[keyof T]
+type RequiredKeys<T> = {
+  [K in keyof T]-?: undefined extends T[K] ? never : K
+}[keyof T]
+type SmartObject<T> = { [K in OptionalKeys<T>]?: T[K] } & {
+  [K in RequiredKeys<T>]: T[K]
+} extends infer O
+  ? { [K in keyof O]: O[K] }
+  : never
+
 interface Base<T> {
   schema: any
   _type: T
   get optional(): Base<T | undefined>
 
-  // Metadata
   title(t: string): Base<T>
   describe(d: string): Base<T>
   default(v: T): Base<T>
@@ -91,7 +106,7 @@ interface Base<T> {
 }
 
 interface Str<T = string> extends Base<T> {
-  // Metadata Overrides (to return Str)
+  // Metadata Overrides
   title(t: string): Str<T>
   describe(d: string): Str<T>
   default(v: T): Str<T>
@@ -110,38 +125,33 @@ interface Str<T = string> extends Base<T> {
 }
 
 interface Num<T = number> extends Base<T> {
-  // Metadata Overrides
   title(t: string): Num<T>
   describe(d: string): Num<T>
   default(v: T): Num<T>
   meta(m: Record<string, any>): Num<T>
 
-  // Constraints
   min(val: number): Num<T>
   max(val: number): Num<T>
   step(val: number): Num<T>
+  get int(): Num<T>
 }
 
 interface Arr<T> extends Base<T> {
-  // Metadata Overrides
   title(t: string): Arr<T>
   describe(d: string): Arr<T>
   default(v: T): Arr<T>
   meta(m: Record<string, any>): Arr<T>
 
-  // Constraints
   min(count: number): Arr<T>
   max(count: number): Arr<T>
 }
 
 interface Obj<T> extends Base<T> {
-  // Metadata Overrides
   title(t: string): Obj<T>
   describe(d: string): Obj<T>
   default(v: T): Obj<T>
   meta(m: Record<string, any>): Obj<T>
 
-  // Constraints
   min(count: number): Obj<T>
   max(count: number): Obj<T>
 }
@@ -151,6 +161,36 @@ interface Obj<T> extends Base<T> {
 /* -------------------------------------------------------------------------- */
 
 const methods = {
+  // --- First-Class Formats ---
+  get email() {
+    return create({ type: 'string', format: 'email' }) as Str
+  },
+  get uuid() {
+    return create({ type: 'string', format: 'uuid' }) as Str
+  },
+  get ipv4() {
+    return create({ type: 'string', format: 'ipv4' }) as Str
+  },
+  get url() {
+    return create({ type: 'string', format: 'uri' }) as Str
+  },
+  get datetime() {
+    return create({ type: 'string', format: 'date-time' }) as Str
+  },
+  get emoji() {
+    return create({
+      type: 'string',
+      pattern: `^${RX_EMOJI_ATOM}+$`,
+      format: 'emoji',
+    }) as Str
+  },
+
+  pattern: (r: RegExp | string) =>
+    create({
+      type: 'string',
+      pattern: typeof r === 'string' ? r : r.source,
+    }) as Str,
+
   union: <T extends Base<any>[]>(schemas: T) =>
     create({ anyOf: schemas.map((s) => s.schema) }) as Base<Infer<T[number]>>,
 
@@ -160,27 +200,36 @@ const methods = {
   array: <T>(items: Base<T>) =>
     create({ type: 'array', items: items.schema }) as Arr<T[]>,
 
-  tuple: <T extends [Base<any>, ...Base<any>[]]>(items: T) =>
+  // FIX: 'readonly' added to generic constraint to force tuple inference
+  tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) =>
     create({
       type: 'array',
       items: items.map((s) => s.schema),
       minItems: items.length,
       maxItems: items.length,
-    }) as Base<{ [K in keyof T]: Infer<T[K]> }>,
+    }) as Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never }>,
 
+  // FIX: Wrapped return type in SmartObject<>
   object: <P extends Record<string, Base<any>>>(props: P) => {
     const properties: any = {}
     const required: string[] = []
     for (const k in props) {
       properties[k] = props[k]!.schema
-      required.push(k)
+      // Heuristic: If the schema type includes 'null', it's optional.
+      // This allows .optional() to result in a non-required field.
+      if (
+        !Array.isArray(properties[k].type) ||
+        !properties[k].type.includes('null')
+      ) {
+        required.push(k)
+      }
     }
     return create({
       type: 'object',
       properties,
       required,
       additionalProperties: false,
-    }) as Obj<{ [K in keyof P]: Infer<P[K]> }>
+    }) as Obj<SmartObject<{ [K in keyof P]: Infer<P[K]> }>>
   },
 
   record: <T>(value: Base<T>) =>
@@ -193,14 +242,13 @@ const methods = {
 type TinySchema = typeof methods & {
   string: Str
   number: Num
-  integer: Num // Integer shares the numeric interface
+  integer: Num
   boolean: Base<boolean>
 }
 
 export const s = new Proxy(methods, {
   get(target: any, prop: string) {
     if (prop in target) return target[prop]
-
     if (
       prop === 'string' ||
       prop === 'number' ||
@@ -216,7 +264,7 @@ export const s = new Proxy(methods, {
 }) as TinySchema
 
 /* -------------------------------------------------------------------------- */
-/* 4. THE VALIDATOR (Configurable & Fast)                                     */
+/* 4. THE VALIDATOR                                                           */
 /* -------------------------------------------------------------------------- */
 
 const STRIDE = 97
@@ -252,7 +300,6 @@ export function validate(
   schema: any,
   opts?: ValidateOptions | ErrorHandler
 ): boolean {
-  // Normalize options: support passing just a callback OR an options object
   const onError = typeof opts === 'function' ? opts : opts?.onError
   const fullScan = typeof opts === 'object' ? opts?.fullScan : false
 
@@ -266,8 +313,6 @@ export function validate(
   const walk = (v: any, s: any): boolean => {
     if (s.anyOf) {
       for (const sub of s.anyOf) {
-        // Pass NO options to sub-checks.
-        // We only want top-level logic to control scanning/reporting.
         if (validate(v, sub)) return true
       }
       return err('Union mismatch')
@@ -283,7 +328,6 @@ export function validate(
     const t = Array.isArray(s.type) ? s.type[0] : s.type
     if (s.enum && !s.enum.includes(v)) return err('Enum mismatch')
 
-    // Type Checks
     if (t === 'integer') {
       if (typeof v !== 'number' || !Number.isInteger(v))
         return err('Expected integer')
@@ -294,7 +338,6 @@ export function validate(
         return err('Expected object')
     } else if (t && typeof v !== t) return err(`Expected ${t}`)
 
-    // Primitive Constraints
     if (typeof v === 'number') {
       if (s.minimum !== undefined && v < s.minimum) return err('Value < min')
       if (s.maximum !== undefined && v > s.maximum) return err('Value > max')
@@ -315,7 +358,6 @@ export function validate(
         return err('Format invalid')
     }
 
-    // Object Recursion
     if (t === 'object') {
       if (s.minProperties !== undefined) {
         let c = 0
@@ -333,7 +375,7 @@ export function validate(
             path.push(k)
             const ok = walk(v[k], s.properties[k])
             path.pop()
-            if (!ok) return false // Fail Fast
+            if (!ok) return false
           }
         }
       }
@@ -350,13 +392,12 @@ export function validate(
           path.push(k)
           const ok = walk(v[k], s.additionalProperties)
           path.pop()
-          if (!ok) return false // Fail Fast
+          if (!ok) return false
         }
       }
       return true
     }
 
-    // Array Recursion
     if (t === 'array' && s.items) {
       const len = v.length
       if (s.minItems !== undefined && len < s.minItems)
@@ -365,7 +406,6 @@ export function validate(
         return err('Array too long')
 
       if (Array.isArray(s.items)) {
-        // Tuple
         for (let i = 0; i < s.items.length; i++) {
           path.push(String(i))
           if (!walk(v[i], s.items[i])) {
@@ -377,16 +417,13 @@ export function validate(
         return true
       }
 
-      // List
       const step = fullScan || len <= STRIDE ? 1 : Math.floor(len / STRIDE)
       for (let i = 0; i < len; i += step) {
         const idx = step > 1 && i > len - 1 - step ? len - 1 : i
-
         path.push(String(idx))
         const ok = walk(v[idx], s.items)
         path.pop()
-
-        if (!ok) return false // Fail Fast
+        if (!ok) return false
         if (idx === len - 1) break
       }
       return true
@@ -471,13 +508,21 @@ export function diff(a: any, b: any): any {
 
   const d: any = {}
   let has = false
-  ;['minimum', 'maximum', 'minLength', 'pattern', 'format', 'enum'].forEach(
-    (k) => {
-      if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
-        d[k] = { from: a[k], to: b[k] }
-        has = true
-      }
+  ;[
+    'minimum',
+    'maximum',
+    'minLength',
+    'pattern',
+    'format',
+    'enum',
+    'title',
+    'description',
+    'default',
+  ].forEach((k) => {
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
+      d[k] = { from: a[k], to: b[k] }
+      has = true
     }
-  )
+  })
   return has ? d : null
 }
