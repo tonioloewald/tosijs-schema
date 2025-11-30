@@ -270,7 +270,7 @@ OpenAI's Structured Outputs have strict requirements: all fields must be `requir
 ### 2\. Zero-Conversion Token Savings
 
 Zod requires a third-party adapter (`zod-to-json-schema`) to talk to LLMs. This often introduces verbose artifacts, nested `$defs`, or bloated schema structures that waste tokens.
-`tosijs` **is** JSON Schema. The `.schema` property is the literal object the LLM needs. It is cleaner, flatter, and consumes fewer tokens in the context window.
+`tosijs-schema` **is** JSON Schema. The `.schema` property is the literal object the LLM needs. It is cleaner, flatter, and consumes fewer tokens in the context window.
 
 ### Example: OpenAI Extraction
 
