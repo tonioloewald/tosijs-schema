@@ -134,7 +134,7 @@ export type User = Infer<typeof UserSchema>
 
 By default, validation is optimized for speed and returns a boolean.
 
-**Performance Note:** For large arrays (\>97 items) and large dictionaries, `tosijs-schema` uses a "prime-jump" strategy. It checks a fixed sample of items (roughly 1%) regardless of size. This provides **O(1)** performance while maintaining a high statistical probability of catching errors.
+**Performance Note:** For large arrays (\>97 items) and large dictionaries, `tosijs-schema` uses a "prime-jump" strategy. It checks a fixed sample of items (roughly 100, including the first and last) regardless of size. This provides **O(1)** performance while maintaining a high statistical probability of catching errors.
 
 ```typescript
 import { validate } from 'tosijs-schema'
@@ -325,7 +325,7 @@ OpenAI's Structured Outputs have strict requirements: all fields must be `requir
 ### 2\. Zero-Conversion Token Savings
 
 Zod requires a third-party adapter (`zod-to-json-schema`) to talk to LLMs. This often introduces verbose artifacts, nested `$defs`, or bloated schema structures that waste tokens.
-`tosijs` **is** JSON Schema. The `.schema` property is the literal object the LLM needs. It is cleaner, flatter, and consumes fewer tokens in the context window.
+`tosijs-schema` **is** JSON Schema. The `.schema` property is the literal object the LLM needs. It is cleaner, flatter, and consumes fewer tokens in the context window.
 
 ### Example: OpenAI Extraction
 
