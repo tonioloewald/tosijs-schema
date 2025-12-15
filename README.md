@@ -1,6 +1,6 @@
 # tosijs-schema
 
-[npm](https://www.npmjs.com/package/tosijs-schema) | [github](https://github.com/tonioloewald/tosijs-schema) | [discord](https://discord.gg/ramJ9rgky5) | [examples](./examples.md) 
+[npm](https://www.npmjs.com/package/tosijs-schema) | [github](https://github.com/tonioloewald/tosijs-schema) | [discord](https://discord.gg/ramJ9rgky5) | [examples](./examples.md)
 
 [![tosijs-schema is on NPM](https://badge.fury.io/js/tosijs-schema.svg)](https://www.npmjs.com/package/tosijs-schema)
 [![tosijs-schema is under 3kB gzipped](https://deno.bundlejs.com/?q=tosijs-schema&badge=)](https://bundlejs.com/?q=tosijs-schema&badge=)
@@ -142,7 +142,7 @@ import { validate } from 'tosijs-schema'
 const data = await fetchUsers()
 
 // Returns true/false. Blazing fast.
-if (!validate(data, UserSchema.schema)) {
+if (!validate(data, UserSchema)) {
   console.error('Invalid data received')
 }
 ```
@@ -153,7 +153,7 @@ If you need 100% guarantee (e.g., critical financial data), you can disable the 
 
 ```typescript
 // Forces checking of EVERY item in arrays and keys in objects
-validate(data, UserSchema.schema, { fullScan: true })
+validate(data, UserSchema, { fullScan: true })
 ```
 
 ### 3\. Error Reporting & Debugging
@@ -164,20 +164,75 @@ To get detailed error messages, provide an `onError` callback.
 
 ```typescript
 // Option A: Log Errors
-validate(data, UserSchema.schema, (path, msg) => {
+validate(data, UserSchema, (path, msg) => {
   console.error(`Error at ${path}: ${msg}`)
 })
 
 // Option B: Throw on Error
-validate(data, UserSchema.schema, (path, msg) => {
+validate(data, UserSchema, (path, msg) => {
   throw new Error(`Validation failed at ${path}: ${msg}`)
 })
 
 // Option C: Options Object Syntax
-validate(data, UserSchema.schema, {
+validate(data, UserSchema, {
   fullScan: true, // You can combine fullScan with logging
   onError: (path, msg) => console.error(path, msg),
 })
+```
+
+### 4\. Validating Raw JSON Schemas
+
+The validator is versatile: it accepts `tosijs` builder objects OR standard JSON Schema objects. This is useful if you receive schemas from an external API or file.
+
+```typescript
+const rawSchema = {
+  type: 'object',
+  properties: {
+    count: { type: 'integer', minimum: 0 },
+  },
+}
+
+// Works perfectly
+validate({ count: 5 }, rawSchema)
+```
+
+## Monadic Pipelines (`M`)
+
+`tosijs-schema` includes a "Railway Oriented Programming" module for building type-safe tool chains. This is especially useful for **AI Agents**, ensuring that hallucinations or bad data are caught immediately at the source (Input vs Output) rather than cascading.
+
+### 1. Guarded Functions (`M.func`)
+
+Create functions that enforce schemas on both input and output, with built-in timeout protection.
+
+```typescript
+import { M, s } from 'tosijs-schema'
+
+// M.func(InputSchema, OutputSchema, Implementation, TimeoutMs=5000)
+const getSize = M.func(s.string, s.number, (str) => {
+  return str.length
+}, 1000) // Optional timeout
+
+// Usage:
+const len = await getSize('hello') // Returns 5
+// await getSize(123) // Throws SchemaError (Input mismatch)
+```
+
+### 2. Execution Contexts (`new M`)
+
+Chain multiple functions together. The execution context handles error propagation automatically.
+
+```typescript
+const pipeline = new M({
+  getSize,
+  isEven: M.func(s.number, s.boolean, (n) => n % 2 === 0),
+})
+
+const result = await pipeline
+  .getSize('hello') // Output: 5
+  .isEven() // Input: 5 -> Output: false
+  .result() // Returns false | Error
+
+// If any step fails schema validation, .result() returns the specific error.
 ```
 
 ## Object Constraints & "Ghost" Properties
@@ -313,6 +368,7 @@ const completion = await openai.chat.completions.create({
 
 - **LLM Ready:** Generates strict, token-efficient JSON schemas compatible with OpenAI Structured Outputs without adapters.
 - **Portable:** The output is standard JSON Schema, usable by other tools/languages.
+- **Typesafe Functions** and **Railway Oriented** monadic execution pipelines.
 - **Tiny:** \~3kB minified.
 - **Performance:** Uses "prime-jump" sampling for **O(1)** validation of massive arrays and dictionaries (vs Zod's O(N)). Even in full-scan mode, it is \~2x faster due to raw recursion.
 

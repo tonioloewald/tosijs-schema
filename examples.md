@@ -218,3 +218,37 @@ const Coordinate = s.tuple([s.number, s.number])
 }
 ```
 
+## 5. Validation Usage
+
+Demonstrates the flexible `validate` signature. You can pass the builder object directly or the raw JSON schema.
+
+### Code
+```typescript
+import { s, validate } from 'tosijs-schema'
+
+const User = s.object({
+  id: s.integer,
+  email: s.string.email
+})
+
+const data = { id: 123, email: "alice@example.com" }
+
+// 1. Method Style (Builder)
+User.validate(data)
+
+// 2. Functional Style (Builder)
+validate(data, User)
+
+// 3. Functional Style (Raw Schema)
+validate(data, User.schema)
+
+// 4. External / Literal JSON Object
+const externalSchema = {
+  type: "object",
+  properties: {
+    count: { type: "integer" }
+  }
+}
+validate({ count: 10 }, externalSchema)
+```
+

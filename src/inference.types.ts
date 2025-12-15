@@ -5,6 +5,7 @@ It uses @ts-expect-error to assert that invalid types cause compile errors.
 */
 
 import { s, type Infer } from './schema'
+import { M, createM } from './monad'
 
 function assertType<Expected>(value: Expected) {
   /* no-op */
@@ -177,4 +178,74 @@ function assertType<Expected>(value: Expected) {
     // @ts-expect-error - Type 'string' is not assignable to type 'number | undefined'
     optInt: '5',
   }
+}
+
+// --- TEST 14: Monadic Inference ---
+{
+  // 1. M.func Argument Inference
+  // We do NOT explicitly type (str), TS should infer it from s.string
+  const len = M.func(s.string, s.number, (str) => {
+    assertType<string>(str)
+
+    // @ts-expect-error - Property 'toFixed' does not exist on type 'string'
+    str.toFixed(2)
+
+    return str.length
+  })
+
+  // 2. M.func Return Type Safety
+  // @ts-expect-error - Argument of type 'string' is not assignable to parameter of type 'number'
+  len(123)
+
+  const result: Promise<number> = len('hello')
+
+  // 3. M.func Implementation Verification
+  // @ts-expect-error - 'number' is not assignable to type 'boolean'
+  M.func(s.string, s.boolean, (str) => {
+    return 123
+  })
+
+  // 4. Chain Builder Inference
+  const isEven = M.func(s.number, s.boolean, (n) => n % 2 === 0)
+  const toUpper = M.func(s.string, s.string, (s) => s.toUpperCase())
+
+  const pipeline = createM({
+    len,
+    isEven,
+    toUpper,
+  })
+
+  // Valid Chain
+  // len returns number -> isEven accepts number. OK.
+  const valid = pipeline.len('abc').isEven().result()
+  assertType<Promise<boolean>>(valid)
+
+  // Invalid Start
+  // @ts-expect-error - Argument of type 'number' is not assignable to parameter of type 'string'
+  pipeline.len(123)
+
+  // Invalid Chain Link (Type Mismatch)
+  // len returns number. toUpper expects string.
+  // The 'toUpper' property should be type 'never' on the chain.
+  pipeline
+    .len('abc')
+    // @ts-expect-error - This expression is not callable. Type 'never' has no call signatures.
+    .toUpper()
+}
+
+// --- TEST 15: s.any ---
+{
+  const schema = s.any
+  type AnyType = Infer<typeof schema>
+
+  // Should accept absolutely anything
+  assertType<any>('hello')
+  assertType<any>(123)
+  assertType<any>({ complex: [1, 2] })
+  assertType<any>(null)
+  assertType<any>(undefined)
+
+  const val: AnyType = { a: 1 }
+  // Verify it behaves like TS 'any'
+  val.nonExistentProp = 2 // Should compile
 }

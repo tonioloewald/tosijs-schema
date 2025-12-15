@@ -99,6 +99,21 @@ describe('Validation: Complex Types', () => {
     expect(validate(null, User.schema)).toBeFalse()
   })
 
+  test('validate accepts Builder directly', () => {
+    const User = s.object({
+      id: s.number,
+      email: s.string,
+    })
+
+    // Passing the builder object 'User' instead of 'User.schema'
+    expect(validate({ id: 1, email: 'test' }, User)).toBeTrue()
+    expect(validate({ id: '1', email: 'test' }, User)).toBeFalse()
+
+    // Method style
+    expect(User.validate({ id: 1, email: 'test' })).toBeTrue()
+    expect(User.validate({ id: '1', email: 'test' })).toBeFalse()
+  })
+
   test('validates Optional Fields', () => {
     const schema = s.string.optional
     expect(validate('hello', schema.schema)).toBeTrue()

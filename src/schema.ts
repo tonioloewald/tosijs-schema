@@ -1,11 +1,10 @@
-/* -------------------------------------------------------------------------- */
-/* 1. THE TRUTH (Universal Builder & Runtime Implementation)                  */
-/* -------------------------------------------------------------------------- */
+// THE TRUTH
 const RX_EMOJI_ATOM = '\\p{Extended_Pictographic}'
 
 const create = (s: any): any => ({
   schema: s,
   _type: null as any,
+  validate: (data: any, opts?: any) => validate(data, s, opts),
 
   // --- Modifiers ---
   get optional() {
@@ -75,9 +74,7 @@ const create = (s: any): any => ({
   step: (v: number) => create({ ...s, multipleOf: v }),
 })
 
-/* -------------------------------------------------------------------------- */
-/* 2. THE LIE (Type Definitions / Declarations)                               */
-/* -------------------------------------------------------------------------- */
+// THE LIE
 
 export type Infer<S> = S extends { _type: infer T } ? T : never
 
@@ -94,11 +91,11 @@ type SmartObject<T> = { [K in OptionalKeys<T>]?: T[K] } & {
   ? { [K in keyof O]: O[K] }
   : never
 
-interface Base<T> {
+export interface Base<T> {
   schema: any
   _type: T
   get optional(): Base<T | undefined>
-
+  validate(val: any, opts?: ValidateOptions | ErrorHandler): boolean
   title(t: string): Base<T>
   describe(d: string): Base<T>
   default(v: T): Base<T>
@@ -156,9 +153,7 @@ interface Obj<T> extends Base<T> {
   max(count: number): Obj<T>
 }
 
-/* -------------------------------------------------------------------------- */
-/* 3. THE PROXY (Lazy Instantiation)                                          */
-/* -------------------------------------------------------------------------- */
+// PROXY
 
 const methods = {
   // --- First-Class Formats ---
@@ -183,6 +178,9 @@ const methods = {
       pattern: `^${RX_EMOJI_ATOM}+$`,
       format: 'emoji',
     }) as Str
+  },
+  get any() {
+    return create({}) as Base<any>
   },
 
   pattern: (r: RegExp | string) =>
@@ -244,6 +242,7 @@ type TinySchema = typeof methods & {
   number: Num
   integer: Num
   boolean: Base<boolean>
+  any: Base<any>
 }
 
 export const s = new Proxy(methods, {
@@ -263,9 +262,7 @@ export const s = new Proxy(methods, {
   },
 }) as TinySchema
 
-/* -------------------------------------------------------------------------- */
-/* 4. THE VALIDATOR                                                           */
-/* -------------------------------------------------------------------------- */
+// VALIDATOR
 
 const STRIDE = 97
 const FMT: Record<string, (v: string) => boolean> = {
@@ -297,9 +294,10 @@ export interface ValidateOptions {
 
 export function validate(
   val: any,
-  schema: any,
+  builderOrSchema: Base<any> | Record<string, any>,
   opts?: ValidateOptions | ErrorHandler
 ): boolean {
+  const schema = builderOrSchema?.schema || builderOrSchema
   const onError = typeof opts === 'function' ? opts : opts?.onError
   const fullScan = typeof opts === 'object' ? opts?.fullScan : false
 
@@ -320,6 +318,7 @@ export function validate(
 
     if (v === null || v === undefined) {
       return (
+        !s.type ||
         (Array.isArray(s.type) && s.type.includes('null')) ||
         err('Expected value')
       )
@@ -435,9 +434,7 @@ export function validate(
   return walk(val, schema)
 }
 
-/* -------------------------------------------------------------------------- */
-/* 5. THE DIFF ENGINE                                                         */
-/* -------------------------------------------------------------------------- */
+// DIFF
 
 export function diff(a: any, b: any): any {
   if (JSON.stringify(a) === JSON.stringify(b)) return null

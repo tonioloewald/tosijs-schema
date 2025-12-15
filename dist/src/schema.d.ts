@@ -14,10 +14,11 @@ type SmartObject<T> = {
 } extends infer O ? {
     [K in keyof O]: O[K];
 } : never;
-interface Base<T> {
+export interface Base<T> {
     schema: any;
     _type: T;
     get optional(): Base<T | undefined>;
+    validate(val: any, opts?: ValidateOptions | ErrorHandler): boolean;
     title(t: string): Base<T>;
     describe(d: string): Base<T>;
     default(v: T): Base<T>;
@@ -71,6 +72,7 @@ declare const methods: {
     readonly url: Str;
     readonly datetime: Str;
     readonly emoji: Str;
+    readonly any: Base<any>;
     pattern: (r: RegExp | string) => Str;
     union: <T extends Base<any>[]>(schemas: T) => Base<Infer<T[number]>>;
     enum: <T extends string | number>(vals: T[]) => Base<T>;
@@ -84,6 +86,7 @@ type TinySchema = typeof methods & {
     number: Num;
     integer: Num;
     boolean: Base<boolean>;
+    any: Base<any>;
 };
 export declare const s: TinySchema;
 export type ErrorHandler = (path: string, msg: string) => void;
@@ -91,6 +94,6 @@ export interface ValidateOptions {
     onError?: ErrorHandler;
     fullScan?: boolean;
 }
-export declare function validate(val: any, schema: any, opts?: ValidateOptions | ErrorHandler): boolean;
+export declare function validate(val: any, builderOrSchema: Base<any> | Record<string, any>, opts?: ValidateOptions | ErrorHandler): boolean;
 export declare function diff(a: any, b: any): any;
 export {};
