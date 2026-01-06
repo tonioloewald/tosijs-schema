@@ -312,6 +312,29 @@ describe('Algebra', () => {
     expect(validate(500, Status.schema)).toBeFalse()
   })
 
+  test('validates Const', () => {
+    // String const
+    const Version = s.const('v1')
+    expect(validate('v1', Version.schema)).toBeTrue()
+    expect(validate('v2', Version.schema)).toBeFalse()
+
+    // Number const
+    const PI = s.const(3.14159)
+    expect(validate(3.14159, PI.schema)).toBeTrue()
+    expect(validate(3.14, PI.schema)).toBeFalse()
+
+    // Boolean const
+    const AlwaysTrue = s.const(true)
+    expect(validate(true, AlwaysTrue.schema)).toBeTrue()
+    expect(validate(false, AlwaysTrue.schema)).toBeFalse()
+
+    // Null const
+    const Nullable = s.const(null)
+    expect(validate(null, Nullable.schema)).toBeTrue()
+    expect(validate(undefined, Nullable.schema)).toBeFalse()
+    expect(validate('null', Nullable.schema)).toBeFalse()
+  })
+
   test('validates Unions (Primitive & Object)', () => {
     const ID = s.union([s.string, s.number])
     expect(validate('abc', ID.schema)).toBeTrue()
@@ -354,6 +377,13 @@ describe('Algebra', () => {
     const d4 = diff(G1.schema, G2.schema)
     expect(d4.maxProperties.from).toBe(5)
     expect(d4.maxProperties.to).toBe(10)
+
+    // Const diffing
+    const C1 = s.const('v1')
+    const C2 = s.const('v2')
+    const d5 = diff(C1.schema, C2.schema)
+    expect(d5.const.from).toBe('v1')
+    expect(d5.const.to).toBe('v2')
   })
 })
 

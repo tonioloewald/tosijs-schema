@@ -5,6 +5,11 @@ export declare class SchemaError extends Error {
     violations: string[];
     constructor(kind: 'Input' | 'Output', functionName: string, violations?: string[]);
 }
+export declare class TimeoutError extends Error {
+    functionName: string;
+    ms: number;
+    constructor(functionName: string, ms: number);
+}
 export type GuardedFunc<I, O> = {
     (input: I): Promise<O>;
     input: Base<I>;
@@ -23,9 +28,10 @@ type MBuilder<Registry> = {
 export declare class M<R extends Record<string, GuardedFunc<any, any>>> {
     private registry;
     constructor(registry: R);
-    static func<I extends Base<any>, O extends Base<any>>(inputSchema: I, outputSchema: O, impl: (data: Infer<I>) => Promise<Infer<O>> | Infer<O>): GuardedFunc<Infer<I>, Infer<O>>;
+    static func<I extends Base<any>, O extends Base<any>>(inputSchema: I, outputSchema: O, impl: (data: Infer<I>) => Promise<Infer<O>> | Infer<O>, timeoutMs?: number): GuardedFunc<Infer<I>, Infer<O>>;
     private start;
     private createChain;
+    private enrichError;
 }
 export declare const createM: <R extends Record<string, GuardedFunc<any, any>>>(r: R) => MBuilder<R>;
 export {};

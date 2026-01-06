@@ -1,6 +1,6 @@
 {
   "name": "tosijs-schema",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -16,7 +16,9 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "license": "MIT",
@@ -33,7 +35,7 @@
     "zod": "^4.1.12"
   },
   "scripts": {
-    "pack": "bun test && bun tsc --noEmit && bun bench.ts && bun examples.ts > examples.md && bun build index.ts --sourcemap=linked --minify --outdir=dist && tsc index.ts --declaration --emitDeclarationOnly --outDir dist && bun run show-size",
+    "pack": "bun test && bun build index.ts --target=node --format=cjs --outfile=dist/index.cjs && bun build index.ts --sourcemap=linked --minify --outdir=dist && bunx tsc index.ts --declaration --emitDeclarationOnly --outDir dist --skipLibCheck && bun run show-size",
     "show-size": "gzip -9 -k dist/index.js && ls -lh dist/index.js.gz && rm dist/index.js.gz",
     "prepublishOnly": "bun run pack",
     "latest": "rm -rf node_modules && bun install"

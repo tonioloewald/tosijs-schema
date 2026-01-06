@@ -195,6 +195,9 @@ const methods = {
   enum: <T extends string | number>(vals: T[]) =>
     create({ type: typeof vals[0], enum: vals }) as Base<T>,
 
+  const: <T extends string | number | boolean | null>(val: T) =>
+    create({ const: val }) as Base<T>,
+
   array: <T>(items: Base<T>) =>
     create({ type: 'array', items: items.schema }) as Arr<T[]>,
 
@@ -314,6 +317,10 @@ export function validate(
         if (validate(v, sub)) return true
       }
       return err('Union mismatch')
+    }
+
+    if (s.const !== undefined) {
+      return v === s.const || err('Const mismatch')
     }
 
     if (v === null || v === undefined) {
@@ -512,6 +519,7 @@ export function diff(a: any, b: any): any {
     'pattern',
     'format',
     'enum',
+    'const',
     'title',
     'description',
     'default',
