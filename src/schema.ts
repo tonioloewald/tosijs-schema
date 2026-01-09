@@ -478,6 +478,47 @@ export function validate(
   return walk(val, schema)
 }
 
+
+// FILTER
+
+export function filter(data: any, builderOrSchema: any): any {
+  const schema = builderOrSchema?.schema || builderOrSchema
+  
+  if (data === null || data === undefined) {
+    return data
+  }
+  
+  const t = schema.type
+  
+  // For objects, only keep properties defined in the schema
+  if (t === 'object' && schema.properties && typeof data === 'object' && !Array.isArray(data)) {
+    const result: Record<string, any> = {}
+    for (const key of Object.keys(schema.properties)) {
+      if (key in data) {
+        result[key] = filter(data[key], schema.properties[key])
+      }
+    }
+    return result
+  }
+  
+  // For arrays, filter each item
+  if (t === 'array' && Array.isArray(data)) {
+    if (schema.items) {
+      if (Array.isArray(schema.items)) {
+        // Tuple: filter each item with corresponding schema
+        return data.slice(0, schema.items.length).map((item, i) => filter(item, schema.items[i]))
+      } else {
+        // Array: filter each item with the same schema
+        return data.map(item => filter(item, schema.items))
+      }
+    }
+    return data
+  }
+  
+  // For primitives, just return the value
+  return data
+}
+
 // DIFF
 
 export function diff(a: any, b: any): any {

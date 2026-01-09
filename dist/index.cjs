@@ -31,6 +31,7 @@ var exports_schema = {};
 __export(exports_schema, {
   validate: () => validate,
   s: () => s,
+  filter: () => filter,
   diff: () => diff,
   createM: () => createM,
   TimeoutError: () => TimeoutError,
@@ -350,6 +351,33 @@ function validate(val, builderOrSchema, opts) {
     return true;
   };
   return walk(val, schema);
+}
+function filter(data, builderOrSchema) {
+  const schema = builderOrSchema?.schema || builderOrSchema;
+  if (data === null || data === undefined) {
+    return data;
+  }
+  const t = schema.type;
+  if (t === "object" && schema.properties && typeof data === "object" && !Array.isArray(data)) {
+    const result = {};
+    for (const key of Object.keys(schema.properties)) {
+      if (key in data) {
+        result[key] = filter(data[key], schema.properties[key]);
+      }
+    }
+    return result;
+  }
+  if (t === "array" && Array.isArray(data)) {
+    if (schema.items) {
+      if (Array.isArray(schema.items)) {
+        return data.slice(0, schema.items.length).map((item, i) => filter(item, schema.items[i]));
+      } else {
+        return data.map((item) => filter(item, schema.items));
+      }
+    }
+    return data;
+  }
+  return data;
 }
 function diff(a, b) {
   if (JSON.stringify(a) === JSON.stringify(b))
