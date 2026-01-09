@@ -179,6 +179,12 @@ const methods = {
       format: 'emoji',
     }) as Str
   },
+  get null() {
+    return create({ type: 'null' }) as Base<null>
+  },
+  get undefined() {
+    return create({ type: 'null', 'x-tjs-undefined': true }) as Base<undefined>
+  },
   get any() {
     return create({}) as Base<any>
   },
@@ -235,6 +241,29 @@ const methods = {
       type: 'object',
       additionalProperties: value.schema,
     }) as Obj<Record<string, T>>,
+
+  infer: (value: any): Base<any> => {
+    if (value === null) return create({ type: 'null' }) as Base<null>
+    if (value === undefined) return create({ type: 'null', 'x-tjs-undefined': true }) as Base<undefined>
+    const t = typeof value
+    if (t === 'string') return create({ type: 'string' }) as Str
+    if (t === 'number') return create({ type: Number.isInteger(value) ? 'integer' : 'number' }) as Num
+    if (t === 'boolean') return create({ type: 'boolean' }) as Base<boolean>
+    if (Array.isArray(value)) {
+      if (value.length === 0) return create({ type: 'array' }) as Arr<any[]>
+      return create({ type: 'array', items: methods.infer(value[0]).schema }) as Arr<any[]>
+    }
+    if (t === 'object') {
+      const properties: Record<string, any> = {}
+      const required: string[] = []
+      for (const k in value) {
+        properties[k] = methods.infer(value[k]).schema
+        required.push(k)
+      }
+      return create({ type: 'object', properties, required, additionalProperties: false }) as Obj<any>
+    }
+    return create({}) as Base<any>
+  },
 }
 
 type TinySchema = typeof methods & {
@@ -242,6 +271,8 @@ type TinySchema = typeof methods & {
   number: Num
   integer: Num
   boolean: Base<boolean>
+  null: Base<null>
+  undefined: Base<undefined>
   any: Base<any>
 }
 
@@ -316,12 +347,18 @@ export function validate(
       return err('Union mismatch')
     }
 
-    if (v === null || v === undefined) {
-      return (
-        !s.type ||
-        (Array.isArray(s.type) && s.type.includes('null')) ||
-        err('Expected value')
-      )
+    // Handle null - check if schema expects null (type: 'null' without x-tjs-undefined)
+    if (v === null) {
+      const expectsNull = s.type === 'null' && !s['x-tjs-undefined']
+      const typeIncludesNull = Array.isArray(s.type) && s.type.includes('null')
+      return expectsNull || typeIncludesNull || !s.type || err('Expected value, got null')
+    }
+
+    // Handle undefined - check if schema expects undefined (type: 'null' with x-tjs-undefined)
+    if (v === undefined) {
+      const expectsUndefined = s.type === 'null' && s['x-tjs-undefined']
+      const typeIncludesNull = Array.isArray(s.type) && s.type.includes('null')
+      return expectsUndefined || typeIncludesNull || !s.type || err('Expected value, got undefined')
     }
 
     const t = Array.isArray(s.type) ? s.type[0] : s.type

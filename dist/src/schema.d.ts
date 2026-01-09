@@ -72,6 +72,8 @@ declare const methods: {
     readonly url: Str;
     readonly datetime: Str;
     readonly emoji: Str;
+    readonly null: Base<null>;
+    readonly undefined: Base<undefined>;
     readonly any: Base<any>;
     pattern: (r: RegExp | string) => Str;
     union: <T extends Base<any>[]>(schemas: T) => Base<Infer<T[number]>>;
@@ -80,12 +82,15 @@ declare const methods: {
     tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never; }>;
     object: <P extends Record<string, Base<any>>>(props: P) => Obj<SmartObject<{ [K in keyof P]: Infer<P[K]>; }>>;
     record: <T>(value: Base<T>) => Obj<Record<string, T>>;
+    infer: (value: any) => Base<any>;
 };
 type TinySchema = typeof methods & {
     string: Str;
     number: Num;
     integer: Num;
     boolean: Base<boolean>;
+    null: Base<null>;
+    undefined: Base<undefined>;
     any: Base<any>;
 };
 export declare const s: TinySchema;

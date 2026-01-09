@@ -109,7 +109,7 @@ export const UserSchema = s
     meta: s.record(s.number).min(1),
   })
   .meta({
-    $id: '[https://api.mysite.com/schemas/user](https://api.mysite.com/schemas/user)',
+    $id: 'https://api.mysite.com/schemas/user',
     title: 'UserProfile',
   })
 
