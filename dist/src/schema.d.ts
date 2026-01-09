@@ -78,6 +78,7 @@ declare const methods: {
     pattern: (r: RegExp | string) => Str;
     union: <T extends Base<any>[]>(schemas: T) => Base<Infer<T[number]>>;
     enum: <T extends string | number>(vals: T[]) => Base<T>;
+    const: <T extends string | number | boolean | null>(val: T) => Base<T>;
     array: <T>(items: Base<T>) => Arr<T[]>;
     tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never; }>;
     object: <P extends Record<string, Base<any>>>(props: P) => Obj<SmartObject<{ [K in keyof P]: Infer<P[K]>; }>>;
