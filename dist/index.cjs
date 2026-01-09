@@ -352,8 +352,30 @@ function validate(val, builderOrSchema, opts) {
   };
   return walk(val, schema);
 }
-function filter(data, builderOrSchema) {
+function filter(data, builderOrSchema, opts) {
   const schema = builderOrSchema?.schema || builderOrSchema;
+  const onError = typeof opts === "function" ? opts : opts?.onError;
+  const fullScan = typeof opts === "object" ? opts?.fullScan : false;
+  const skipValidation = typeof opts === "object" ? opts?.skipValidation : false;
+  if (!skipValidation) {
+    let errorPath = "";
+    let errorMsg = "";
+    const captureError = (path, msg) => {
+      if (!errorPath) {
+        errorPath = path;
+        errorMsg = msg;
+      }
+      if (onError)
+        onError(path, msg);
+    };
+    const valid = validate(data, schema, { onError: captureError, fullScan });
+    if (!valid) {
+      return new Error(`${errorPath}: ${errorMsg}`);
+    }
+  }
+  return filterData(data, schema);
+}
+function filterData(data, schema) {
   if (data === null || data === undefined) {
     return data;
   }
@@ -362,7 +384,7 @@ function filter(data, builderOrSchema) {
     const result = {};
     for (const key of Object.keys(schema.properties)) {
       if (key in data) {
-        result[key] = filter(data[key], schema.properties[key]);
+        result[key] = filterData(data[key], schema.properties[key]);
       }
     }
     return result;
@@ -370,9 +392,9 @@ function filter(data, builderOrSchema) {
   if (t === "array" && Array.isArray(data)) {
     if (schema.items) {
       if (Array.isArray(schema.items)) {
-        return data.slice(0, schema.items.length).map((item, i) => filter(item, schema.items[i]));
+        return data.slice(0, schema.items.length).map((item, i) => filterData(item, schema.items[i]));
       } else {
-        return data.map((item) => filter(item, schema.items));
+        return data.map((item) => filterData(item, schema.items));
       }
     }
     return data;

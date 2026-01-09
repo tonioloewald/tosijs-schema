@@ -1,4 +1,4 @@
-import { s, validate } from './src/schema'
+import { s, validate, filter } from './src/schema'
 import { z } from 'zod'
 
 const ARRAY_SIZE = 1_000_000
@@ -167,3 +167,31 @@ console.log(`   (Engine is hot)`)
 
 console.log(`\n\n🔥 PHASE 2: HOT JIT (Simulating Long-Running Server) 🔥`)
 runSuite('Hot Run')
+
+// --- FILTER BENCHMARK ---
+console.log(`\n\n🧹 FILTER BENCHMARK 🧹`)
+
+const FILTER_SIZE = 10_000
+const filterData = new Array(FILTER_SIZE).fill(null).map((_, i) => ({
+  ...makeItem(i),
+  extraField1: 'should be removed',
+  extraField2: { nested: 'garbage' },
+  debug: true,
+}))
+
+const f1_start = performance.now()
+const filtered = filter(filterData, TosiArr.schema)
+const f1_end = performance.now()
+
+const f2_start = performance.now()
+filter(filterData, TosiArr.schema, { skipValidation: true })
+const f2_end = performance.now()
+
+const f3_start = performance.now()
+filter(filterData, TosiArr.schema, { fullScan: true })
+const f3_end = performance.now()
+
+console.log(`   [Array 10k] filter (default):        ${fmt(f1_end - f1_start)}`)
+console.log(`   [Array 10k] filter (skipValidation): ${fmt(f2_end - f2_start)}`)
+console.log(`   [Array 10k] filter (fullScan):       ${fmt(f3_end - f3_start)}`)
+console.log(`   Filtered ${filtered instanceof Error ? 'ERROR' : filtered.length} items`)

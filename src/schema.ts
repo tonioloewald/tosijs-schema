@@ -481,9 +481,44 @@ export function validate(
 
 // FILTER
 
-export function filter(data: any, builderOrSchema: any): any {
+export interface FilterOptions {
+  onError?: ErrorHandler
+  fullScan?: boolean
+  skipValidation?: boolean
+}
+
+export function filter(
+  data: any,
+  builderOrSchema: any,
+  opts?: FilterOptions | ErrorHandler
+): any {
   const schema = builderOrSchema?.schema || builderOrSchema
-  
+  const onError = typeof opts === 'function' ? opts : opts?.onError
+  const fullScan = typeof opts === 'object' ? opts?.fullScan : false
+  const skipValidation = typeof opts === 'object' ? opts?.skipValidation : false
+
+  // Validate first (unless skipped)
+  if (!skipValidation) {
+    let errorPath = ''
+    let errorMsg = ''
+    const captureError: ErrorHandler = (path, msg) => {
+      if (!errorPath) {
+        errorPath = path
+        errorMsg = msg
+      }
+      if (onError) onError(path, msg)
+    }
+
+    const valid = validate(data, schema, { onError: captureError, fullScan })
+    if (!valid) {
+      return new Error(`${errorPath}: ${errorMsg}`)
+    }
+  }
+
+  return filterData(data, schema)
+}
+
+function filterData(data: any, schema: any): any {
   if (data === null || data === undefined) {
     return data
   }
@@ -495,7 +530,7 @@ export function filter(data: any, builderOrSchema: any): any {
     const result: Record<string, any> = {}
     for (const key of Object.keys(schema.properties)) {
       if (key in data) {
-        result[key] = filter(data[key], schema.properties[key])
+        result[key] = filterData(data[key], schema.properties[key])
       }
     }
     return result
@@ -506,10 +541,10 @@ export function filter(data: any, builderOrSchema: any): any {
     if (schema.items) {
       if (Array.isArray(schema.items)) {
         // Tuple: filter each item with corresponding schema
-        return data.slice(0, schema.items.length).map((item, i) => filter(item, schema.items[i]))
+        return data.slice(0, schema.items.length).map((item, i) => filterData(item, schema.items[i]))
       } else {
         // Array: filter each item with the same schema
-        return data.map(item => filter(item, schema.items))
+        return data.map(item => filterData(item, schema.items))
       }
     }
     return data

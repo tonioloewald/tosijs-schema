@@ -101,6 +101,11 @@ export interface ValidateOptions {
     fullScan?: boolean;
 }
 export declare function validate(val: any, builderOrSchema: Base<any> | Record<string, any>, opts?: ValidateOptions | ErrorHandler): boolean;
-export declare function filter(data: any, builderOrSchema: any): any;
+export interface FilterOptions {
+    onError?: ErrorHandler;
+    fullScan?: boolean;
+    skipValidation?: boolean;
+}
+export declare function filter(data: any, builderOrSchema: any, opts?: FilterOptions | ErrorHandler): any;
 export declare function diff(a: any, b: any): any;
 export {};

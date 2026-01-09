@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { s, validate, diff, type Infer } from './schema'
+import { s, validate, diff, filter, type Infer } from './schema'
 
 // --- 1. BUILDER STRUCTURE CHECKS ---
 describe('Builder Output', () => {
@@ -513,6 +513,126 @@ describe('First-Class Formats & Pattern', () => {
 })
 
 // --- 12. STATIC TYPE INFERENCE ---
+// --- FILTER ---
+describe('Filter', () => {
+  test('strips extra properties from objects', () => {
+    const User = s.object({ id: s.number, name: s.string })
+    const input = { id: 1, name: 'Alice', extra: 'stuff', debug: true }
+    const result = filter(input, User)
+    
+    expect(result).toEqual({ id: 1, name: 'Alice' })
+    expect(result.extra).toBeUndefined()
+  })
+
+  test('works with nested objects', () => {
+    const schema = s.object({
+      user: s.object({ id: s.number }),
+    })
+    const input = { user: { id: 1, secret: 'password' }, token: 'abc' }
+    const result = filter(input, schema)
+    
+    expect(result).toEqual({ user: { id: 1 } })
+  })
+
+  test('works with arrays', () => {
+    const schema = s.array(s.object({ id: s.number }))
+    const input = [{ id: 1, extra: 'a' }, { id: 2, extra: 'b' }]
+    const result = filter(input, schema)
+    
+    expect(result).toEqual([{ id: 1 }, { id: 2 }])
+  })
+
+  test('works with tuples', () => {
+    const schema = s.tuple([s.object({ x: s.number }), s.object({ y: s.number })])
+    const input = [{ x: 1, extra: 'a' }, { y: 2, extra: 'b' }]
+    const result = filter(input, schema)
+    
+    expect(result).toEqual([{ x: 1 }, { y: 2 }])
+  })
+
+  test('works with tuples (skipValidation strips extra elements)', () => {
+    const schema = s.tuple([s.object({ x: s.number }), s.object({ y: s.number })])
+    const input = [{ x: 1, extra: 'a' }, { y: 2, extra: 'b' }, { z: 3 }]
+    const result = filter(input, schema, { skipValidation: true })
+    
+    expect(result).toEqual([{ x: 1 }, { y: 2 }])
+  })
+
+  test('returns Error on validation failure (default)', () => {
+    const schema = s.object({ id: s.number })
+    const input = { id: 'not a number' }
+    const result = filter(input, schema)
+    
+    expect(result).toBeInstanceOf(Error)
+    expect(result.message).toContain('id')
+  })
+
+  test('skips validation with skipValidation option', () => {
+    const schema = s.object({ id: s.number })
+    const input = { id: 'not a number', extra: 'stuff' }
+    const result = filter(input, schema, { skipValidation: true })
+    
+    expect(result).toEqual({ id: 'not a number' })
+    expect(result).not.toBeInstanceOf(Error)
+  })
+
+  test('fullScan catches errors in skipped positions', () => {
+    const schema = s.array(s.number)
+    const input = new Array(200).fill(1)
+    input[1] = 'bad' // Would be skipped by stride
+
+    // Default (skip mode) - should pass
+    const resultSkip = filter(input, schema)
+    expect(resultSkip).not.toBeInstanceOf(Error)
+
+    // Full scan - should catch the error
+    const resultFull = filter(input, schema, { fullScan: true })
+    expect(resultFull).toBeInstanceOf(Error)
+  })
+
+  test('calls onError callback on validation failure', () => {
+    const schema = s.object({ id: s.number })
+    const input = { id: 'bad' }
+    
+    let errorPath = ''
+    let errorMsg = ''
+    const result = filter(input, schema, (path, msg) => {
+      errorPath = path
+      errorMsg = msg
+    })
+    
+    expect(result).toBeInstanceOf(Error)
+    expect(errorPath).toBe('id')
+    expect(errorMsg).toContain('Expected number')
+  })
+
+  test('calls onError via options object', () => {
+    const schema = s.object({ id: s.number })
+    const input = { id: 'bad' }
+    
+    let errorPath = ''
+    const result = filter(input, schema, {
+      onError: (path) => { errorPath = path }
+    })
+    
+    expect(result).toBeInstanceOf(Error)
+    expect(errorPath).toBe('id')
+  })
+
+  test('preserves null and undefined values', () => {
+    const schema = s.object({ val: s.string.optional })
+    
+    expect(filter({ val: null }, schema, { skipValidation: true })).toEqual({ val: null })
+    expect(filter({ val: undefined }, schema, { skipValidation: true })).toEqual({ val: undefined })
+  })
+
+  test('accepts builder directly (not just .schema)', () => {
+    const User = s.object({ id: s.number })
+    const result = filter({ id: 1, extra: true }, User)
+    expect(result).toEqual({ id: 1 })
+  })
+})
+
 describe('Static Type Inference', () => {
   test('First-class types infer correct primitives', () => {
     // Define a schema using the new first-class properties
