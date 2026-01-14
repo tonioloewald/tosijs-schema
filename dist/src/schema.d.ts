@@ -98,11 +98,17 @@ export declare const s: TinySchema;
 export type ErrorHandler = (path: string, msg: string) => void;
 export interface ValidateOptions {
     onError?: ErrorHandler;
+    /** Enable strict validation: no stride sampling, enforces maxProperties. */
+    strict?: boolean;
+    /** @deprecated Use `strict` instead. */
     fullScan?: boolean;
 }
 export declare function validate(val: any, builderOrSchema: Base<any> | Record<string, any>, opts?: ValidateOptions | ErrorHandler): boolean;
 export interface FilterOptions {
     onError?: ErrorHandler;
+    /** Enable strict validation: no stride sampling, enforces maxProperties. */
+    strict?: boolean;
+    /** @deprecated Use `strict` instead. */
     fullScan?: boolean;
     skipValidation?: boolean;
 }

@@ -214,7 +214,7 @@ var FMT = {
 function validate(val, builderOrSchema, opts) {
   const schema = builderOrSchema?.schema || builderOrSchema;
   const onError = typeof opts === "function" ? opts : opts?.onError;
-  const fullScan = typeof opts === "object" ? opts?.fullScan : false;
+  const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const path = [];
   const err = (msg) => {
     if (onError)
@@ -257,12 +257,18 @@ function validate(val, builderOrSchema, opts) {
     } else if (t && typeof v !== t)
       return err(`Expected ${t}`);
     if (typeof v === "number") {
+      if (!Number.isFinite(v))
+        return err("Expected finite number");
       if (s2.minimum !== undefined && v < s2.minimum)
         return err("Value < min");
       if (s2.maximum !== undefined && v > s2.maximum)
         return err("Value > max");
-      if (s2.multipleOf !== undefined && v % s2.multipleOf !== 0)
-        return err("Value not step");
+      if (s2.multipleOf !== undefined) {
+        const remainder = Math.abs(v % s2.multipleOf);
+        const tolerance = 0.0000000001;
+        if (remainder > tolerance && Math.abs(remainder - Math.abs(s2.multipleOf)) > tolerance)
+          return err("Value not step");
+      }
     }
     if (typeof v === "string") {
       if (s2.minLength !== undefined && v.length < s2.minLength)
@@ -275,13 +281,17 @@ function validate(val, builderOrSchema, opts) {
         return err("Format invalid");
     }
     if (t === "object") {
-      if (s2.minProperties !== undefined) {
+      const checkMin = s2.minProperties !== undefined;
+      const checkMax = fullScan && s2.maxProperties !== undefined;
+      if (checkMin || checkMax) {
         let c = 0;
         for (const k in v)
           if (Object.prototype.hasOwnProperty.call(v, k))
             c++;
-        if (c < s2.minProperties)
+        if (checkMin && c < s2.minProperties)
           return err("Too few props");
+        if (checkMax && c > s2.maxProperties)
+          return err("Too many props");
       }
       if (s2.required) {
         for (const k of s2.required)
@@ -300,20 +310,24 @@ function validate(val, builderOrSchema, opts) {
         }
       }
       if (s2.additionalProperties) {
-        let i = 0;
+        const keys = [];
         for (const k in v) {
           if (s2.properties && k in s2.properties)
             continue;
-          if (!fullScan) {
-            i++;
-            if (i % STRIDE !== 0)
-              continue;
-          }
+          keys.push(k);
+        }
+        const len = keys.length;
+        const step = fullScan || len <= STRIDE ? 1 : Math.floor(len / STRIDE);
+        for (let i = 0;i < len; i += step) {
+          const idx = step > 1 && i > len - 1 - step ? len - 1 : i;
+          const k = keys[idx];
           path.push(k);
           const ok = walk(v[k], s2.additionalProperties);
           path.pop();
           if (!ok)
             return false;
+          if (idx === len - 1)
+            break;
         }
       }
       return true;
@@ -355,7 +369,7 @@ function validate(val, builderOrSchema, opts) {
 function filter(data, builderOrSchema, opts) {
   const schema = builderOrSchema?.schema || builderOrSchema;
   const onError = typeof opts === "function" ? opts : opts?.onError;
-  const fullScan = typeof opts === "object" ? opts?.fullScan : false;
+  const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const skipValidation = typeof opts === "object" ? opts?.skipValidation : false;
   if (!skipValidation) {
     let errorPath = "";
