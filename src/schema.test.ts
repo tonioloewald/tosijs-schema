@@ -140,39 +140,66 @@ describe('Object Constraints & Optimization', () => {
     expect(validate({}, dict.schema)).toBeFalse()
   })
 
-  test('maxProperties: GHOST CONSTRAINT (Documented but NOT Validated)', () => {
+  test('maxProperties: Skipped by default, enforced in strict mode', () => {
     const dict = s.record(s.number).max(1)
 
-    // 1. Verify it exists in the Schema (for documentation/swagger)
+    // 1. Verify it exists in the Schema (for documentation/OpenAPI)
     expect(dict.schema.maxProperties).toBe(1)
 
-    // 2. Verify validation IGNORES it (Business logic separation)
+    // 2. Default mode IGNORES maxProperties
+    // This is intentional: counting properties is O(n) which would negate
+    // the performance benefits of stride sampling.
     const hugePayload = { a: 1, b: 2, c: 3 }
     expect(validate(hugePayload, dict.schema)).toBeTrue()
+
+    // 3. strict mode ENFORCES maxProperties
+    // When you opt into strict validation, all constraints are checked.
+    expect(validate(hugePayload, dict.schema, { strict: true })).toBeFalse()
+    expect(validate({ a: 1 }, dict.schema, { strict: true })).toBeTrue()
+
+    // 4. fullScan still works (deprecated alias)
+    expect(validate(hugePayload, dict.schema, { fullScan: true })).toBeFalse()
   })
 
-  test('Optimization: Dictionary Stride Skips Validation (Optimization is Always On)', () => {
-    const STRIDE = 97
+  test('Optimization: Dictionary Stride Skips Validation for large objects', () => {
     const dict = s.record(s.number)
 
-    // Create object with 200 keys
+    // Create object with 200 keys - step will be floor(200/97) = 2
+    // So we check indices 0, 2, 4, ... and the last one (199)
     const data: Record<string, any> = {}
-    for (let i = 0; i < 200; i++) data[`k_${i}`] = 1
+    for (let i = 0; i < 200; i++) data[`k_${String(i).padStart(3, '0')}`] = 1
 
-    // Error in a SKIPPED key (k_0 is index 1, skipped by stride 97 logic)
-    data['k_0'] = 'bad_string'
+    // Error at index 1 (k_001) - skipped by stride
+    data['k_001'] = 'bad_string'
 
     // Should return TRUE because we skipped the bad key
     expect(validate(data, dict.schema)).toBeTrue()
+
+    // But index 0 (k_000) would be caught
+    data['k_001'] = 1 // fix it
+    data['k_000'] = 'bad_string'
+    expect(validate(data, dict.schema)).toBeFalse()
+  })
+
+  test('Optimization: Small dictionaries are fully validated', () => {
+    const dict = s.record(s.number)
+
+    // Create object with 50 keys (< STRIDE of 97)
+    const data: Record<string, any> = {}
+    for (let i = 0; i < 50; i++) data[`k_${i}`] = 1
+
+    // Any bad value should be caught in small objects
+    data['k_25'] = 'bad_string'
+    expect(validate(data, dict.schema)).toBeFalse()
   })
 
   test('Optimization: Callback does NOT disable Stride', () => {
     const dict = s.record(s.number)
     const data: Record<string, any> = {}
-    for (let i = 0; i < 200; i++) data[`k_${i}`] = 1
+    for (let i = 0; i < 200; i++) data[`k_${String(i).padStart(3, '0')}`] = 1
 
-    // Error in skipped key
-    data['k_0'] = 'bad_string'
+    // Error at index 1 - skipped by stride
+    data['k_001'] = 'bad_string'
 
     let called = false
     // Pass dummy callback -> optimization should remain active -> returns TRUE
@@ -225,13 +252,13 @@ describe('Optimization: Array Stride', () => {
     expect(err.path).toBe('user')
   })
 
-  test('Optimization: fullScan forces check', () => {
+  test('Optimization: strict mode forces full check', () => {
     const list = s.array(s.number)
     const data = new Array(200).fill(1)
     data[1] = 'bad' // Skipped by stride
 
-    // Should catch error
-    expect(validate(data, list.schema, { fullScan: true })).toBeFalse()
+    // strict mode catches the error
+    expect(validate(data, list.schema, { strict: true })).toBeFalse()
   })
 
   test('catches validation errors on the first element (Head check)', () => {

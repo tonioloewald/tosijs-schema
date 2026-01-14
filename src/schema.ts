@@ -323,6 +323,9 @@ export type ErrorHandler = (path: string, msg: string) => void
 
 export interface ValidateOptions {
   onError?: ErrorHandler
+  /** Enable strict validation: no stride sampling, enforces maxProperties. */
+  strict?: boolean
+  /** @deprecated Use `strict` instead. */
   fullScan?: boolean
 }
 
@@ -333,7 +336,7 @@ export function validate(
 ): boolean {
   const schema = builderOrSchema?.schema || builderOrSchema
   const onError = typeof opts === 'function' ? opts : opts?.onError
-  const fullScan = typeof opts === 'object' ? opts?.fullScan : false
+  const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
 
   const path: string[] = []
 
@@ -382,10 +385,15 @@ export function validate(
     } else if (t && typeof v !== t) return err(`Expected ${t}`)
 
     if (typeof v === 'number') {
+      if (!Number.isFinite(v)) return err('Expected finite number')
       if (s.minimum !== undefined && v < s.minimum) return err('Value < min')
       if (s.maximum !== undefined && v > s.maximum) return err('Value > max')
-      if (s.multipleOf !== undefined && v % s.multipleOf !== 0)
-        return err('Value not step')
+      if (s.multipleOf !== undefined) {
+        const remainder = Math.abs(v % s.multipleOf)
+        const tolerance = 1e-10
+        if (remainder > tolerance && Math.abs(remainder - Math.abs(s.multipleOf)) > tolerance)
+          return err('Value not step')
+      }
     }
     if (typeof v === 'string') {
       if (s.minLength !== undefined && v.length < s.minLength)
@@ -402,10 +410,16 @@ export function validate(
     }
 
     if (t === 'object') {
-      if (s.minProperties !== undefined) {
+      // Check property count constraints
+      // minProperties: always checked (required for empty object rejection)
+      // maxProperties: only checked in fullScan mode (counting is O(n))
+      const checkMin = s.minProperties !== undefined
+      const checkMax = fullScan && s.maxProperties !== undefined
+      if (checkMin || checkMax) {
         let c = 0
         for (const k in v) if (Object.prototype.hasOwnProperty.call(v, k)) c++
-        if (c < s.minProperties) return err('Too few props')
+        if (checkMin && c < s.minProperties) return err('Too few props')
+        if (checkMax && c > s.maxProperties) return err('Too many props')
       }
 
       if (s.required) {
@@ -423,19 +437,21 @@ export function validate(
         }
       }
       if (s.additionalProperties) {
-        let i = 0
+        const keys: string[] = []
         for (const k in v) {
           if (s.properties && k in s.properties) continue
-
-          if (!fullScan) {
-            i++
-            if (i % STRIDE !== 0) continue
-          }
-
+          keys.push(k)
+        }
+        const len = keys.length
+        const step = fullScan || len <= STRIDE ? 1 : Math.floor(len / STRIDE)
+        for (let i = 0; i < len; i += step) {
+          const idx = step > 1 && i > len - 1 - step ? len - 1 : i
+          const k = keys[idx]!
           path.push(k)
           const ok = walk(v[k], s.additionalProperties)
           path.pop()
           if (!ok) return false
+          if (idx === len - 1) break
         }
       }
       return true
@@ -483,6 +499,9 @@ export function validate(
 
 export interface FilterOptions {
   onError?: ErrorHandler
+  /** Enable strict validation: no stride sampling, enforces maxProperties. */
+  strict?: boolean
+  /** @deprecated Use `strict` instead. */
   fullScan?: boolean
   skipValidation?: boolean
 }
@@ -494,7 +513,7 @@ export function filter(
 ): any {
   const schema = builderOrSchema?.schema || builderOrSchema
   const onError = typeof opts === 'function' ? opts : opts?.onError
-  const fullScan = typeof opts === 'object' ? opts?.fullScan : false
+  const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
   const skipValidation = typeof opts === 'object' ? opts?.skipValidation : false
 
   // Validate first (unless skipped)
