@@ -22,6 +22,15 @@ Zod:           TypeScript → Zod → zod-to-json-schema → OpenAPI/LLMs
 tosijs-schema: JSON Schema → Types + Validation (single source of truth)
 ```
 
+**JSON Schema is a universal standard.** The same schema that validates data in your TypeScript app can:
+- Generate types for Python, Go, Rust, Java, C# (via codegen tools)
+- Define your OpenAPI/Swagger documentation
+- Configure LLM structured outputs (OpenAI, Anthropic)
+- Be stored in a database and shared across services
+- Be understood by any language or tool that speaks JSON Schema
+
+With Zod or TypeBox, TypeScript is your source of truth—other languages get second-class derived artifacts. With tosijs-schema, JSON Schema is your source of truth and TypeScript is just one of many consumers.
+
 ### Cleaner Syntax
 
 ```typescript
