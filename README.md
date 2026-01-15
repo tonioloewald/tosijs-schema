@@ -29,6 +29,8 @@ tosijs-schema: JSON Schema → Types + Validation (single source of truth)
 - Be stored in a database and shared across services
 - Be understood by any language or tool that speaks JSON Schema
 
+**Schemas are serializable data.** Your types can travel with your data, enabling self-documenting APIs and pipelines. An endpoint can return its own schema. A message queue can include the schema for its payload. A pipeline step can advertise its input/output types. No separate documentation to maintain—the types *are* the documentation.
+
 With Zod or TypeBox, TypeScript is your source of truth—other languages get second-class derived artifacts. With tosijs-schema, JSON Schema is your source of truth and TypeScript is just one of many consumers.
 
 ### Cleaner Syntax
