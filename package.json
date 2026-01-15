@@ -30,6 +30,7 @@
     "dist"
   ],
   "devDependencies": {
+    "@sinclair/typebox": "^0.34.47",
     "@types/bun": "latest",
     "typescript": "^5",
     "zod": "^4.1.12"

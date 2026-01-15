@@ -259,6 +259,7 @@ None
 | `typescript` | ^5 | Type checking & declarations | Low |
 | `@types/bun` | latest | Bun runtime types | Low |
 | `zod` | ^4.1.12 | Benchmark comparisons | None |
+| `@sinclair/typebox` | ^0.34.47 | Benchmark comparisons | None |
 
 ---
 
@@ -298,6 +299,16 @@ None
 #### Zod (^4.1.12)
 | Aspect | Value |
 |--------|-------|
+| Purpose | Benchmarks only (`bench.ts`) |
+| Risk Level | **None** |
+| Note | Not included in published package |
+
+#### @sinclair/typebox (^0.34.47)
+| Aspect | Value |
+|--------|-------|
+| Vendor | Haydn Paterson (sinclair) |
+| License | MIT |
+| Weekly Downloads | ~3M |
 | Purpose | Benchmarks only (`bench.ts`) |
 | Risk Level | **None** |
 | Note | Not included in published package |

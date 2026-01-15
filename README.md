@@ -83,17 +83,17 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 
 ### Direct Comparison
 
-| Aspect | tosijs-schema | Zod |
-|--------|---------------|-----|
-| Philosophy | Schema-first | TypeScript-first |
-| Output | Native JSON Schema | Proprietary (convert for OpenAPI/LLMs) |
-| Syntax | `s.email` | `z.string().email()` |
-| Bundle | ~3kB | ~14kB |
-| Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) |
-| Runtime deps | 0 | 0 |
-| Performance | ~2x faster + O(1) sampling | O(n) |
-| Test coverage | 96.6% (covers YOUR schemas) | Battle-tested (covers Zod, not your schemas) |
-| Ecosystem | Small | Large (tRPC, react-hook-form, etc.) |
+| Aspect | tosijs-schema | Zod | TypeBox |
+|--------|---------------|-----|---------|
+| Philosophy | Schema-first | TypeScript-first | JSON Schema + JIT |
+| Output | Native JSON Schema | Proprietary | Native JSON Schema |
+| Syntax | `s.email` | `z.string().email()` | `Type.String({ format: 'email' })` |
+| Bundle | ~3kB | ~14kB | ~64kB |
+| Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
+| Runtime deps | 0 | 0 | 0 |
+| Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
+| Test coverage | 96.6% (covers YOUR schemas) | Battle-tested | Battle-tested |
+| Ecosystem | Small | Large (tRPC, etc.) | Growing (Fastify, Elysia) |
 
 ### When to Use Zod
 
@@ -101,13 +101,20 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 - You want transforms/refinements in your schema layer
 - Ecosystem momentum matters more than architecture
 
+### When to Use TypeBox
+
+- You need maximum validation throughput (high-traffic APIs, real-time pipelines)
+- You want JSON Schema output with JIT-compiled validators
+- You're building with Fastify or Elysia (native TypeBox support)
+- Bundle size isn't a primary concern (~64kB vs ~3kB)
+
 ### When to Use tosijs-schema
 
 - You need JSON Schema output (OpenAPI, LLMs, code generators)
-- Performance matters (high-throughput APIs, edge functions)
-- Bundle size matters
+- Bundle size matters (edge functions, serverless cold starts)
 - Supply chain security matters (zero dependencies)
-- You prefer schema-first architecture
+- You prefer schema-first architecture with minimal overhead
+- Sampling-based validation is acceptable (statistical confidence for large datasets)
 
 ## Installation
 
@@ -291,16 +298,22 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ## Performance
 
 ```
-[Array 1M items]
-  tosijs (sampling): 0.33ms    (1125x faster)
-  tosijs (strict):   183ms     (2x faster)
-  Zod:               367ms
+[Array 1M items]                        Hot JIT
+  tosijs (sampling):   0.3ms            (1273x vs Zod, 23x vs TypeBox JIT)
+  tosijs (strict):     188ms            (2x vs Zod)
+  TypeBox (JIT):       6.8ms            (57x vs Zod)
+  TypeBox (interp):    122ms            (3x vs Zod)
+  Zod:                 392ms
 
-[Dict 100k keys]
-  tosijs (sampling): 3.1ms     (19x faster)
-  tosijs (strict):   18ms      (3.2x faster)
-  Zod:               59ms
+[Dict 100k keys]                        Hot JIT
+  tosijs (sampling):   2.0ms            (29x vs Zod, 3x vs TypeBox JIT)
+  tosijs (strict):     22ms             (2.6x vs Zod)
+  TypeBox (JIT):       5.6ms            (10x vs Zod)
+  TypeBox (interp):    17ms             (3.5x vs Zod)
+  Zod:                 58ms
 ```
+
+**Key insight:** TypeBox's JIT compilation produces the fastest full-scan validation. tosijs-schema's stride sampling trades exhaustive checking for O(1) performance on large datasets. Choose based on your requirements: maximum throughput with full coverage (TypeBox) vs minimal overhead with statistical sampling (tosijs).
 
 ## Design Decisions
 

@@ -1,5 +1,8 @@
 import { s, validate, filter } from './src/schema'
 import { z } from 'zod'
+import { Type, type Static } from '@sinclair/typebox'
+import { TypeCompiler } from '@sinclair/typebox/compiler'
+import { Value } from '@sinclair/typebox/value'
 
 const ARRAY_SIZE = 1_000_000
 const OBJECT_KEYS = 100_000
@@ -83,6 +86,31 @@ const ZodUnion = z.union([Z_Msg, Z_Img, Z_Reply])
 const ZodArr = z.array(ZodUnion)
 const ZodDict = z.record(z.string(), ZodUnion)
 
+// TYPEBOX
+const TB_Msg = Type.Object({
+  type: Type.Literal('msg'),
+  text: Type.String(),
+  timestamp: Type.Number(),
+})
+const TB_Img = Type.Object({
+  type: Type.Literal('img'),
+  url: Type.String(),
+  size: Type.Object({ w: Type.Number(), h: Type.Number() }),
+})
+const TB_Reply = Type.Object({
+  type: Type.Literal('reply'),
+  original_id: Type.String(),
+  text: Type.String(),
+  thread: Type.Number(),
+})
+const TypeBoxUnion = Type.Union([TB_Msg, TB_Img, TB_Reply])
+const TypeBoxArr = Type.Array(TypeBoxUnion)
+const TypeBoxDict = Type.Record(Type.String(), TypeBoxUnion)
+
+// TypeBox JIT-compiled validators
+const TypeBoxArrCompiled = TypeCompiler.Compile(TypeBoxArr)
+const TypeBoxDictCompiled = TypeCompiler.Compile(TypeBoxDict)
+
 // --- BENCHMARK RUNNER ---
 
 function runSuite(label: string) {
@@ -101,21 +129,43 @@ function runSuite(label: string) {
   ZodArr.safeParse(arrayData)
   const a3_end = performance.now()
 
+  // TypeBox interpreted (Value.Check)
+  const a4_start = performance.now()
+  Value.Check(TypeBoxArr, arrayData)
+  const a4_end = performance.now()
+
+  // TypeBox JIT compiled (TypeCompiler)
+  const a5_start = performance.now()
+  TypeBoxArrCompiled.Check(arrayData)
+  const a5_end = performance.now()
+
   const rArr = {
     skip: a1_end - a1_start,
     full: a2_end - a2_start,
     zod: a3_end - a3_start,
+    tbInterp: a4_end - a4_start,
+    tbJit: a5_end - a5_start,
   }
 
-  console.log(`   [Array 1M] Tosi (Skip): ${fmt(rArr.skip)}`)
-  console.log(`   [Array 1M] Tosi (Full): ${fmt(rArr.full)}`)
-  console.log(`   [Array 1M] Zod:         ${fmt(rArr.zod)}`)
+  console.log(`   [Array 1M] Tosi (Skip):      ${fmt(rArr.skip)}`)
+  console.log(`   [Array 1M] Tosi (Full):      ${fmt(rArr.full)}`)
+  console.log(`   [Array 1M] Zod:              ${fmt(rArr.zod)}`)
+  console.log(`   [Array 1M] TypeBox (Interp): ${fmt(rArr.tbInterp)}`)
+  console.log(`   [Array 1M] TypeBox (JIT):    ${fmt(rArr.tbJit)}`)
   console.log(`   ----------------------------------`)
   console.log(
-    `   🚀 vs Zod: ${(rArr.zod / rArr.skip).toFixed(1)}x faster (Optimized)`
+    `   🚀 Tosi (Skip) vs Zod:        ${(rArr.zod / rArr.skip).toFixed(1)}x faster`
   )
   console.log(
-    `   🏎️  vs Zod: ${(rArr.zod / rArr.full).toFixed(1)}x faster (Raw Speed)`
+    `   🏎️  Tosi (Full) vs Zod:        ${(rArr.zod / rArr.full).toFixed(1)}x faster`
+  )
+  const skipVsTbJit = rArr.tbJit / rArr.skip
+  const fullVsTbJit = rArr.tbJit / rArr.full
+  console.log(
+    `   ⚡ Tosi (Skip) vs TypeBox JIT: ${skipVsTbJit >= 1 ? skipVsTbJit.toFixed(1) + 'x faster' : (1 / skipVsTbJit).toFixed(1) + 'x slower'}`
+  )
+  console.log(
+    `   🔥 Tosi (Full) vs TypeBox JIT: ${fullVsTbJit >= 1 ? fullVsTbJit.toFixed(1) + 'x faster' : (1 / fullVsTbJit).toFixed(1) + 'x slower'}`
   )
   console.log(``)
 
@@ -132,21 +182,43 @@ function runSuite(label: string) {
   ZodDict.safeParse(objectData)
   const o3_end = performance.now()
 
+  // TypeBox interpreted (Value.Check)
+  const o4_start = performance.now()
+  Value.Check(TypeBoxDict, objectData)
+  const o4_end = performance.now()
+
+  // TypeBox JIT compiled (TypeCompiler)
+  const o5_start = performance.now()
+  TypeBoxDictCompiled.Check(objectData)
+  const o5_end = performance.now()
+
   const rObj = {
     skip: o1_end - o1_start,
     full: o2_end - o2_start,
     zod: o3_end - o3_start,
+    tbInterp: o4_end - o4_start,
+    tbJit: o5_end - o5_start,
   }
 
-  console.log(`   [Dict 100k] Tosi (Skip): ${fmt(rObj.skip)}`)
-  console.log(`   [Dict 100k] Tosi (Full): ${fmt(rObj.full)}`)
-  console.log(`   [Dict 100k] Zod:         ${fmt(rObj.zod)}`)
+  console.log(`   [Dict 100k] Tosi (Skip):      ${fmt(rObj.skip)}`)
+  console.log(`   [Dict 100k] Tosi (Full):      ${fmt(rObj.full)}`)
+  console.log(`   [Dict 100k] Zod:              ${fmt(rObj.zod)}`)
+  console.log(`   [Dict 100k] TypeBox (Interp): ${fmt(rObj.tbInterp)}`)
+  console.log(`   [Dict 100k] TypeBox (JIT):    ${fmt(rObj.tbJit)}`)
   console.log(`   ----------------------------------`)
   console.log(
-    `   🚀 vs Zod: ${(rObj.zod / rObj.skip).toFixed(1)}x faster (Optimized)`
+    `   🚀 Tosi (Skip) vs Zod:        ${(rObj.zod / rObj.skip).toFixed(1)}x faster`
   )
   console.log(
-    `   🏎️  vs Zod: ${(rObj.zod / rObj.full).toFixed(1)}x faster (Raw Speed)`
+    `   🏎️  Tosi (Full) vs Zod:        ${(rObj.zod / rObj.full).toFixed(1)}x faster`
+  )
+  const oSkipVsTbJit = rObj.tbJit / rObj.skip
+  const oFullVsTbJit = rObj.tbJit / rObj.full
+  console.log(
+    `   ⚡ Tosi (Skip) vs TypeBox JIT: ${oSkipVsTbJit >= 1 ? oSkipVsTbJit.toFixed(1) + 'x faster' : (1 / oSkipVsTbJit).toFixed(1) + 'x slower'}`
+  )
+  console.log(
+    `   🔥 Tosi (Full) vs TypeBox JIT: ${oFullVsTbJit >= 1 ? oFullVsTbJit.toFixed(1) + 'x faster' : (1 / oFullVsTbJit).toFixed(1) + 'x slower'}`
   )
 }
 
@@ -162,6 +234,8 @@ for (let i = 0; i < 10000; i++) {
   validate(warmData, TosiArr.schema)
   validate(warmData, TosiArr.schema, { fullScan: true })
   ZodArr.safeParse(warmData)
+  Value.Check(TypeBoxArr, warmData)
+  TypeBoxArrCompiled.Check(warmData)
 }
 console.log(`   (Engine is hot)`)
 
