@@ -92,8 +92,31 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
+| Runtime schemas | **Yes** | No | No |
 | Test coverage | 96.6% (covers YOUR schemas) | Battle-tested | Battle-tested |
 | Ecosystem | Small | Large (tRPC, etc.) | Growing (Fastify, Elysia) |
+
+### Runtime Schema Support
+
+A key architectural difference: **tosijs-schema can validate against schemas it has never seen before.**
+
+```typescript
+// Receive a schema over the wire, from a database, or from user input
+const schemaFromServer = await fetch('/api/schema').then(r => r.json())
+
+// tosijs-schema: works immediately
+validate(data, schemaFromServer) // ✅
+
+// Zod: impossible - schemas must be defined with z.object(), z.string(), etc.
+// TypeBox: impossible - schemas must be defined with Type.Object(), Type.String(), etc.
+```
+
+This matters for:
+- **Dynamic systems** where schemas are stored in databases or config
+- **Multi-tenant apps** where each tenant defines their own data shapes
+- **Schema registries** that serve schemas to multiple services
+- **AI/LLM pipelines** where schemas are generated or modified at runtime
+- **Plugin systems** where extensions define their own validation rules
 
 ### When to Use Zod
 
@@ -110,6 +133,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 
 ### When to Use tosijs-schema
 
+- You need to validate against **dynamic/runtime schemas** (from DB, API, user input)
 - You need JSON Schema output (OpenAPI, LLMs, code generators)
 - Bundle size matters (edge functions, serverless cold starts)
 - Supply chain security matters (zero dependencies)
