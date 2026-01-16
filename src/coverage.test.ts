@@ -95,14 +95,14 @@ describe('s.infer() - Schema inference from values', () => {
   test('infers array from first element', () => {
     const schema = s.infer([1, 2, 3])
     expect(schema.schema.type).toBe('array')
-    expect(schema.schema.items.type).toBe('integer')
+    expect(schema.schema.items!.type).toBe('integer')
   })
 
   test('infers object structure', () => {
     const schema = s.infer({ name: 'Alice', age: 30 })
     expect(schema.schema.type).toBe('object')
-    expect(schema.schema.properties.name.type).toBe('string')
-    expect(schema.schema.properties.age.type).toBe('integer')
+    expect(schema.schema.properties!.name!.type).toBe('string')
+    expect(schema.schema.properties!.age!.type).toBe('integer')
     expect(schema.schema.required).toContain('name')
     expect(schema.schema.required).toContain('age')
     expect(schema.schema.additionalProperties).toBe(false)
@@ -110,8 +110,8 @@ describe('s.infer() - Schema inference from values', () => {
 
   test('infers nested objects', () => {
     const schema = s.infer({ user: { id: 1 } })
-    expect(schema.schema.properties.user.type).toBe('object')
-    expect(schema.schema.properties.user.properties.id.type).toBe('integer')
+    expect(schema.schema.properties!.user!.type).toBe('object')
+    expect(schema.schema.properties!.user!.properties!.id!.type).toBe('integer')
   })
 
   test('returns empty schema for unsupported types', () => {

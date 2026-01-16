@@ -10,7 +10,7 @@ describe('Builder Output', () => {
     })
 
     expect(schema.schema.type).toBe('object')
-    expect(schema.schema.properties.age.minimum).toBe(18)
+    expect(schema.schema.properties!.age!.minimum).toBe(18)
     expect(schema.schema.required).toContain('name')
     expect(schema.schema.additionalProperties).toBe(false)
   })
@@ -18,7 +18,7 @@ describe('Builder Output', () => {
   test('handles nested array schemas', () => {
     const schema = s.array(s.string)
     expect(schema.schema.type).toBe('array')
-    expect(schema.schema.items.type).toBe('string')
+    expect(schema.schema.items!.type).toBe('string')
   })
 })
 
@@ -470,7 +470,7 @@ describe('Metadata & Documentation', () => {
     })
 
     expect(schema.schema.$schema).toContain('draft-07')
-    expect(schema.schema.examples[0].id).toBe(1)
+    expect((schema.schema.examples![0] as {id: number}).id).toBe(1)
   })
 
   test('Chaining metadata does not break types', () => {
