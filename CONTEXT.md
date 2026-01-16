@@ -90,3 +90,22 @@ const result = chain.step1("hello").result() // Returns number | SchemaError
 1. **`s.any`:** Generates an empty schema `{}`. The validator has special logic to allow `null`/`undefined` when no `type` is present.
 2. **Hoisting:** The `validate` function is defined after `create` in `schema.ts`, but attached to the builder via closure. This works fine at runtime but requires care if refactoring order.
 3. **No Transformers:** Do not attempt to add `z.transform()` style logic. This library validates data *as is*.
+
+## 6. Roadmap / Future Ideas
+
+### `json-schema-maximus`
+A potential future project: a **fully spec-compliant** JSON Schema Draft 2020-12 validator built on agent-99's safe eval.
+
+**Motivation:** All existing spec-compliant validators (TypeBox, Ajv) use `new Function()` / eval for performance. This is architecturally ironic - using code generation to implement a safety specification. They can't run in CSP-restricted or sandboxed environments without workarounds.
+
+**Approach:**
+- Use agent-99's safe eval to handle the complex/recursive corners of JSON Schema (`$ref`, `if/then/else`, `allOf/oneOf/not`, `unevaluatedProperties`)
+- Gas-limited execution prevents pathological schemas from causing DoS
+- Capability-based security keeps it sandboxed
+- Zero `eval` / `new Function()`
+
+**Open questions:**
+- Performance: How slow is safe eval for CPU-bound validation? The 7% overhead for tjs is promising.
+- Async vs sync: If safe eval requires async, millions of awaits per large dataset could be prohibitive. A sync mode for pure computation (no capability requests) might be needed.
+
+**Goal:** The only JSON Schema validator that isn't architecturally compromised. If it lands within 2-3x of Ajv's speed, that's a compelling tradeoff for security-sensitive environments.
