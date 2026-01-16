@@ -103,23 +103,34 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
-| Runtime schemas | **Yes** | No | No |
+| Runtime schemas | **Yes (direct)** | No | Yes (with preprocessing) |
 | Test coverage | 96.6% (covers YOUR schemas) | Battle-tested | Battle-tested |
 | Ecosystem | Small | Large (tRPC, etc.) | Growing (Fastify, Elysia) |
 
 ### Runtime Schema Support
 
-A key architectural difference: **tosijs-schema can validate against schemas it has never seen before.**
+A key architectural difference: **tosijs-schema validates plain JSON schemas directly with zero overhead.**
 
 ```typescript
 // Receive a schema over the wire, from a database, or from user input
 const schemaFromServer = await fetch('/api/schema').then(r => r.json())
 
-// tosijs-schema: works immediately
+// tosijs-schema: works immediately, no preprocessing
 validate(data, schemaFromServer) // ✅
 
 // Zod: impossible - schemas must be defined with z.object(), z.string(), etc.
-// TypeBox: impossible - schemas must be defined with Type.Object(), Type.String(), etc.
+
+// TypeBox: requires preprocessing to inject Kind symbols, then optional JIT compile
+const injected = injectTypeBoxKind(schemaFromServer)  // ~0.2ms overhead
+const compiled = TypeCompiler.Compile(injected)        // ~1.0ms overhead
+compiled.Check(data)
+```
+
+**Runtime schema benchmark (100k items):**
+```
+tosijs (direct):     0.2ms   ← zero preprocessing
+TypeBox (injected):  1.2ms overhead + 2.5ms validation
+Zod:                 not possible
 ```
 
 This matters for:

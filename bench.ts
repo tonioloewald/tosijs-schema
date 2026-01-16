@@ -1,8 +1,56 @@
 import { s, validate, filter } from './src/schema'
 import { z } from 'zod'
-import { Type, type Static } from '@sinclair/typebox'
+import { Type, Kind, type Static } from '@sinclair/typebox'
 import { TypeCompiler } from '@sinclair/typebox/compiler'
 import { Value } from '@sinclair/typebox/value'
+
+// --- TYPEBOX RUNTIME SCHEMA HELPER ---
+// Injects TypeBox Kind symbols into plain JSON Schema so TypeBox can process it
+function injectTypeBoxKind(schema: any): any {
+  if (!schema || typeof schema !== 'object') return schema
+  if (Array.isArray(schema)) return schema.map(injectTypeBoxKind)
+
+  const result = { ...schema }
+
+  if (schema.type === 'object') {
+    result[Kind] = 'Object'
+    if (schema.properties) {
+      result.properties = {}
+      for (const [key, prop] of Object.entries(schema.properties)) {
+        result.properties[key] = injectTypeBoxKind(prop)
+      }
+    }
+    if (schema.additionalProperties !== undefined) {
+      result.additionalProperties = injectTypeBoxKind(schema.additionalProperties)
+    }
+  } else if (schema.type === 'string') {
+    result[Kind] = 'String'
+  } else if (schema.type === 'number') {
+    result[Kind] = 'Number'
+  } else if (schema.type === 'integer') {
+    result[Kind] = 'Integer'
+  } else if (schema.type === 'boolean') {
+    result[Kind] = 'Boolean'
+  } else if (schema.type === 'array') {
+    result[Kind] = 'Array'
+    if (schema.items) {
+      result.items = injectTypeBoxKind(schema.items)
+    }
+  } else if (schema.type === 'null') {
+    result[Kind] = 'Null'
+  } else if (schema.anyOf) {
+    result[Kind] = 'Union'
+    result.anyOf = schema.anyOf.map(injectTypeBoxKind)
+  } else if (schema.enum) {
+    result[Kind] = 'Union'
+    result.anyOf = schema.enum.map((v: any) => ({ [Kind]: 'Literal', const: v }))
+    delete result.enum
+  } else if (schema.const !== undefined) {
+    result[Kind] = 'Literal'
+  }
+
+  return result
+}
 
 const ARRAY_SIZE = 1_000_000
 const OBJECT_KEYS = 100_000
@@ -269,3 +317,51 @@ console.log(`   [Array 10k] filter (default):        ${fmt(f1_end - f1_start)}`)
 console.log(`   [Array 10k] filter (skipValidation): ${fmt(f2_end - f2_start)}`)
 console.log(`   [Array 10k] filter (fullScan):       ${fmt(f3_end - f3_start)}`)
 console.log(`   Filtered ${filtered instanceof Error ? 'ERROR' : filtered.length} items`)
+
+// --- RUNTIME SCHEMA BENCHMARK ---
+console.log(`\n\n🔄 RUNTIME SCHEMA BENCHMARK 🔄`)
+console.log(`   (Validating against a schema received as plain JSON at runtime)`)
+
+// Simulate receiving schema over the wire - use JSON parse to strip any symbols
+const runtimeSchema = JSON.parse(JSON.stringify(TosiArr.schema))
+const RUNTIME_SIZE = 100_000
+const runtimeData = new Array(RUNTIME_SIZE).fill(null).map((_, i) => makeItem(i))
+
+// tosijs-schema: works directly
+const r1_start = performance.now()
+validate(runtimeData, runtimeSchema)
+const r1_end = performance.now()
+
+const r2_start = performance.now()
+validate(runtimeData, runtimeSchema, { strict: true })
+const r2_end = performance.now()
+
+// TypeBox: requires Kind injection first
+const r3_start = performance.now()
+const injectedSchema = injectTypeBoxKind(runtimeSchema)
+const r3_end = performance.now()
+
+const r4_start = performance.now()
+Value.Check(injectedSchema, runtimeData)
+const r4_end = performance.now()
+
+// TypeBox: JIT compile the injected schema
+const r5_start = performance.now()
+const runtimeCompiled = TypeCompiler.Compile(injectedSchema)
+const r5_end = performance.now()
+
+const r6_start = performance.now()
+runtimeCompiled.Check(runtimeData)
+const r6_end = performance.now()
+
+console.log(``)
+console.log(`   [Array 100k] Tosi (direct):              ${fmt(r1_end - r1_start)}`)
+console.log(`   [Array 100k] Tosi (strict):              ${fmt(r2_end - r2_start)}`)
+console.log(`   [Array 100k] TypeBox Kind injection:     ${fmt(r3_end - r3_start)}`)
+console.log(`   [Array 100k] TypeBox (Interp, injected): ${fmt(r4_end - r4_start)}`)
+console.log(`   [Array 100k] TypeBox JIT compile:        ${fmt(r5_end - r5_start)}`)
+console.log(`   [Array 100k] TypeBox (JIT, injected):    ${fmt(r6_end - r6_start)}`)
+console.log(`   ----------------------------------`)
+console.log(`   Total TypeBox runtime overhead:          ${fmt((r3_end - r3_start) + (r5_end - r5_start))} (injection + compile)`)
+console.log(``)
+console.log(`   Note: Zod cannot validate against runtime JSON schemas at all.`)
