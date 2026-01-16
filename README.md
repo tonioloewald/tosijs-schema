@@ -150,7 +150,9 @@ tosijs-schema implements a **practical subset** of JSON Schema - the features th
 
 **Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `oneOf`, `not`, and other advanced keywords
 
-If you need full JSON Schema Draft 2020-12 compliance, use TypeBox or Ajv. If you need the 80% of features that cover 99% of real-world schemas in a tiny package, use tosijs-schema.
+If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable in your environment, TypeBox or Ajv are options. If you need the 80% of features that cover 99% of real-world schemas in a tiny, eval-free package, use tosijs-schema.
+
+**A note on `eval` and security:** JSON Schema exists to define safe data contracts for interchange between untrusted parties. TypeBox's JIT compiler uses `new Function()` to generate validators - executing dynamically constructed code strings. There's an architectural irony in using code generation to implement a safety specification. For sandboxed environments, edge functions, or anywhere CSP restricts `unsafe-eval`, tosijs-schema validates without code generation.
 
 ### When to Use Zod
 
