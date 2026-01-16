@@ -98,12 +98,14 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 |--------|---------------|-----|---------|
 | Philosophy | Schema-first | TypeScript-first | JSON Schema + JIT |
 | Output | Native JSON Schema | Proprietary | Native JSON Schema |
+| JSON Schema spec | Practical subset | N/A (not JSON Schema) | Draft 2020-12 compliant |
 | Syntax | `s.email` | `z.string().email()` | `Type.String({ format: 'email' })` |
 | Bundle | ~3kB | ~14kB | ~64kB |
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
 | Runtime schemas | **Yes (direct)** | No | Yes (with preprocessing) |
+| Uses `eval` / `new Function()` | No | No | Yes (JIT compiler) |
 | Test coverage | 96.6% (covers YOUR schemas) | Battle-tested | Battle-tested |
 | Ecosystem | Small | Large (tRPC, etc.) | Growing (Fastify, Elysia) |
 
@@ -139,6 +141,16 @@ This matters for:
 - **Schema registries** that serve schemas to multiple services
 - **AI/LLM pipelines** where schemas are generated or modified at runtime
 - **Plugin systems** where extensions define their own validation rules
+
+### JSON Schema Coverage
+
+tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~3kB bundle vs spec compliance.
+
+**Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (common formats), `default`, `title`, `description`
+
+**Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `oneOf`, `not`, and other advanced keywords
+
+If you need full JSON Schema Draft 2020-12 compliance, use TypeBox or Ajv. If you need the 80% of features that cover 99% of real-world schemas in a tiny package, use tosijs-schema.
 
 ### When to Use Zod
 
