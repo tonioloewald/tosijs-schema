@@ -105,7 +105,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
 | Runtime schemas | **Yes (direct)** | No | Yes (with preprocessing) |
-| Uses `eval` / `new Function()` | No | No | Yes (JIT compiler) |
+| Uses `eval` / `new Function()` | No | No | Optional (JIT compiler) |
 | Test coverage | 96.6% (covers YOUR schemas) | Battle-tested | Battle-tested |
 | Ecosystem | Small | Large (tRPC, etc.) | Growing (Fastify, Elysia) |
 
@@ -152,7 +152,7 @@ tosijs-schema implements a **practical subset** of JSON Schema - the features th
 
 If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable in your environment, TypeBox or Ajv are options. If you need the 80% of features that cover 99% of real-world schemas in a tiny, eval-free package, use tosijs-schema.
 
-**A note on `eval` and security:** JSON Schema exists to define safe data contracts for interchange between untrusted parties. TypeBox and Ajv both use `new Function()` to generate validators - executing dynamically constructed code strings. There's an architectural irony in using code generation to implement a safety specification. Ajv offers build-time pre-compilation as a workaround for static schemas, but runtime/dynamic schemas still require eval. For sandboxed environments, edge functions, or anywhere CSP restricts `unsafe-eval`, tosijs-schema validates without code generation.
+**A note on `eval` and security:** JSON Schema exists to define safe data contracts for interchange between untrusted parties. Ajv uses `new Function()` to generate validators - executing dynamically constructed code strings. TypeBox's JIT compiler (`TypeCompiler`) also uses `new Function()`, but offers an interpreted mode (`Value.Check()`) that works without eval - albeit ~18x slower than JIT. Ajv offers build-time pre-compilation as a workaround for static schemas. For sandboxed environments, edge functions, or anywhere CSP restricts `unsafe-eval`, tosijs-schema and TypeBox's interpreted mode both work without code generation.
 
 ### When to Use Zod
 
@@ -162,11 +162,12 @@ If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable i
 
 ### When to Use TypeBox
 
+- You need full JSON Schema Draft 2020-12 compliance
 - You have a fixed set of schemas known at startup (compile once, validate millions)
 - You need maximum validation throughput (high-traffic APIs, real-time pipelines)
 - You're building with Fastify or Elysia (native TypeBox support)
-- `new Function()` / eval is acceptable in your security model
 - Bundle size isn't a primary concern (~64kB vs ~3kB)
+- Note: JIT mode uses `new Function()`, but interpreted mode (`Value.Check()`) works in CSP environments at ~18x slower
 
 ### When to Use tosijs-schema
 
