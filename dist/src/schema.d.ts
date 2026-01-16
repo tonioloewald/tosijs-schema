@@ -1,6 +1,41 @@
 export type Infer<S> = S extends {
     _type: infer T;
 } ? T : never;
+export interface JSONSchema {
+    type?: string | string[];
+    properties?: Record<string, JSONSchema>;
+    additionalProperties?: boolean | JSONSchema;
+    items?: JSONSchema;
+    prefixItems?: JSONSchema[];
+    required?: string[];
+    enum?: readonly unknown[];
+    const?: unknown;
+    anyOf?: JSONSchema[];
+    allOf?: JSONSchema[];
+    oneOf?: JSONSchema[];
+    not?: JSONSchema;
+    minimum?: number;
+    maximum?: number;
+    exclusiveMinimum?: number;
+    exclusiveMaximum?: number;
+    multipleOf?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    format?: string;
+    minItems?: number;
+    maxItems?: number;
+    minProperties?: number;
+    maxProperties?: number;
+    title?: string;
+    description?: string;
+    default?: unknown;
+    examples?: unknown[];
+    $ref?: string;
+    $defs?: Record<string, JSONSchema>;
+    $schema?: string;
+    [key: `x-${string}`]: unknown;
+}
 type OptionalKeys<T> = {
     [K in keyof T]-?: undefined extends T[K] ? K : never;
 }[keyof T];
@@ -15,7 +50,7 @@ type SmartObject<T> = {
     [K in keyof O]: O[K];
 } : never;
 export interface Base<T> {
-    schema: any;
+    schema: JSONSchema;
     _type: T;
     get optional(): Base<T | undefined>;
     validate(val: any, opts?: ValidateOptions | ErrorHandler): boolean;
