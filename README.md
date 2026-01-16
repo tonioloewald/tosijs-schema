@@ -148,18 +148,20 @@ This matters for:
 
 ### When to Use TypeBox
 
+- You have a fixed set of schemas known at startup (compile once, validate millions)
 - You need maximum validation throughput (high-traffic APIs, real-time pipelines)
-- You want JSON Schema output with JIT-compiled validators
 - You're building with Fastify or Elysia (native TypeBox support)
+- `new Function()` / eval is acceptable in your security model
 - Bundle size isn't a primary concern (~64kB vs ~3kB)
 
 ### When to Use tosijs-schema
 
 - You need to validate against **dynamic/runtime schemas** (from DB, API, user input)
+- You need a **sandboxed environment** where `eval` / `new Function()` is not allowed
 - You need JSON Schema output (OpenAPI, LLMs, code generators)
 - Bundle size matters (edge functions, serverless cold starts)
 - Supply chain security matters (zero dependencies)
-- You prefer schema-first architecture with minimal overhead
+- Schemas are data that flows through your system, not static configurations
 - Sampling-based validation is acceptable (statistical confidence for large datasets)
 
 ## Installation
