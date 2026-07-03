@@ -112,8 +112,48 @@ export interface JSONSchema {
   $ref?: string
   $defs?: Record<string, JSONSchema>
   $schema?: string
+  /**
+   * Computational validation (progressive enhancement). The value is the
+   * *source* of a predicate cluster (pure functions; the last is the entry,
+   * takes the value at this node, returns boolean) — the "computational half"
+   * plain JSON Schema can't express (open value grammars, recursive structure).
+   *
+   * A naive validator ignores this keyword and checks only the structural part.
+   * A predicate-aware one runs it — but only when an evaluator has been
+   * registered via {@link setPredicateEvaluator}, so this library stays zero-dep
+   * (the predicate engine lives in the consumer, e.g. `tjs-lang`).
+   */
+  $predicate?: string
   // Allow extension properties (x-* custom keywords)
   [key: `x-${string}`]: unknown
+}
+
+/**
+ * Evaluates a `$predicate` source against a value. Registered by a consumer that
+ * has a predicate engine (e.g. `tjs-lang`'s `createPredicateEvaluator()`), so
+ * this library carries no such dependency. Must fail closed (return `false`) on
+ * an unverifiable/unsafe source rather than throw.
+ */
+export type PredicateEvaluator = (source: string, value: unknown) => boolean
+
+let predicateEvaluator: PredicateEvaluator | null = null
+
+/**
+ * Register (or clear, with `null`) the evaluator used for the `$predicate`
+ * keyword. Until one is set, `$predicate` is ignored and validation is purely
+ * structural (progressive enhancement). Returns the previous evaluator.
+ */
+export function setPredicateEvaluator(
+  fn: PredicateEvaluator | null
+): PredicateEvaluator | null {
+  const prev = predicateEvaluator
+  predicateEvaluator = fn
+  return prev
+}
+
+/** The currently-registered `$predicate` evaluator, if any. */
+export function getPredicateEvaluator(): PredicateEvaluator | null {
+  return predicateEvaluator
 }
 
 // --- Type Helpers for Object Optionality ---
@@ -421,6 +461,13 @@ export function validate(
       if (typeof v !== 'object' || Array.isArray(v))
         return err('Expected object')
     } else if (t && typeof v !== t) return err(`Expected ${t}`)
+
+    // $predicate: computational validation on the (type-valid) value. Runs only
+    // when an evaluator is registered — a naive validator ignores the keyword
+    // and everything above still applies (progressive enhancement).
+    if (s.$predicate && predicateEvaluator) {
+      if (!predicateEvaluator(s.$predicate, v)) return err('Predicate mismatch')
+    }
 
     if (typeof v === 'number') {
       if (!Number.isFinite(v)) return err('Expected finite number')
