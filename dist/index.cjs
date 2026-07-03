@@ -2,35 +2,47 @@ var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __moduleCache = /* @__PURE__ */ new WeakMap;
+function __accessProp(key) {
+  return this[key];
+}
 var __toCommonJS = (from) => {
-  var entry = __moduleCache.get(from), desc;
+  var entry = (__moduleCache ??= new WeakMap).get(from), desc;
   if (entry)
     return entry;
   entry = __defProp({}, "__esModule", { value: true });
-  if (from && typeof from === "object" || typeof from === "function")
-    __getOwnPropNames(from).map((key) => !__hasOwnProp.call(entry, key) && __defProp(entry, key, {
-      get: () => from[key],
-      enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
-    }));
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (var key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(entry, key))
+        __defProp(entry, key, {
+          get: __accessProp.bind(from, key),
+          enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
+        });
+  }
   __moduleCache.set(from, entry);
   return entry;
 };
+var __moduleCache;
+var __returnValue = (v) => v;
+function __exportSetter(name, newValue) {
+  this[name] = __returnValue.bind(null, newValue);
+}
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, {
       get: all[name],
       enumerable: true,
       configurable: true,
-      set: (newValue) => all[name] = () => newValue
+      set: __exportSetter.bind(all, name)
     });
 };
 
 // index.ts
-var exports_schema = {};
-__export(exports_schema, {
+var exports_tosijs_schema = {};
+__export(exports_tosijs_schema, {
   validate: () => validate,
+  setPredicateEvaluator: () => setPredicateEvaluator,
   s: () => s,
+  getPredicateEvaluator: () => getPredicateEvaluator,
   filter: () => filter,
   diff: () => diff,
   createM: () => createM,
@@ -38,7 +50,7 @@ __export(exports_schema, {
   SchemaError: () => SchemaError,
   M: () => M
 });
-module.exports = __toCommonJS(exports_schema);
+module.exports = __toCommonJS(exports_tosijs_schema);
 
 // src/schema.ts
 var RX_EMOJI_ATOM = "\\p{Extended_Pictographic}";
@@ -88,6 +100,15 @@ var create = (s) => ({
   },
   step: (v) => create({ ...s, multipleOf: v })
 });
+var predicateEvaluator = null;
+function setPredicateEvaluator(fn) {
+  const prev = predicateEvaluator;
+  predicateEvaluator = fn;
+  return prev;
+}
+function getPredicateEvaluator() {
+  return predicateEvaluator;
+}
 var methods = {
   get email() {
     return create({ type: "string", format: "email" });
@@ -256,6 +277,10 @@ function validate(val, builderOrSchema, opts) {
         return err("Expected object");
     } else if (t && typeof v !== t)
       return err(`Expected ${t}`);
+    if (s2.$predicate && predicateEvaluator) {
+      if (!predicateEvaluator(s2.$predicate, v))
+        return err("Predicate mismatch");
+    }
     if (typeof v === "number") {
       if (!Number.isFinite(v))
         return err("Expected finite number");

@@ -34,8 +34,35 @@ export interface JSONSchema {
     $ref?: string;
     $defs?: Record<string, JSONSchema>;
     $schema?: string;
+    /**
+     * Computational validation (progressive enhancement). The value is the
+     * *source* of a predicate cluster (pure functions; the last is the entry,
+     * takes the value at this node, returns boolean) — the "computational half"
+     * plain JSON Schema can't express (open value grammars, recursive structure).
+     *
+     * A naive validator ignores this keyword and checks only the structural part.
+     * A predicate-aware one runs it — but only when an evaluator has been
+     * registered via {@link setPredicateEvaluator}, so this library stays zero-dep
+     * (the predicate engine lives in the consumer, e.g. `tjs-lang`).
+     */
+    $predicate?: string;
     [key: `x-${string}`]: unknown;
 }
+/**
+ * Evaluates a `$predicate` source against a value. Registered by a consumer that
+ * has a predicate engine (e.g. `tjs-lang`'s `createPredicateEvaluator()`), so
+ * this library carries no such dependency. Must fail closed (return `false`) on
+ * an unverifiable/unsafe source rather than throw.
+ */
+export type PredicateEvaluator = (source: string, value: unknown) => boolean;
+/**
+ * Register (or clear, with `null`) the evaluator used for the `$predicate`
+ * keyword. Until one is set, `$predicate` is ignored and validation is purely
+ * structural (progressive enhancement). Returns the previous evaluator.
+ */
+export declare function setPredicateEvaluator(fn: PredicateEvaluator | null): PredicateEvaluator | null;
+/** The currently-registered `$predicate` evaluator, if any. */
+export declare function getPredicateEvaluator(): PredicateEvaluator | null;
 type OptionalKeys<T> = {
     [K in keyof T]-?: undefined extends T[K] ? K : never;
 }[keyof T];
