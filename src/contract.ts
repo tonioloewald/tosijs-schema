@@ -68,6 +68,8 @@ const UNENFORCED_KEYWORDS = [
   'minContains',
   'maxContains',
   'prefixItems',
+  'additionalItems',
+  'dependencies',
 ] as const
 
 /** paths of unenforced keywords (and unenforced formats) anywhere in a schema tree */
@@ -81,6 +83,11 @@ const unenforced = (s: any, at = 'root'): string[] => {
   // that's an advertised constraint validate never checks
   if (typeof s.format === 'string' && !ENFORCED_FORMATS.has(s.format)) {
     found.push(`${at}.format:'${s.format}'`)
+  }
+  // tuple-form items: validate walks only the declared positions, so extra
+  // trailing items pass unless maxItems caps the tuple exactly
+  if (Array.isArray(s.items) && s.maxItems !== s.items.length) {
+    found.push(`${at}.items (tuple without maxItems: ${s.items.length})`)
   }
   for (const [segment, kid] of subschemas(s)) {
     found.push(...unenforced(kid, `${at}.${segment}`))
@@ -98,11 +105,17 @@ const unenforced = (s: any, at = 'root'): string[] => {
  * - schemas are deep-copied in (and out via `describe()`), so no caller-side
  *   mutation can rewrite the gate after the fact;
  * - schemas using keywords `validate` does not enforce (`allOf`, `oneOf`,
- *   `not`, `$ref`, `exclusiveMinimum`/`Maximum`, …) are refused with an Error
- *   at construction rather than silently un-enforced;
- * - a write at or under a contracted root that arrives WITHOUT a proposal is
- *   refused as a protocol breach — the surface owes the gate a whole-root
- *   proposal for every contracted write.
+ *   `not`, `$ref`, `exclusiveMinimum`/`Maximum`, …), formats outside
+ *   `ENFORCED_FORMATS`, or uncapped tuple `items` are refused with an Error
+ *   at construction rather than silently un-enforced; nested contracted
+ *   roots are refused too (which root judges a deep write would be ambiguous);
+ * - every write that touches a contracted root — at it, under it, or ABOVE
+ *   it (an ancestor write replaces the contracted subtree) — must carry a
+ *   proposal for that exact root; anything else is a protocol breach. An
+ *   ancestor write spanning several contracted roots is refused outright: one
+ *   proposal cannot cover them, so the surface must decompose the write;
+ * - a contracted schema carrying `$predicate` refuses writes while no
+ *   evaluator is registered — skipping the predicate would fail open.
  *
  * Validation is strict by default — a gate that stochastically samples isn't
  * a gate. Pass `{ strict: false }` to accept sampled validation on huge roots.
@@ -113,6 +126,7 @@ export const agentContract = (
 ): AgentContract => {
   const strict = options?.strict ?? true
   const plain: Record<string, JSONSchema> = {}
+  const predicated: Record<string, boolean> = {}
   for (const [root, schema] of Object.entries(schemas)) {
     const copy = structuredClone(toPlain(schema))
     const dead = unenforced(copy)
@@ -124,52 +138,60 @@ export const agentContract = (
       )
     }
     plain[root] = copy
+    predicated[root] = hasPredicate(copy)
   }
   const roots = Object.keys(plain)
-  const contractedRoot = (path: string): string | undefined =>
-    roots.find(
-      (root) =>
-        path === root ||
-        path.startsWith(root + '.') ||
-        path.startsWith(root + '[')
-    )
-  // a write ABOVE a contracted root replaces the contracted subtree too
-  const ancestorOfContracted = (path: string): string | undefined =>
-    roots.find(
-      (root) => root.startsWith(path + '.') || root.startsWith(path + '[')
-    )
-  return {
-    check(path, _value, proposal) {
-      const rootOfPath = contractedRoot(path)
-      if (proposal == null) {
-        const breached = rootOfPath ?? ancestorOfContracted(path)
-        return breached == null
-          ? true // touches no contracted root
-          : new Error(
-              `contract breach at ${path} — write affecting contracted root ` +
-                `'${breached}' arrived without a proposal`
-            )
-      }
-      // the proposal must be FOR the root this write lands under — a typo'd
-      // or adversarial proposal.root must not disarm the gate
-      if (rootOfPath != null && proposal.root !== rootOfPath) {
-        return new Error(
-          `contract breach at ${path} — proposal root '${proposal.root}' does ` +
-            `not match contracted root '${rootOfPath}'`
+  const extendsPath = (child: string, parent: string): boolean =>
+    child.startsWith(parent + '.') ||
+    child.startsWith(parent + '[') ||
+    parent === '' // the empty path is an ancestor of every root
+  for (const a of roots) {
+    for (const b of roots) {
+      if (a !== b && extendsPath(a, b)) {
+        throw new Error(
+          `agentContract: root '${a}' is nested under root '${b}' — which ` +
+            `root judges a deep write would be ambiguous; contract the outer root only`
         )
       }
-      const schema = plain[proposal.root]
-      if (schema == null) {
-        // an uncontracted proposal.root is only fine if the write really
-        // touches no contracted root (incl. ancestor writes that would
-        // replace a contracted subtree)
-        const breached = rootOfPath ?? ancestorOfContracted(path)
-        return breached == null
-          ? true
-          : new Error(
-              `contract breach at ${path} — proposal root '${proposal.root}' is ` +
-                `not contracted, but the write affects contracted root '${breached}'`
-            )
+    }
+  }
+  /** every contracted root this write would touch (at, under, or above) */
+  const affectedRoots = (path: string): string[] => {
+    const at = roots.find(
+      (root) => path === root || extendsPath(path, root)
+    )
+    return at != null ? [at] : roots.filter((root) => extendsPath(root, path))
+  }
+  return {
+    check(path, _value, proposal) {
+      const affected = affectedRoots(path)
+      if (affected.length === 0) return true // touches no contracted root
+      if (proposal == null) {
+        return new Error(
+          `contract breach at ${path || "''"} — write affecting contracted root ` +
+            `'${affected[0]}' arrived without a proposal`
+        )
+      }
+      // the ONE proposal must cover every affected root — a typo'd or
+      // adversarial proposal.root, or an ancestor write spanning several
+      // contracted roots, must not disarm the gate
+      const uncovered = affected.filter((root) => root !== proposal.root)
+      if (uncovered.length > 0) {
+        return new Error(
+          `contract breach at ${path || "''"} — proposal root '${proposal.root}' ` +
+            `does not cover contracted root(s) ` +
+            uncovered.map((root) => `'${root}'`).join(', ') +
+            (affected.length > 1
+              ? '; decompose the write below the shared ancestor'
+              : '')
+        )
+      }
+      const schema = plain[proposal.root]!
+      if (predicated[proposal.root] && getPredicateEvaluator() == null) {
+        return new Error(
+          `contract breach at ${path} — contracted root '${proposal.root}' carries ` +
+            `a $predicate but no evaluator is registered; the gate would fail open`
+        )
       }
       const reasons: string[] = []
       const ok = validate(proposal.proposed, schema, {

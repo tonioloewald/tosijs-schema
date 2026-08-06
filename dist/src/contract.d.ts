@@ -38,11 +38,17 @@ export type SchemaLike = JSONSchema | Base<any> | Record<string, any>;
  * - schemas are deep-copied in (and out via `describe()`), so no caller-side
  *   mutation can rewrite the gate after the fact;
  * - schemas using keywords `validate` does not enforce (`allOf`, `oneOf`,
- *   `not`, `$ref`, `exclusiveMinimum`/`Maximum`, …) are refused with an Error
- *   at construction rather than silently un-enforced;
- * - a write at or under a contracted root that arrives WITHOUT a proposal is
- *   refused as a protocol breach — the surface owes the gate a whole-root
- *   proposal for every contracted write.
+ *   `not`, `$ref`, `exclusiveMinimum`/`Maximum`, …), formats outside
+ *   `ENFORCED_FORMATS`, or uncapped tuple `items` are refused with an Error
+ *   at construction rather than silently un-enforced; nested contracted
+ *   roots are refused too (which root judges a deep write would be ambiguous);
+ * - every write that touches a contracted root — at it, under it, or ABOVE
+ *   it (an ancestor write replaces the contracted subtree) — must carry a
+ *   proposal for that exact root; anything else is a protocol breach. An
+ *   ancestor write spanning several contracted roots is refused outright: one
+ *   proposal cannot cover them, so the surface must decompose the write;
+ * - a contracted schema carrying `$predicate` refuses writes while no
+ *   evaluator is registered — skipping the predicate would fail open.
  *
  * Validation is strict by default — a gate that stochastically samples isn't
  * a gate. Pass `{ strict: false }` to accept sampled validation on huge roots.

@@ -397,6 +397,22 @@ describe('Algebra', () => {
     expect(validate({ a: 1, b: 2 }, s.record(s.number))).toBeTrue()
   })
 
+  test('prototype-named keys are treated as data, not exempted via the prototype chain', () => {
+    const User = s.object({ a: s.number })
+    // smuggled prototype-named extras are refused, not silently exempted
+    expect(validate({ a: 1, constructor: 'evil' }, User)).toBeFalse()
+    expect(validate({ a: 1, toString: 'evil' }, User)).toBeFalse()
+    // required is satisfied by OWN keys only — not by Object.prototype
+    expect(validate({}, { type: 'object', required: ['constructor'] })).toBeFalse()
+    expect(
+      validate({ constructor: 'mine' }, { type: 'object', required: ['constructor'] })
+    ).toBeTrue()
+    // a schema-declared prototype-named property is validated as data
+    const Weird = s.object({ constructor: s.string })
+    expect(validate({ constructor: 'fine' }, Weird)).toBeTrue()
+    expect(validate({}, Weird)).toBeFalse()
+  })
+
   test('min/maxItems enforced without an items schema', () => {
     expect(validate([], { type: 'array', minItems: 1 })).toBeFalse()
     expect(validate([1], { type: 'array', minItems: 1 })).toBeTrue()

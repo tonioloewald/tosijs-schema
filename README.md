@@ -7,6 +7,15 @@
 
 A **schema-first** validation library. Define schemas, infer TypeScript types, validate efficiently.
 
+## Upgrading from 1.4.x
+
+**1.5.0 makes `validate` enforce what your schemas already declared.** Several fail-open validator bugs are fixed, and data that previously slipped through will now be refused:
+
+- `additionalProperties: false` (which `s.object()` has always emitted) now rejects unknown keys — including prototype-named ones like `constructor`. If you were relying on extras passing, run data through `filter()` first (it strips extras) or model open objects with `s.record()`.
+- `minItems`/`maxItems` apply even without an `items` schema; typeless schemas apply object/array keywords when the value matches; `strict` now propagates into `anyOf` branches.
+
+This ships as a **minor** version deliberately: strict-by-default (non-extensible objects) has been the documented behavior since 1.0 — the implementation is catching up to the contract, not changing it. If your code depended on the lenient bug, pin `1.4.0` while you adopt `filter()`.
+
 ## Why Not Zod?
 
 ### Schema-First vs TypeScript-First
@@ -80,7 +89,7 @@ ZodString {
 
 tosijs-schema schemas are **data** (JSON). Zod schemas are **code** (class instances).
 
-This matters: our 96.6% test coverage covers **every schema you'll ever write** because your schemas are just JSON objects that flow through the same tested validation code.
+This matters: our ~97% test coverage covers **every schema you'll ever write** because your schemas are just JSON objects that flow through the same tested validation code.
 
 Zod's test coverage only covers Zod's internals. Your specific Zod schemas—your method chains, your compositions—are untested code. That's on you.
 
@@ -106,7 +115,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
 | Runtime schemas | **Yes (direct)** | No | Yes (with preprocessing) |
 | Uses `eval` / `new Function()` | No | No | Optional (JIT compiler) |
-| Test coverage | 96.6% (covers YOUR schemas) | Battle-tested | Battle-tested |
+| Test coverage | ~97% (covers YOUR schemas) | Battle-tested | Battle-tested |
 | Ecosystem | Small | Large (tRPC, etc.) | Growing (Fastify, Elysia) |
 
 ### Runtime Schema Support
@@ -421,15 +430,16 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 |----------|-----------|
 | Stride sampling (97) | Prime number, checks ~1% of large collections, always verifies first/last |
 | `maxProperties` only in strict mode | Counting is O(n), defeats sampling optimization |
-| `additionalProperties: false` not enforced | Use `filter()` to strip extra properties |
+| `additionalProperties: false` enforced (since v1.5.0) | Unknown keys are refused; previously a falsy-check bug skipped this — use `filter()` for lenient intake that strips extras instead |
 
 ## Test Coverage
 
 ```
-File           | % Funcs | % Lines
----------------|---------|--------
-All files      |   98.25 |   96.62
- src/monad.ts  |  100.00 |  100.00
+File             | % Funcs | % Lines
+-----------------|---------|--------
+All files        |   97.44 |   96.99
+ src/contract.ts |   95.65 |   96.97
+ src/monad.ts    |  100.00 |  100.00
  src/schema.ts |   96.49 |   93.24
 ```
 

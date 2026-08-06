@@ -219,6 +219,7 @@ var s = new Proxy(methods, {
     return;
   }
 });
+var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 var STRIDE = 97;
 var FMT = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
@@ -309,15 +310,13 @@ function validate(val, builderOrSchema, opts) {
       if (s2.format && FMT[s2.format] && !FMT[s2.format](v))
         return err("Format invalid");
     }
-    const isPlainObject = typeof v === "object" && !Array.isArray(v);
-    const objectKeywords = s2.properties !== undefined || s2.required !== undefined || s2.additionalProperties !== undefined || s2.minProperties !== undefined || s2.maxProperties !== undefined;
-    if (t === "object" || !t && isPlainObject && objectKeywords) {
+    if (t === "object" || !t && typeof v === "object" && !Array.isArray(v) && (s2.properties !== undefined || s2.required !== undefined || s2.additionalProperties !== undefined || s2.minProperties !== undefined || s2.maxProperties !== undefined)) {
       const checkMin = s2.minProperties !== undefined;
       const checkMax = fullScan && s2.maxProperties !== undefined;
       if (checkMin || checkMax) {
         let c = 0;
         for (const k in v)
-          if (Object.prototype.hasOwnProperty.call(v, k))
+          if (hasOwn(v, k))
             c++;
         if (checkMin && c < s2.minProperties)
           return err("Too few props");
@@ -326,21 +325,21 @@ function validate(val, builderOrSchema, opts) {
       }
       if (s2.required) {
         for (const k of s2.required)
-          if (!(k in v))
+          if (!hasOwn(v, k))
             return err(`Missing ${k}`);
       }
       if (s2.additionalProperties === false) {
         for (const k in v) {
-          if (!Object.prototype.hasOwnProperty.call(v, k))
+          if (!hasOwn(v, k))
             continue;
-          if (s2.properties && k in s2.properties)
+          if (s2.properties && hasOwn(s2.properties, k))
             continue;
           return err(`Unexpected ${k}`);
         }
       }
       if (s2.properties) {
         for (const k in s2.properties) {
-          if (k in v) {
+          if (hasOwn(v, k)) {
             path.push(k);
             const ok = walk(v[k], s2.properties[k]);
             path.pop();
@@ -352,7 +351,9 @@ function validate(val, builderOrSchema, opts) {
       if (s2.additionalProperties) {
         const keys = [];
         for (const k in v) {
-          if (s2.properties && k in s2.properties)
+          if (!hasOwn(v, k))
+            continue;
+          if (s2.properties && hasOwn(s2.properties, k))
             continue;
           keys.push(k);
         }
@@ -372,8 +373,7 @@ function validate(val, builderOrSchema, opts) {
       }
       return true;
     }
-    const arrayKeywords = s2.items !== undefined || s2.minItems !== undefined || s2.maxItems !== undefined;
-    if (t === "array" || !t && Array.isArray(v) && arrayKeywords) {
+    if (t === "array" || !t && Array.isArray(v) && (s2.items !== undefined || s2.minItems !== undefined || s2.maxItems !== undefined)) {
       const len = v.length;
       if (s2.minItems !== undefined && len < s2.minItems)
         return err("Array too short");
@@ -446,10 +446,13 @@ function filterData(data, schema) {
     return data;
   }
   const t = schema.type;
+  if (t === "object" && !schema.properties && schema.additionalProperties === false && typeof data === "object" && !Array.isArray(data)) {
+    return {};
+  }
   if (t === "object" && schema.properties && typeof data === "object" && !Array.isArray(data)) {
     const result = {};
     for (const key of Object.keys(schema.properties)) {
-      if (key in data) {
+      if (hasOwn(data, key)) {
         result[key] = filterData(data[key], schema.properties[key]);
       }
     }
@@ -700,7 +703,9 @@ var UNENFORCED_KEYWORDS = [
   "contains",
   "minContains",
   "maxContains",
-  "prefixItems"
+  "prefixItems",
+  "additionalItems",
+  "dependencies"
 ];
 var unenforced = (s2, at = "root") => {
   if (s2 == null || typeof s2 !== "object")
@@ -713,6 +718,9 @@ var unenforced = (s2, at = "root") => {
   if (typeof s2.format === "string" && !ENFORCED_FORMATS.has(s2.format)) {
     found.push(`${at}.format:'${s2.format}'`);
   }
+  if (Array.isArray(s2.items) && s2.maxItems !== s2.items.length) {
+    found.push(`${at}.items (tuple without maxItems: ${s2.items.length})`);
+  }
   for (const [segment, kid] of subschemas(s2)) {
     found.push(...unenforced(kid, `${at}.${segment}`));
   }
@@ -721,6 +729,7 @@ var unenforced = (s2, at = "root") => {
 var agentContract = (schemas, options) => {
   const strict = options?.strict ?? true;
   const plain = {};
+  const predicated = {};
   for (const [root, schema] of Object.entries(schemas)) {
     const copy = structuredClone(toPlain(schema));
     const dead = unenforced(copy);
@@ -728,24 +737,36 @@ var agentContract = (schemas, options) => {
       throw new Error(`agentContract('${root}'): schema uses keyword(s) validate does not enforce — ` + `${dead.join(", ")} — a gate must not fail open. Remove them, or express ` + `the constraint via $predicate.`);
     }
     plain[root] = copy;
+    predicated[root] = hasPredicate(copy);
   }
   const roots = Object.keys(plain);
-  const contractedRoot = (path) => roots.find((root) => path === root || path.startsWith(root + ".") || path.startsWith(root + "["));
-  const ancestorOfContracted = (path) => roots.find((root) => root.startsWith(path + ".") || root.startsWith(path + "["));
+  const extendsPath = (child, parent) => child.startsWith(parent + ".") || child.startsWith(parent + "[") || parent === "";
+  for (const a of roots) {
+    for (const b of roots) {
+      if (a !== b && extendsPath(a, b)) {
+        throw new Error(`agentContract: root '${a}' is nested under root '${b}' — which ` + `root judges a deep write would be ambiguous; contract the outer root only`);
+      }
+    }
+  }
+  const affectedRoots = (path) => {
+    const at = roots.find((root) => path === root || extendsPath(path, root));
+    return at != null ? [at] : roots.filter((root) => extendsPath(root, path));
+  };
   return {
     check(path, _value, proposal) {
-      const rootOfPath = contractedRoot(path);
+      const affected = affectedRoots(path);
+      if (affected.length === 0)
+        return true;
       if (proposal == null) {
-        const breached = rootOfPath ?? ancestorOfContracted(path);
-        return breached == null ? true : new Error(`contract breach at ${path} — write affecting contracted root ` + `'${breached}' arrived without a proposal`);
+        return new Error(`contract breach at ${path || "''"} — write affecting contracted root ` + `'${affected[0]}' arrived without a proposal`);
       }
-      if (rootOfPath != null && proposal.root !== rootOfPath) {
-        return new Error(`contract breach at ${path} — proposal root '${proposal.root}' does ` + `not match contracted root '${rootOfPath}'`);
+      const uncovered = affected.filter((root) => root !== proposal.root);
+      if (uncovered.length > 0) {
+        return new Error(`contract breach at ${path || "''"} — proposal root '${proposal.root}' ` + `does not cover contracted root(s) ` + uncovered.map((root) => `'${root}'`).join(", ") + (affected.length > 1 ? "; decompose the write below the shared ancestor" : ""));
       }
       const schema = plain[proposal.root];
-      if (schema == null) {
-        const breached = rootOfPath ?? ancestorOfContracted(path);
-        return breached == null ? true : new Error(`contract breach at ${path} — proposal root '${proposal.root}' is ` + `not contracted, but the write affects contracted root '${breached}'`);
+      if (predicated[proposal.root] && getPredicateEvaluator() == null) {
+        return new Error(`contract breach at ${path} — contracted root '${proposal.root}' carries ` + `a $predicate but no evaluator is registered; the gate would fail open`);
       }
       const reasons = [];
       const ok = validate(proposal.proposed, schema, {

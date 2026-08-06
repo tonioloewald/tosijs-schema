@@ -84,16 +84,12 @@ reviewer leads — sanity-check before acting).
 - [ ] *(unverified)* `unenforced()` flags a banned keyword AND recurses into
   its children, producing redundant paths in the construction error.
 
-## Shared practices KB (`../tosijs-coding-practices` — needs its own commit there)
+## Shared practices KB
 
-- [ ] `releasing.md`: add dist/context.md to the generated-artifacts-in-the-gate
-  note ("seen in: tosijs-schema — v1.5.0 review caught a stale dist/context.md").
-- [ ] `releasing.md`: confirm the human-only publish gate attribution now that
-  this repo's CLAUDE.md records it explicitly.
-- [ ] `state-and-schema.md`: replace `{ fullScan: true }` with `{ strict: true }`
-  (fullScan is a deprecated alias).
-- [ ] `state-and-schema.md`: add agentContract/checkExamples + the
-  examples/`$counterexamples` conventions (strict-by-default rationale), and the
-  gotcha "ValidateOptions must be threaded through every recursive validate()
-  re-entry — strict silently reset to sampling inside anyOf branches until
-  tosijs-schema 1.5.0; pin propagation with a test."
+Done — committed to `../tosijs-coding-practices` as `c8f5a95` (2026-08-06,
+unpushed): fullScan→strict + maxProperties nuance, ValidateOptions-threading
+gotcha, agentContract/examples conventions, dist/context.md drift-gate lesson,
+review-lens-4 affected-versions rule, testing.md refused-input obligation.
+Remaining there post-publish: close-the-loop items (strike tosijs-schema from
+development.md's baseline-artifacts gap list when issue #1 closes; releasing.md
+post-publish ownership note).

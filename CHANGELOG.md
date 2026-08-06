@@ -32,14 +32,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **`additionalProperties: false` is now enforced.** Previously the falsy
-  check `if (s.additionalProperties)` skipped it entirely, so every
-  `s.object()` schema (which emits it by default) silently accepted unknown
-  keys. Unknown keys now fail with `Unexpected <key>`. Affects all `validate`
-  consumers — data that previously passed with smuggled extras will now be
-  refused (use `filter()` to strip extras instead).
+- **`additionalProperties: false` is now enforced** (fail-open in all
+  versions ≤ 1.4.0). Previously the falsy check `if (s.additionalProperties)`
+  skipped it entirely, so every `s.object()` schema (which emits it by
+  default) silently accepted unknown keys. Unknown keys now fail with
+  `Unexpected <key>`. Affects all `validate` consumers — data that previously
+  passed with smuggled extras will now be refused (use `filter()` to strip
+  extras instead). See "Upgrading from 1.4.x" in the README.
+- **Prototype-named keys are treated as data** (fail-open in all versions
+  ≤ 1.4.0, and in the initial 1.5.0 `additionalProperties` fix): key
+  membership now uses `hasOwnProperty`, so keys like `constructor` /
+  `toString` can no longer bypass `additionalProperties: false`, vacuously
+  satisfy `required`, or dodge per-property validation.
 - `minItems` / `maxItems` are now enforced on array schemas without an
-  `items` schema (`{ type: 'array', minItems: 1 }` previously accepted `[]`).
+  `items` schema (`{ type: 'array', minItems: 1 }` previously accepted `[]`;
+  fail-open in all versions ≤ 1.4.0).
 - Typeless schemas now apply object/array keywords when the value matches,
   per JSON Schema semantics: `{ properties, required }` without
   `type: 'object'` previously skipped enforcement entirely when handed an
@@ -54,10 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   even with `{ strict: true }`. Affects all `validate` consumers.
 - `agentContract` gate hardening: a proposal whose `root` doesn't match the
   contracted root the write lands under is refused (a typo'd or adversarial
-  `proposal.root` cannot disarm the gate); writes *above* a contracted root
-  fail closed unless they carry a proposal for the affected root; `format`
-  values `validate` doesn't enforce (anything outside `ENFORCED_FORMATS`)
-  are refused at construction like unenforced keywords.
+  `proposal.root` cannot disarm the gate); writes *above* a contracted root —
+  including the empty path — fail closed unless they carry a proposal for the
+  affected root, and ancestor writes spanning several contracted roots are
+  refused outright (one proposal can't cover them); nested contracted roots,
+  `format` values outside `ENFORCED_FORMATS`, uncapped tuple `items`, and
+  `additionalItems`/`dependencies` are refused at construction; a contracted
+  schema carrying `$predicate` refuses writes while no evaluator is
+  registered rather than silently skipping the predicate.
 - The `pack` release pipeline now regenerates `dist/context.md`
   (via `make-context.ts`), which had been stale since v1.0.x.
 
@@ -88,5 +99,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 [1.5.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.0
 [1.4.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.4.0
-[1.3.0]: https://github.com/tonioloewald/tosijs-schema/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/tonioloewald/tosijs-schema/compare/v1.1.0...v1.2.0

@@ -565,13 +565,21 @@ describe('Filter function - additional coverage', () => {
     const inputA = { type: 'a', value: 'test', extra: true }
     const inputB = { type: 'b', count: 5, extra: true }
 
-    // Union filter behavior - should strip extra on matching branch
+    // Union filter strips against the first branch the stripped data satisfies
     const resultA = filter(inputA, schema)
     const resultB = filter(inputB, schema)
 
-    // Note: current filter may not handle unions specially
-    expect(resultA).not.toBeInstanceOf(Error)
-    expect(resultB).not.toBeInstanceOf(Error)
+    expect(resultA).toEqual({ type: 'a', value: 'test' })
+    expect(resultB).toEqual({ type: 'b', count: 5 })
+
+    // no branch matches even after stripping → validation Error
+    expect(filter({ type: 'c' }, schema)).toBeInstanceOf(Error)
+    // …unless validation is skipped, which falls through unstripped
+    expect(filter({ type: 'c' }, schema, { skipValidation: true })).toEqual({ type: 'c' })
+  })
+
+  test('filter strips a propertyless strict object schema to {}', () => {
+    expect(filter({ x: 1 }, { type: 'object', additionalProperties: false })).toEqual({})
   })
 
   test('filter deeply nested structure', () => {

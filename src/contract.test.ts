@@ -273,6 +273,89 @@ describe('agentContract — the blessed seam adapter', () => {
     expect((verdict as Error).message).toContain('Unexpected evil')
   })
 
+  test('prototype-named keys cannot be smuggled through the gate', () => {
+    const gate = agentContract({ 'app.u': s.object({ a: s.number }) })
+    const verdict = gate.check('app.u', {}, {
+      root: 'app.u',
+      proposed: { a: 1, constructor: { evil: true } },
+    })
+    expect(verdict).toBeInstanceOf(Error)
+    expect((verdict as Error).message).toContain('Unexpected constructor')
+  })
+
+  test('an ancestor write spanning several contracted roots is refused', () => {
+    const gate = agentContract({
+      'app.order': s.object({ qty: s.number }),
+      'app.user': s.object({ name: s.string }),
+    })
+    // one proposal cannot cover both roots the write replaces
+    const verdict = gate.check(
+      'app',
+      { order: { qty: 1 }, user: 12345 },
+      { root: 'app.order', proposed: { qty: 1 } }
+    )
+    expect(verdict).toBeInstanceOf(Error)
+    expect((verdict as Error).message).toContain("'app.user'")
+    expect((verdict as Error).message).toContain('decompose')
+  })
+
+  test('the empty write path is an ancestor of every contracted root', () => {
+    const gate = agentContract({ 'app.order': orderSchema })
+    const verdict = gate.check('', { app: { order: 'clobbered' } })
+    expect(verdict).toBeInstanceOf(Error)
+    expect((verdict as Error).message).toContain('without a proposal')
+  })
+
+  test('nested contracted roots are refused at construction', () => {
+    expect(() =>
+      agentContract({
+        'app.order': orderSchema,
+        'app.order.qty': { type: 'number' },
+      })
+    ).toThrow('nested under')
+  })
+
+  test('uncapped tuple items are refused at construction; s.tuple passes', () => {
+    expect(() =>
+      agentContract({
+        'app.t': {
+          type: 'array',
+          items: [{ type: 'number' }, { type: 'number' }],
+        },
+      })
+    ).toThrow('tuple without maxItems')
+    expect(() =>
+      agentContract({
+        'app.t': {
+          type: 'array',
+          items: [{ type: 'number' }, { type: 'number' }],
+          additionalItems: false,
+        },
+      })
+    ).toThrow('additionalItems')
+    // the builder emits min/maxItems = tuple length, so it constructs fine
+    expect(() =>
+      agentContract({ 'app.t': s.tuple([s.number, s.number]) })
+    ).not.toThrow()
+  })
+
+  test('a contracted $predicate with no registered evaluator refuses writes', () => {
+    const gate = agentContract({
+      'app.n': { type: 'number', $predicate: '(n) => n > 100' },
+    })
+    const closed = gate.check('app.n', 5, { root: 'app.n', proposed: 5 })
+    expect(closed).toBeInstanceOf(Error)
+    expect((closed as Error).message).toContain('no evaluator is registered')
+    // with an evaluator, the predicate settles it
+    const prev = setPredicateEvaluator((source, value) => (0, eval)(source)(value))
+    try {
+      expect(gate.check('app.n', 5, { root: 'app.n', proposed: 5 })).toBeInstanceOf(Error)
+      expect(gate.check('app.n', 500, { root: 'app.n', proposed: 500 })).toBe(true)
+    } finally {
+      setPredicateEvaluator(prev)
+    }
+  })
+
   test('a whole-root delete (proposed: undefined) fails closed', () => {
     const gate = agentContract({ 'app.order': orderSchema })
     expect(

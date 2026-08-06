@@ -388,6 +388,8 @@ export const s = new Proxy(methods, {
 
 // VALIDATOR
 
+const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
+
 const STRIDE = 97
 const FMT: Record<string, (v: string) => boolean> = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
@@ -518,16 +520,20 @@ export function validate(
 
     // Per JSON Schema, object/array applicator keywords also apply to a
     // typeless schema when the instance IS an object/array — a gate schema
-    // like { properties, required } without `type` must still enforce
-    const isPlainObject = typeof v === 'object' && !Array.isArray(v)
-    const objectKeywords =
-      s.properties !== undefined ||
-      s.required !== undefined ||
-      s.additionalProperties !== undefined ||
-      s.minProperties !== undefined ||
-      s.maxProperties !== undefined
-
-    if (t === 'object' || (!t && isPlainObject && objectKeywords)) {
+    // like { properties, required } without `type` must still enforce.
+    // All data/schema key membership uses hasOwn: `in` walks the prototype
+    // chain, so keys like 'constructor' would bypass every check below.
+    if (
+      t === 'object' ||
+      (!t &&
+        typeof v === 'object' &&
+        !Array.isArray(v) &&
+        (s.properties !== undefined ||
+          s.required !== undefined ||
+          s.additionalProperties !== undefined ||
+          s.minProperties !== undefined ||
+          s.maxProperties !== undefined))
+    ) {
       // Check property count constraints
       // minProperties: always checked (required for empty object rejection)
       // maxProperties: only checked in fullScan mode (counting is O(n))
@@ -535,26 +541,26 @@ export function validate(
       const checkMax = fullScan && s.maxProperties !== undefined
       if (checkMin || checkMax) {
         let c = 0
-        for (const k in v) if (Object.prototype.hasOwnProperty.call(v, k)) c++
+        for (const k in v) if (hasOwn(v, k)) c++
         if (checkMin && c < s.minProperties) return err('Too few props')
         if (checkMax && c > s.maxProperties) return err('Too many props')
       }
 
       if (s.required) {
-        for (const k of s.required) if (!(k in v)) return err(`Missing ${k}`)
+        for (const k of s.required) if (!hasOwn(v, k)) return err(`Missing ${k}`)
       }
 
       if (s.additionalProperties === false) {
         for (const k in v) {
-          if (!Object.prototype.hasOwnProperty.call(v, k)) continue
-          if (s.properties && k in s.properties) continue
+          if (!hasOwn(v, k)) continue
+          if (s.properties && hasOwn(s.properties, k)) continue
           return err(`Unexpected ${k}`)
         }
       }
 
       if (s.properties) {
         for (const k in s.properties) {
-          if (k in v) {
+          if (hasOwn(v, k)) {
             path.push(k)
             const ok = walk(v[k], s.properties[k])
             path.pop()
@@ -565,7 +571,8 @@ export function validate(
       if (s.additionalProperties) {
         const keys: string[] = []
         for (const k in v) {
-          if (s.properties && k in s.properties) continue
+          if (!hasOwn(v, k)) continue
+          if (s.properties && hasOwn(s.properties, k)) continue
           keys.push(k)
         }
         const len = keys.length
@@ -583,11 +590,14 @@ export function validate(
       return true
     }
 
-    const arrayKeywords =
-      s.items !== undefined ||
-      s.minItems !== undefined ||
-      s.maxItems !== undefined
-    if (t === 'array' || (!t && Array.isArray(v) && arrayKeywords)) {
+    if (
+      t === 'array' ||
+      (!t &&
+        Array.isArray(v) &&
+        (s.items !== undefined ||
+          s.minItems !== undefined ||
+          s.maxItems !== undefined))
+    ) {
       // min/maxItems are NOT gated behind `items` — a bare
       // { type: 'array', minItems: 1 } must still refuse []
       const len = v.length
@@ -688,12 +698,23 @@ function filterData(data: any, schema: any): any {
   }
 
   const t = schema.type
-  
+
+  // A propertyless strict object schema means "empty object" — strip to it
+  if (
+    t === 'object' &&
+    !schema.properties &&
+    schema.additionalProperties === false &&
+    typeof data === 'object' &&
+    !Array.isArray(data)
+  ) {
+    return {}
+  }
+
   // For objects, only keep properties defined in the schema
   if (t === 'object' && schema.properties && typeof data === 'object' && !Array.isArray(data)) {
     const result: Record<string, any> = {}
     for (const key of Object.keys(schema.properties)) {
-      if (key in data) {
+      if (hasOwn(data, key)) {
         result[key] = filterData(data[key], schema.properties[key])
       }
     }
