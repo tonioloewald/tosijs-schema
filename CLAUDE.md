@@ -25,7 +25,7 @@ bun run pack                    # full pipeline: tests + typecheck + bench + exa
 
 ## What this library is
 
-A ~3kB **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required.
+A ~5kB (gzipped) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required.
 
 Public API is just `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, and `src/contract.ts`.
 
@@ -56,5 +56,7 @@ Public API is just `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, and 
 ## Releasing
 
 `bun run pack` is the prepublish gate (runs everything, regenerates `examples.md` and `dist/context.md`, builds ESM + CJS + declarations into `dist/`). Before a minor/major bump, run the `pre-release-review` skill (part of the shared practices process). Update `CHANGELOG.md` and `llms.txt` with every release.
+
+**Drift gate:** after the final `bun run pack`, `git status --porcelain` must be empty before tagging — if it isn't, a generated artifact (examples.md, dist/, COVERAGE numbers, llms.txt version) is stale in the commit.
 
 **Publishing and pushing are human-only.** Stop after commit + tag and wait for an explicit go-ahead; never run `npm publish`/`bun publish` or `git push` yourself.

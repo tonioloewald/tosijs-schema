@@ -24,13 +24,15 @@ The `validate` function is the core engine.
 * **Signature:** `validate(value, schemaOrBuilder, options?)`
 * **Behavior:** Returns `boolean`. **Never throws** (unless explicitly asked via callback). Does **not** allocate new objects.
 * **Optimization:**
-    * **Stochastic Sampling:** If an array or dictionary is large (>97 items) and `fullScan` is false, it checks indices at prime intervals (stride 97) to statistically verify structure in O(1).
-    * **Ghost Constraints:** `maxProperties` on objects is documented in the schema but **ignored** at runtime to prevent O(N) key counting overhead.
+    * **Stochastic Sampling:** If an array or dictionary is large (>97 items) and `strict` is false (`fullScan` is the deprecated alias), it checks indices at prime intervals (stride 97) to statistically verify structure in O(1).
+    * **Ghost Constraints:** `maxProperties` on objects is documented in the schema but **ignored** at runtime (unless `strict`) to prevent O(N) key counting overhead.
+* **Enforcement notes:** `additionalProperties: false` rejects unknown keys (and `s.object()` emits it by default); `minItems`/`maxItems` apply with or without an `items` schema; typeless schemas apply object/array keywords when the value matches (JSON Schema semantics); `format` values outside `ENFORCED_FORMATS` are ignored annotations (but refused by `agentContract`).
 
 ### C. Agent Contracts (`src/contract.ts`)
 
 Adapters for capability-gated write paths (tosijs's agent surface, or anything with the same seam shape).
 * **`agentContract(schemas, options?)`:** Maps root path → schema into `{ check, describe }`. `check(path, value, proposal?)` judges the whole-root `proposal.proposed` (never walks paths itself) and returns `true | Error` (the Error message is the refusal reason). Strict validation by default — pass `{ strict: false }` to allow sampling.
+* **Fail-closed invariants (do not weaken):** schemas are deep-copied at construction AND out of `describe()` (mutation cannot disarm the gate); keywords `validate` doesn't enforce (`allOf`/`oneOf`/`not`/`$ref`/`exclusiveMinimum`…, see `UNENFORCED_KEYWORDS`) and `format` values outside `ENFORCED_FORMATS` throw at construction; protocol breaches return an Error — contracted-root write with no proposal (dot- and bracket-path prefix), `proposal.root` mismatching the root the write lands under, and ancestor writes that would replace a contracted subtree without a proposal for it.
 * **`checkExamples(schemaOrBuilder)`:** Definition-time lint. Recursively verifies every `examples` entry passes its own node and every `$counterexamples` entry fails. Counterexamples that pass structurally under a `$predicate` with no registered evaluator report `unverifiable`, not `accepted`.
 * **Guarantee:** `validate` ignores and never mutates unknown `$`-prefixed and `x-*` keys — extension conventions ride along safely.
 
@@ -68,7 +70,7 @@ import { validate } from './src/schema'
 validate(data, User)
 
 // strict mode (disables stochastic sampling)
-User.validate(data, { fullScan: true })
+User.validate(data, { strict: true })
 ```
 
 ### Monads
@@ -373,4 +375,71 @@ const externalSchema = {
   }
 }
 validate({ count: 10 }, externalSchema)
+```
+
+## 6. Agent Contracts & Examples-as-Tests
+
+Demonstrates `agentContract` — the adapter for capability-gated write paths (e.g. the tosijs agent surface). `check()` judges a proposed whole-root value and returns `true` or an `Error` carrying the refusal reason; `describe()` returns the serializable per-root contract. The `examples` / `$counterexamples` conventions make the contract self-proving: `checkExamples()` lints that every example passes and every counterexample fails, at definition time.
+
+### Definition
+```typescript
+const Order = s.object({
+  item: s.string,
+  qty: s.number.min(1),
+}).meta({
+  examples: [{ item: 'kumquat', qty: 3 }],
+  $counterexamples: [{ item: 'kumquat' }, { item: 42, qty: 1 }],
+})
+
+const contract = agentContract({ 'app.order': Order })
+
+contract.check('app.order.qty', 'x', {
+  root: 'app.order',
+  proposed: { item: 'yuzu', qty: 'x' },
+})
+// Error: contract violation at app.order.qty — qty: Expected number
+
+checkExamples(Order) // [] — the spec doesn't lie
+```
+
+### JSON Schema Output
+```json
+{
+  "examples": [
+    {
+      "item": "kumquat",
+      "qty": 3
+    }
+  ],
+  "$counterexamples": [
+    {
+      "item": "kumquat"
+    },
+    {
+      "item": 42,
+      "qty": 1
+    }
+  ],
+  "type": "object",
+  "properties": {
+    "item": {
+      "type": "string"
+    },
+    "qty": {
+      "type": "number",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "item",
+    "qty"
+  ],
+  "additionalProperties": false
+}
+```
+
+### Refusal Output
+```
+Error: contract violation at app.order.qty — qty: Expected number
+checkExamples findings: []
 ```

@@ -32,14 +32,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`additionalProperties: false` is now enforced.** Previously the falsy
+  check `if (s.additionalProperties)` skipped it entirely, so every
+  `s.object()` schema (which emits it by default) silently accepted unknown
+  keys. Unknown keys now fail with `Unexpected <key>`. Affects all `validate`
+  consumers — data that previously passed with smuggled extras will now be
+  refused (use `filter()` to strip extras instead).
+- `minItems` / `maxItems` are now enforced on array schemas without an
+  `items` schema (`{ type: 'array', minItems: 1 }` previously accepted `[]`).
+- Typeless schemas now apply object/array keywords when the value matches,
+  per JSON Schema semantics: `{ properties, required }` without
+  `type: 'object'` previously skipped enforcement entirely when handed an
+  object.
+- `filter()` now strips extras *before* validating (so
+  `additionalProperties: false` doesn't refuse the very extras filtering
+  exists to remove) and strips through `anyOf` against the first branch the
+  stripped data satisfies.
 - `strict` / `fullScan` now propagates into `anyOf` branch validation.
   Previously, strict mode silently reverted to stride sampling inside union
   branches, so a bad element at an unsampled index of a large array could pass
   even with `{ strict: true }`. Affects all `validate` consumers.
+- `agentContract` gate hardening: a proposal whose `root` doesn't match the
+  contracted root the write lands under is refused (a typo'd or adversarial
+  `proposal.root` cannot disarm the gate); writes *above* a contracted root
+  fail closed unless they carry a proposal for the affected root; `format`
+  values `validate` doesn't enforce (anything outside `ENFORCED_FORMATS`)
+  are refused at construction like unenforced keywords.
 - The `pack` release pipeline now regenerates `dist/context.md`
   (via `make-context.ts`), which had been stale since v1.0.x.
 
-## [1.4.0] — 2026-08-01
+## [1.4.0] — 2026-07-03
 
 ### Added
 
@@ -66,3 +88,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 [1.5.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.0
 [1.4.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.4.0
+[1.3.0]: https://github.com/tonioloewald/tosijs-schema/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/tonioloewald/tosijs-schema/compare/v1.1.0...v1.2.0

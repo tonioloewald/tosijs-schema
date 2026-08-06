@@ -245,7 +245,7 @@ describe('Object edge cases', () => {
     const Empty = s.object({})
     expect(validate({}, Empty)).toBeTrue()
     // Extra properties are rejected due to additionalProperties: false
-    expect(validate({ extra: 1 }, Empty)).toBeTrue() // Actually passes - validator doesn't check this
+    expect(validate({ extra: 1 }, Empty)).toBeFalse()
   })
 
   test('Object.create(null)', () => {

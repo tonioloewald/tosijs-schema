@@ -36,9 +36,11 @@ export interface JSONSchema {
     $schema?: string;
     /**
      * Computational validation (progressive enhancement). The value is the
-     * *source* of a predicate cluster (pure functions; the last is the entry,
-     * takes the value at this node, returns boolean) — the "computational half"
-     * plain JSON Schema can't express (open value grammars, recursive structure).
+     * *source* of a predicate (conceptually: takes the value at this node,
+     * returns boolean) — the "computational half" plain JSON Schema can't
+     * express (open value grammars, recursive structure). The exact source
+     * format is defined by the registered evaluator, pending a specification
+     * from the canonical engine (tjs-lang).
      *
      * A naive validator ignores this keyword and checks only the structural part.
      * A predicate-aware one runs it — but only when an evaluator has been
@@ -46,7 +48,16 @@ export interface JSONSchema {
      * (the predicate engine lives in the consumer, e.g. `tjs-lang`).
      */
     $predicate?: string;
+    /**
+     * Values this schema must REFUSE (convention, paired with the standard
+     * `examples` keyword): a gate that never says no isn't a gate. Exercised by
+     * {@link checkExamples} and by contract harnesses (e.g. tosijs's
+     * `exerciseContract`). Like all unknown `$`-prefixed keys, ignored by
+     * {@link validate}.
+     */
+    $counterexamples?: unknown[];
     [key: `x-${string}`]: unknown;
+    [key: `$${string}`]: unknown;
 }
 /**
  * Evaluates a `$predicate` source against a value. Registered by a consumer that
@@ -157,6 +168,13 @@ type TinySchema = typeof methods & {
     any: Base<any>;
 };
 export declare const s: TinySchema;
+/**
+ * The `format` values `validate` actually enforces. Any other format string
+ * passes through unchecked (per JSON Schema, `format` is an annotation by
+ * default) — `agentContract` refuses out-of-set formats at construction so a
+ * gate can't advertise a constraint it doesn't enforce.
+ */
+export declare const ENFORCED_FORMATS: ReadonlySet<string>;
 export type ErrorHandler = (path: string, msg: string) => void;
 export interface ValidateOptions {
     onError?: ErrorHandler;

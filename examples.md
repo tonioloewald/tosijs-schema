@@ -252,3 +252,70 @@ const externalSchema = {
 validate({ count: 10 }, externalSchema)
 ```
 
+## 6. Agent Contracts & Examples-as-Tests
+
+Demonstrates `agentContract` — the adapter for capability-gated write paths (e.g. the tosijs agent surface). `check()` judges a proposed whole-root value and returns `true` or an `Error` carrying the refusal reason; `describe()` returns the serializable per-root contract. The `examples` / `$counterexamples` conventions make the contract self-proving: `checkExamples()` lints that every example passes and every counterexample fails, at definition time.
+
+### Definition
+```typescript
+const Order = s.object({
+  item: s.string,
+  qty: s.number.min(1),
+}).meta({
+  examples: [{ item: 'kumquat', qty: 3 }],
+  $counterexamples: [{ item: 'kumquat' }, { item: 42, qty: 1 }],
+})
+
+const contract = agentContract({ 'app.order': Order })
+
+contract.check('app.order.qty', 'x', {
+  root: 'app.order',
+  proposed: { item: 'yuzu', qty: 'x' },
+})
+// Error: contract violation at app.order.qty — qty: Expected number
+
+checkExamples(Order) // [] — the spec doesn't lie
+```
+
+### JSON Schema Output
+```json
+{
+  "examples": [
+    {
+      "item": "kumquat",
+      "qty": 3
+    }
+  ],
+  "$counterexamples": [
+    {
+      "item": "kumquat"
+    },
+    {
+      "item": 42,
+      "qty": 1
+    }
+  ],
+  "type": "object",
+  "properties": {
+    "item": {
+      "type": "string"
+    },
+    "qty": {
+      "type": "number",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "item",
+    "qty"
+  ],
+  "additionalProperties": false
+}
+```
+
+### Refusal Output
+```
+Error: contract violation at app.order.qty — qty: Expected number
+checkExamples findings: []
+```
+

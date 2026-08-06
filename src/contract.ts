@@ -9,6 +9,7 @@
 import {
   validate,
   getPredicateEvaluator,
+  ENFORCED_FORMATS,
   type JSONSchema,
   type Base,
 } from './schema'
@@ -69,12 +70,17 @@ const UNENFORCED_KEYWORDS = [
   'prefixItems',
 ] as const
 
-/** paths of unenforced keywords anywhere in a schema tree */
+/** paths of unenforced keywords (and unenforced formats) anywhere in a schema tree */
 const unenforced = (s: any, at = 'root'): string[] => {
   if (s == null || typeof s !== 'object') return []
   const found: string[] = []
   for (const key of UNENFORCED_KEYWORDS) {
     if (s[key] !== undefined) found.push(`${at}.${key}`)
+  }
+  // format is an annotation for values outside ENFORCED_FORMATS — for a gate
+  // that's an advertised constraint validate never checks
+  if (typeof s.format === 'string' && !ENFORCED_FORMATS.has(s.format)) {
+    found.push(`${at}.format:'${s.format}'`)
   }
   for (const [segment, kid] of subschemas(s)) {
     found.push(...unenforced(kid, `${at}.${segment}`))
@@ -127,19 +133,44 @@ export const agentContract = (
         path.startsWith(root + '.') ||
         path.startsWith(root + '[')
     )
+  // a write ABOVE a contracted root replaces the contracted subtree too
+  const ancestorOfContracted = (path: string): string | undefined =>
+    roots.find(
+      (root) => root.startsWith(path + '.') || root.startsWith(path + '[')
+    )
   return {
     check(path, _value, proposal) {
+      const rootOfPath = contractedRoot(path)
       if (proposal == null) {
-        const breached = contractedRoot(path)
+        const breached = rootOfPath ?? ancestorOfContracted(path)
         return breached == null
-          ? true // outside any contracted root
+          ? true // touches no contracted root
           : new Error(
-              `contract breach at ${path} — write at or under contracted root ` +
+              `contract breach at ${path} — write affecting contracted root ` +
                 `'${breached}' arrived without a proposal`
             )
       }
+      // the proposal must be FOR the root this write lands under — a typo'd
+      // or adversarial proposal.root must not disarm the gate
+      if (rootOfPath != null && proposal.root !== rootOfPath) {
+        return new Error(
+          `contract breach at ${path} — proposal root '${proposal.root}' does ` +
+            `not match contracted root '${rootOfPath}'`
+        )
+      }
       const schema = plain[proposal.root]
-      if (schema == null) return true
+      if (schema == null) {
+        // an uncontracted proposal.root is only fine if the write really
+        // touches no contracted root (incl. ancestor writes that would
+        // replace a contracted subtree)
+        const breached = rootOfPath ?? ancestorOfContracted(path)
+        return breached == null
+          ? true
+          : new Error(
+              `contract breach at ${path} — proposal root '${proposal.root}' is ` +
+                `not contracted, but the write affects contracted root '${breached}'`
+            )
+      }
       const reasons: string[] = []
       const ok = validate(proposal.proposed, schema, {
         strict,

@@ -5,6 +5,20 @@ reviewer leads — sanity-check before acting).
 
 ## Correctness
 
+- [ ] *(unverified)* Multi-entry `type` arrays enforce only the first entry
+  (`['string','number']` refuses 42; `['null','string']` refuses everything
+  non-null). Fail-closed direction, but breaks legitimate contracted writes.
+  Enforce membership across entries, or refuse multi-type arrays at
+  `agentContract` construction.
+- [ ] *(unverified)* An invalid `pattern` regex makes `check()` throw a
+  SyntaxError instead of returning `true | Error`. Compile patterns at
+  construction and/or try/catch in `check()`.
+- [ ] *(unverified)* Single-source `UNENFORCED_KEYWORDS` with `validate`'s
+  actual enforcement: add a per-keyword self-verifying test (each listed
+  keyword genuinely unenforced, each enforced keyword absent from the list).
+  The hand-maintained mirror is the drift mechanism that produced the
+  additionalProperties fail-open.
+
 - [ ] *(unverified)* `hasPredicate` over-approximates reachability: a
   `$predicate` in unreferenced `$defs` / `not` makes `checkExamples` report
   `unverifiable` when the counterexample is genuinely accepted regardless of
@@ -49,8 +63,26 @@ reviewer leads — sanity-check before acting).
   and `$defs` asserting `schemaPath`.
 - [ ] *(unverified)* `hasPredicate` descendant recursion untested — add a
   parent-counterexamples/child-predicate test.
+- [ ] *(unverified)* Pin `subschemas()` recursion branches with tests (tuple
+  items, prefixItems, object-valued additionalProperties, $defs — currently
+  uncovered).
+- [ ] *(unverified)* Add a type-level test for the `` `$${string}` `` index
+  signature on `JSONSchema` in `src/inference.types.ts`.
 - [ ] Consider wiring COVERAGE.md regeneration into `pack` (it was 6 months
   stale before the v1.5.0 refresh).
+
+## Docs / interop
+
+- [ ] *(unverified)* Document the one-proposal-per-transaction protocol at the
+  AgentContract seam (bulk per-path writes are O(N×M) with strict full-scan) —
+  JSDoc + CONTEXT/README.
+- [ ] *(unverified)* Memoize or deep-freeze `describe()`'s output instead of
+  structuredClone per call (keep the clone on the way in).
+- [ ] *(unverified)* Document the interop cost of `$`-prefixed keys in
+  `describe()` output (Ajv's default strict mode rejects unknown keywords);
+  consider a `describe({ strip: true })` option.
+- [ ] *(unverified)* `unenforced()` flags a banned keyword AND recurses into
+  its children, producing redundant paths in the construction error.
 
 ## Shared practices KB (`../tosijs-coding-practices` — needs its own commit there)
 

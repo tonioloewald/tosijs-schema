@@ -100,7 +100,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Output | Native JSON Schema | Proprietary | Native JSON Schema |
 | JSON Schema spec | Practical subset | N/A (not JSON Schema) | Draft 2020-12 compliant |
 | Syntax | `s.email` | `z.string().email()` | `Type.String({ format: 'email' })` |
-| Bundle | ~3kB | ~14kB | ~64kB |
+| Bundle | ~5kB | ~14kB | ~64kB |
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
@@ -144,7 +144,7 @@ This matters for:
 
 ### JSON Schema Coverage
 
-tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~3kB bundle vs spec compliance.
+tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~5kB bundle vs spec compliance.
 
 **Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (common formats), `default`, `title`, `description`
 
@@ -166,7 +166,7 @@ If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable i
 - You have a fixed set of schemas known at startup (compile once, validate millions)
 - You need maximum validation throughput (high-traffic APIs, real-time pipelines)
 - You're building with Fastify or Elysia (native TypeBox support)
-- Bundle size isn't a primary concern (~64kB vs ~3kB)
+- Bundle size isn't a primary concern (~64kB vs ~5kB)
 - Note: JIT mode uses `new Function()`, but interpreted mode (`Value.Check()`) works in CSP environments at ~18x slower
 
 ### When to Use tosijs-schema
@@ -338,7 +338,7 @@ contract.describe() // plain JSON Schemas — "what's legal", shippable over the
 
 Deep writes are judged as the whole root they would produce, so `required` on siblings, cross-field constraints, and root-level `$predicate`s all participate. Validation is strict by default (a gate that samples isn't a gate); pass `{ strict: false }` to opt into sampled validation for huge roots.
 
-**The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Schemas using JSON Schema keywords `validate` does not implement (`allOf`, `oneOf`, `not`, `$ref`, `if`/`then`/`else`, `exclusiveMinimum`/`Maximum`, `patternProperties`, `uniqueItems`, `prefixItems`, …) are refused with an `Error` at construction — a keyword that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. And a write at or under a contracted root that arrives *without* a proposal is refused as a protocol breach rather than waved through.
+**The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Schemas using JSON Schema keywords `validate` does not implement (`allOf`, `oneOf`, `not`, `$ref`, `if`/`then`/`else`, `exclusiveMinimum`/`Maximum`, `patternProperties`, `uniqueItems`, `prefixItems`, …) — or `format` values outside the enforced set (`ENFORCED_FORMATS`) — are refused with an `Error` at construction: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Protocol breaches fail closed too: a write at or under a contracted root arriving *without* a proposal, a proposal whose `root` doesn't match the contracted root the write lands under, and a write *above* a contracted root that would replace the contracted subtree without a proposal for it are all refused with an `Error` naming the breach.
 
 ### Examples as tests
 
@@ -348,6 +348,8 @@ Two conventions make a contract self-proving:
 - **`$counterexamples`** (our convention) — values it must refuse; a gate that never says no isn't a gate
 
 `checkExamples(schema)` lints the whole schema tree at definition time: every example must pass its own node, every counterexample must fail. It returns findings (empty = the spec doesn't lie); a counterexample that passes structurally but sits under a `$predicate` with no evaluator registered is reported as `unverifiable` rather than `accepted`.
+
+Note: the `$predicate` *source format* is defined by whatever evaluator you register via `setPredicateEvaluator()` — this library treats the string as opaque. A canonical format specification is pending in tjs-lang (see `UPSTREAM.md`).
 
 **Extension-key guarantee:** `validate` ignores — and never mutates — unrecognized `$`-prefixed keys (and `x-*` keys), so conventions like `$counterexamples` and future `$exercise` metadata are safe to standardize on and travel with the schema.
 

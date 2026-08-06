@@ -201,6 +201,78 @@ describe('agentContract — the blessed seam adapter', () => {
     expect(gate.check('app.orders', 5)).toBe(true)
   })
 
+  test('a mismatched or uncontracted proposal.root cannot disarm the gate', () => {
+    const gate = agentContract({ 'app.order': orderSchema })
+    // bogus root for a contracted write
+    const bogus = gate.check('app.order.qty', 'x', {
+      root: 'app.bogus',
+      proposed: 'anything',
+    })
+    expect(bogus).toBeInstanceOf(Error)
+    expect((bogus as Error).message).toContain("'app.bogus'")
+    // near-miss root string
+    expect(
+      gate.check('app.order.qty', 'x', {
+        root: 'app.orderX',
+        proposed: 'anything',
+      })
+    ).toBeInstanceOf(Error)
+    // the matching root still validates normally
+    expect(
+      gate.check('app.order.qty', 2, {
+        root: 'app.order',
+        proposed: { item: 'plum', qty: 2 },
+      })
+    ).toBe(true)
+  })
+
+  test('a write ABOVE a contracted root fails closed without a proposal for it', () => {
+    const gate = agentContract({ 'app.order': orderSchema })
+    // ancestor write, no proposal: would replace the contracted subtree
+    const clobber = gate.check('app', { order: { garbage: true } })
+    expect(clobber).toBeInstanceOf(Error)
+    expect((clobber as Error).message).toContain('without a proposal')
+    // ancestor write with an uncontracted proposal.root breaches too
+    expect(
+      gate.check('app', { order: {} }, { root: 'app.other', proposed: {} })
+    ).toBeInstanceOf(Error)
+    // ancestor write WITH a proposal for the affected root is judged normally
+    expect(
+      gate.check(
+        'app',
+        { order: { item: 'plum', qty: 2 } },
+        { root: 'app.order', proposed: { item: 'plum', qty: 2 } }
+      )
+    ).toBe(true)
+    expect(
+      gate.check(
+        'app',
+        { order: { item: 'plum' } },
+        { root: 'app.order', proposed: { item: 'plum' } }
+      )
+    ).toBeInstanceOf(Error)
+  })
+
+  test('formats validate does not enforce are refused at construction', () => {
+    expect(() =>
+      agentContract({ 'app.x': { type: 'string', format: 'hostname' } })
+    ).toThrow("format:'hostname'")
+    // enforced formats pass
+    expect(() =>
+      agentContract({ 'app.x': { type: 'string', format: 'email' } })
+    ).not.toThrow()
+  })
+
+  test('the gate refuses smuggled extra keys (additionalProperties: false)', () => {
+    const gate = agentContract({ 'app.user': s.object({ name: s.string }) })
+    const verdict = gate.check('app.user', {}, {
+      root: 'app.user',
+      proposed: { name: 'x', evil: { anything: true } },
+    })
+    expect(verdict).toBeInstanceOf(Error)
+    expect((verdict as Error).message).toContain('Unexpected evil')
+  })
+
   test('a whole-root delete (proposed: undefined) fails closed', () => {
     const gate = agentContract({ 'app.order': orderSchema })
     expect(

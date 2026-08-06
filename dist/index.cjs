@@ -46,9 +46,12 @@ __export(exports_tosijs_schema, {
   filter: () => filter,
   diff: () => diff,
   createM: () => createM,
+  checkExamples: () => checkExamples,
+  agentContract: () => agentContract,
   TimeoutError: () => TimeoutError,
   SchemaError: () => SchemaError,
-  M: () => M
+  M: () => M,
+  ENFORCED_FORMATS: () => ENFORCED_FORMATS
 });
 module.exports = __toCommonJS(exports_tosijs_schema);
 
@@ -232,6 +235,7 @@ var FMT = {
   "date-time": (v) => !isNaN(Date.parse(v)),
   emoji: (v) => new RegExp(RX_EMOJI_ATOM, "u").test(v)
 };
+var ENFORCED_FORMATS = new Set(Object.keys(FMT));
 function validate(val, builderOrSchema, opts) {
   const schema = builderOrSchema?.schema || builderOrSchema;
   const onError = typeof opts === "function" ? opts : opts?.onError;
@@ -245,7 +249,7 @@ function validate(val, builderOrSchema, opts) {
   const walk = (v, s2) => {
     if (s2.anyOf) {
       for (const sub of s2.anyOf) {
-        if (validate(v, sub))
+        if (validate(v, sub, { strict: fullScan }))
           return true;
       }
       return err("Union mismatch");
@@ -305,7 +309,9 @@ function validate(val, builderOrSchema, opts) {
       if (s2.format && FMT[s2.format] && !FMT[s2.format](v))
         return err("Format invalid");
     }
-    if (t === "object") {
+    const isPlainObject = typeof v === "object" && !Array.isArray(v);
+    const objectKeywords = s2.properties !== undefined || s2.required !== undefined || s2.additionalProperties !== undefined || s2.minProperties !== undefined || s2.maxProperties !== undefined;
+    if (t === "object" || !t && isPlainObject && objectKeywords) {
       const checkMin = s2.minProperties !== undefined;
       const checkMax = fullScan && s2.maxProperties !== undefined;
       if (checkMin || checkMax) {
@@ -322,6 +328,15 @@ function validate(val, builderOrSchema, opts) {
         for (const k of s2.required)
           if (!(k in v))
             return err(`Missing ${k}`);
+      }
+      if (s2.additionalProperties === false) {
+        for (const k in v) {
+          if (!Object.prototype.hasOwnProperty.call(v, k))
+            continue;
+          if (s2.properties && k in s2.properties)
+            continue;
+          return err(`Unexpected ${k}`);
+        }
       }
       if (s2.properties) {
         for (const k in s2.properties) {
@@ -357,12 +372,15 @@ function validate(val, builderOrSchema, opts) {
       }
       return true;
     }
-    if (t === "array" && s2.items) {
+    const arrayKeywords = s2.items !== undefined || s2.minItems !== undefined || s2.maxItems !== undefined;
+    if (t === "array" || !t && Array.isArray(v) && arrayKeywords) {
       const len = v.length;
       if (s2.minItems !== undefined && len < s2.minItems)
         return err("Array too short");
       if (s2.maxItems !== undefined && len > s2.maxItems)
         return err("Array too long");
+      if (s2.items === undefined)
+        return true;
       if (Array.isArray(s2.items)) {
         for (let i = 0;i < s2.items.length; i++) {
           path.push(String(i));
@@ -396,6 +414,7 @@ function filter(data, builderOrSchema, opts) {
   const onError = typeof opts === "function" ? opts : opts?.onError;
   const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const skipValidation = typeof opts === "object" ? opts?.skipValidation : false;
+  const filtered = filterData(data, schema);
   if (!skipValidation) {
     let errorPath = "";
     let errorMsg = "";
@@ -407,15 +426,23 @@ function filter(data, builderOrSchema, opts) {
       if (onError)
         onError(path, msg);
     };
-    const valid = validate(data, schema, { onError: captureError, fullScan });
+    const valid = validate(filtered, schema, { onError: captureError, fullScan });
     if (!valid) {
       return new Error(`${errorPath}: ${errorMsg}`);
     }
   }
-  return filterData(data, schema);
+  return filtered;
 }
 function filterData(data, schema) {
   if (data === null || data === undefined) {
+    return data;
+  }
+  if (schema.anyOf) {
+    for (const sub of schema.anyOf) {
+      const candidate = filterData(data, sub);
+      if (validate(candidate, sub))
+        return candidate;
+    }
     return data;
   }
   const t = schema.type;
@@ -651,3 +678,162 @@ class M {
 var createM = (r) => {
   return new M(r);
 };
+// src/contract.ts
+var toPlain = (schema) => schema?.schema ?? schema;
+var UNENFORCED_KEYWORDS = [
+  "allOf",
+  "oneOf",
+  "not",
+  "$ref",
+  "if",
+  "then",
+  "else",
+  "dependentRequired",
+  "dependentSchemas",
+  "patternProperties",
+  "propertyNames",
+  "unevaluatedProperties",
+  "unevaluatedItems",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "uniqueItems",
+  "contains",
+  "minContains",
+  "maxContains",
+  "prefixItems"
+];
+var unenforced = (s2, at = "root") => {
+  if (s2 == null || typeof s2 !== "object")
+    return [];
+  const found = [];
+  for (const key of UNENFORCED_KEYWORDS) {
+    if (s2[key] !== undefined)
+      found.push(`${at}.${key}`);
+  }
+  if (typeof s2.format === "string" && !ENFORCED_FORMATS.has(s2.format)) {
+    found.push(`${at}.format:'${s2.format}'`);
+  }
+  for (const [segment, kid] of subschemas(s2)) {
+    found.push(...unenforced(kid, `${at}.${segment}`));
+  }
+  return found;
+};
+var agentContract = (schemas, options) => {
+  const strict = options?.strict ?? true;
+  const plain = {};
+  for (const [root, schema] of Object.entries(schemas)) {
+    const copy = structuredClone(toPlain(schema));
+    const dead = unenforced(copy);
+    if (dead.length > 0) {
+      throw new Error(`agentContract('${root}'): schema uses keyword(s) validate does not enforce — ` + `${dead.join(", ")} — a gate must not fail open. Remove them, or express ` + `the constraint via $predicate.`);
+    }
+    plain[root] = copy;
+  }
+  const roots = Object.keys(plain);
+  const contractedRoot = (path) => roots.find((root) => path === root || path.startsWith(root + ".") || path.startsWith(root + "["));
+  const ancestorOfContracted = (path) => roots.find((root) => root.startsWith(path + ".") || root.startsWith(path + "["));
+  return {
+    check(path, _value, proposal) {
+      const rootOfPath = contractedRoot(path);
+      if (proposal == null) {
+        const breached = rootOfPath ?? ancestorOfContracted(path);
+        return breached == null ? true : new Error(`contract breach at ${path} — write affecting contracted root ` + `'${breached}' arrived without a proposal`);
+      }
+      if (rootOfPath != null && proposal.root !== rootOfPath) {
+        return new Error(`contract breach at ${path} — proposal root '${proposal.root}' does ` + `not match contracted root '${rootOfPath}'`);
+      }
+      const schema = plain[proposal.root];
+      if (schema == null) {
+        const breached = rootOfPath ?? ancestorOfContracted(path);
+        return breached == null ? true : new Error(`contract breach at ${path} — proposal root '${proposal.root}' is ` + `not contracted, but the write affects contracted root '${breached}'`);
+      }
+      const reasons = [];
+      const ok = validate(proposal.proposed, schema, {
+        strict,
+        onError: (at, msg) => void reasons.push(`${at}: ${msg}`)
+      });
+      return ok ? true : new Error(`contract violation at ${path} — ${reasons.join("; ")}`);
+    },
+    describe: () => structuredClone(plain)
+  };
+};
+var subschemas = (s2) => {
+  if (s2 == null || typeof s2 !== "object")
+    return [];
+  const kids = [];
+  if (s2.properties) {
+    for (const k of Object.keys(s2.properties)) {
+      kids.push([`properties.${k}`, s2.properties[k]]);
+    }
+  }
+  if (s2.items) {
+    if (Array.isArray(s2.items)) {
+      s2.items.forEach((item, i) => kids.push([`items.${i}`, item]));
+    } else {
+      kids.push(["items", s2.items]);
+    }
+  }
+  if (Array.isArray(s2.prefixItems)) {
+    s2.prefixItems.forEach((item, i) => kids.push([`prefixItems.${i}`, item]));
+  }
+  if (s2.additionalProperties && typeof s2.additionalProperties === "object") {
+    kids.push(["additionalProperties", s2.additionalProperties]);
+  }
+  for (const key of ["anyOf", "allOf", "oneOf"]) {
+    if (Array.isArray(s2[key])) {
+      s2[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
+    }
+  }
+  if (s2.not)
+    kids.push(["not", s2.not]);
+  if (s2.$defs) {
+    for (const k of Object.keys(s2.$defs)) {
+      kids.push([`$defs.${k}`, s2.$defs[k]]);
+    }
+  }
+  return kids;
+};
+var hasPredicate = (s2) => s2 != null && typeof s2 === "object" && (typeof s2.$predicate === "string" || subschemas(s2).some(([, kid]) => hasPredicate(kid)));
+function checkExamples(schemaOrBuilder) {
+  const findings = [];
+  const visit = (s2, at) => {
+    if (s2 == null || typeof s2 !== "object")
+      return;
+    if (Array.isArray(s2.examples)) {
+      s2.examples.forEach((example, index) => {
+        const reasons = [];
+        const ok = validate(example, s2, {
+          strict: true,
+          onError: (p, m) => void reasons.push(`${p}: ${m}`)
+        });
+        if (!ok) {
+          findings.push({
+            schemaPath: at,
+            kind: "example",
+            index,
+            problem: "rejected",
+            reasons
+          });
+        }
+      });
+    }
+    if (Array.isArray(s2.$counterexamples)) {
+      s2.$counterexamples.forEach((counter, index) => {
+        if (validate(counter, s2, { strict: true })) {
+          const unverifiable = getPredicateEvaluator() == null && hasPredicate(s2);
+          findings.push({
+            schemaPath: at,
+            kind: "counterexample",
+            index,
+            problem: unverifiable ? "unverifiable" : "accepted"
+          });
+        }
+      });
+    }
+    for (const [segment, kid] of subschemas(s2)) {
+      visit(kid, `${at}.${segment}`);
+    }
+  };
+  visit(toPlain(schemaOrBuilder), "root");
+  return findings;
+}

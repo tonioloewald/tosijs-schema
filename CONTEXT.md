@@ -25,13 +25,14 @@ The `validate` function is the core engine.
 * **Behavior:** Returns `boolean`. **Never throws** (unless explicitly asked via callback). Does **not** allocate new objects.
 * **Optimization:**
     * **Stochastic Sampling:** If an array or dictionary is large (>97 items) and `strict` is false (`fullScan` is the deprecated alias), it checks indices at prime intervals (stride 97) to statistically verify structure in O(1).
-    * **Ghost Constraints:** `maxProperties` on objects is documented in the schema but **ignored** at runtime to prevent O(N) key counting overhead.
+    * **Ghost Constraints:** `maxProperties` on objects is documented in the schema but **ignored** at runtime (unless `strict`) to prevent O(N) key counting overhead.
+* **Enforcement notes:** `additionalProperties: false` rejects unknown keys (and `s.object()` emits it by default); `minItems`/`maxItems` apply with or without an `items` schema; typeless schemas apply object/array keywords when the value matches (JSON Schema semantics); `format` values outside `ENFORCED_FORMATS` are ignored annotations (but refused by `agentContract`).
 
 ### C. Agent Contracts (`src/contract.ts`)
 
 Adapters for capability-gated write paths (tosijs's agent surface, or anything with the same seam shape).
 * **`agentContract(schemas, options?)`:** Maps root path → schema into `{ check, describe }`. `check(path, value, proposal?)` judges the whole-root `proposal.proposed` (never walks paths itself) and returns `true | Error` (the Error message is the refusal reason). Strict validation by default — pass `{ strict: false }` to allow sampling.
-* **Fail-closed invariants (do not weaken):** schemas are deep-copied at construction AND out of `describe()` (mutation cannot disarm the gate); keywords `validate` doesn't enforce (`allOf`/`oneOf`/`not`/`$ref`/`exclusiveMinimum`…, see `UNENFORCED_KEYWORDS`) throw at construction; a contracted-root write with no proposal returns an Error (protocol breach), matched by dot- and bracket-path prefix.
+* **Fail-closed invariants (do not weaken):** schemas are deep-copied at construction AND out of `describe()` (mutation cannot disarm the gate); keywords `validate` doesn't enforce (`allOf`/`oneOf`/`not`/`$ref`/`exclusiveMinimum`…, see `UNENFORCED_KEYWORDS`) and `format` values outside `ENFORCED_FORMATS` throw at construction; protocol breaches return an Error — contracted-root write with no proposal (dot- and bracket-path prefix), `proposal.root` mismatching the root the write lands under, and ancestor writes that would replace a contracted subtree without a proposal for it.
 * **`checkExamples(schemaOrBuilder)`:** Definition-time lint. Recursively verifies every `examples` entry passes its own node and every `$counterexamples` entry fails. Counterexamples that pass structurally under a `$predicate` with no registered evaluator report `unverifiable`, not `accepted`.
 * **Guarantee:** `validate` ignores and never mutates unknown `$`-prefixed and `x-*` keys — extension conventions ride along safely.
 

@@ -114,9 +114,11 @@ export interface JSONSchema {
   $schema?: string
   /**
    * Computational validation (progressive enhancement). The value is the
-   * *source* of a predicate cluster (pure functions; the last is the entry,
-   * takes the value at this node, returns boolean) — the "computational half"
-   * plain JSON Schema can't express (open value grammars, recursive structure).
+   * *source* of a predicate (conceptually: takes the value at this node,
+   * returns boolean) — the "computational half" plain JSON Schema can't
+   * express (open value grammars, recursive structure). The exact source
+   * format is defined by the registered evaluator, pending a specification
+   * from the canonical engine (tjs-lang).
    *
    * A naive validator ignores this keyword and checks only the structural part.
    * A predicate-aware one runs it — but only when an evaluator has been
@@ -407,6 +409,14 @@ const FMT: Record<string, (v: string) => boolean> = {
   emoji: (v) => new RegExp(RX_EMOJI_ATOM, 'u').test(v),
 }
 
+/**
+ * The `format` values `validate` actually enforces. Any other format string
+ * passes through unchecked (per JSON Schema, `format` is an annotation by
+ * default) — `agentContract` refuses out-of-set formats at construction so a
+ * gate can't advertise a constraint it doesn't enforce.
+ */
+export const ENFORCED_FORMATS: ReadonlySet<string> = new Set(Object.keys(FMT))
+
 export type ErrorHandler = (path: string, msg: string) => void
 
 export interface ValidateOptions {
@@ -506,7 +516,18 @@ export function validate(
         return err('Format invalid')
     }
 
-    if (t === 'object') {
+    // Per JSON Schema, object/array applicator keywords also apply to a
+    // typeless schema when the instance IS an object/array — a gate schema
+    // like { properties, required } without `type` must still enforce
+    const isPlainObject = typeof v === 'object' && !Array.isArray(v)
+    const objectKeywords =
+      s.properties !== undefined ||
+      s.required !== undefined ||
+      s.additionalProperties !== undefined ||
+      s.minProperties !== undefined ||
+      s.maxProperties !== undefined
+
+    if (t === 'object' || (!t && isPlainObject && objectKeywords)) {
       // Check property count constraints
       // minProperties: always checked (required for empty object rejection)
       // maxProperties: only checked in fullScan mode (counting is O(n))
@@ -521,6 +542,14 @@ export function validate(
 
       if (s.required) {
         for (const k of s.required) if (!(k in v)) return err(`Missing ${k}`)
+      }
+
+      if (s.additionalProperties === false) {
+        for (const k in v) {
+          if (!Object.prototype.hasOwnProperty.call(v, k)) continue
+          if (s.properties && k in s.properties) continue
+          return err(`Unexpected ${k}`)
+        }
       }
 
       if (s.properties) {
@@ -554,12 +583,19 @@ export function validate(
       return true
     }
 
-    if (t === 'array' && s.items) {
+    const arrayKeywords =
+      s.items !== undefined ||
+      s.minItems !== undefined ||
+      s.maxItems !== undefined
+    if (t === 'array' || (!t && Array.isArray(v) && arrayKeywords)) {
+      // min/maxItems are NOT gated behind `items` — a bare
+      // { type: 'array', minItems: 1 } must still refuse []
       const len = v.length
       if (s.minItems !== undefined && len < s.minItems)
         return err('Array too short')
       if (s.maxItems !== undefined && len > s.maxItems)
         return err('Array too long')
+      if (s.items === undefined) return true
 
       if (Array.isArray(s.items)) {
         for (let i = 0; i < s.items.length; i++) {
@@ -613,7 +649,10 @@ export function filter(
   const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
   const skipValidation = typeof opts === 'object' ? opts?.skipValidation : false
 
-  // Validate first (unless skipped)
+  // Strip first, then validate the stripped result — filter's job is to
+  // remove extras, so they must not trip additionalProperties: false
+  const filtered = filterData(data, schema)
+
   if (!skipValidation) {
     let errorPath = ''
     let errorMsg = ''
@@ -625,20 +664,29 @@ export function filter(
       if (onError) onError(path, msg)
     }
 
-    const valid = validate(data, schema, { onError: captureError, fullScan })
+    const valid = validate(filtered, schema, { onError: captureError, fullScan })
     if (!valid) {
       return new Error(`${errorPath}: ${errorMsg}`)
     }
   }
 
-  return filterData(data, schema)
+  return filtered
 }
 
 function filterData(data: any, schema: any): any {
   if (data === null || data === undefined) {
     return data
   }
-  
+
+  // Unions: strip against the first branch the stripped data satisfies
+  if (schema.anyOf) {
+    for (const sub of schema.anyOf) {
+      const candidate = filterData(data, sub)
+      if (validate(candidate, sub)) return candidate
+    }
+    return data
+  }
+
   const t = schema.type
   
   // For objects, only keep properties defined in the schema

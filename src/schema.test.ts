@@ -377,6 +377,41 @@ describe('Algebra', () => {
     expect(validate({ type: 'cat', bark: true }, Pet.schema)).toBeFalse()
   })
 
+  test('additionalProperties: false rejects unknown keys (builder default)', () => {
+    const User = s.object({ name: s.string })
+    expect(validate({ name: 'x' }, User)).toBeTrue()
+    expect(validate({ name: 'x', evil: 1 }, User)).toBeFalse()
+    // explicit plain-schema form, with and without properties
+    expect(
+      validate({ a: 1, b: 2 }, {
+        type: 'object',
+        properties: { a: { type: 'number' } },
+        additionalProperties: false,
+      })
+    ).toBeFalse()
+    expect(
+      validate({ any: 1 }, { type: 'object', additionalProperties: false })
+    ).toBeFalse()
+    // absent or schema-valued additionalProperties still allows extras
+    expect(validate({ a: 1, b: 2 }, { type: 'object', properties: { a: { type: 'number' } } })).toBeTrue()
+    expect(validate({ a: 1, b: 2 }, s.record(s.number))).toBeTrue()
+  })
+
+  test('min/maxItems enforced without an items schema', () => {
+    expect(validate([], { type: 'array', minItems: 1 })).toBeFalse()
+    expect(validate([1], { type: 'array', minItems: 1 })).toBeTrue()
+    expect(validate([1, 2, 3], { type: 'array', maxItems: 2 })).toBeFalse()
+  })
+
+  test('typeless schemas apply object/array keywords when the value matches (JSON Schema semantics)', () => {
+    const shape = { properties: { a: { type: 'string' } }, required: ['a', 'b'] }
+    expect(validate({ a: 42 }, shape)).toBeFalse() // wrong type + missing b
+    expect(validate({ a: 'x', b: 1 }, shape)).toBeTrue()
+    // per spec, object keywords do not constrain non-objects
+    expect(validate('just a string', shape)).toBeTrue()
+    expect(validate([], { minItems: 1 })).toBeFalse()
+  })
+
   test('strict mode propagates into union branches (no sampling gap)', () => {
     const Union = s.union([s.array(s.number)])
     const big: any[] = Array.from({ length: 500 }, (_, i) => i)
