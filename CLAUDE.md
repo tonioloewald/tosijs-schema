@@ -25,7 +25,7 @@ bun run pack                    # full pipeline: tests + typecheck + bench + exa
 
 ## What this library is
 
-A ~5kB (gzipped) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required.
+A ~6kB (gzipped) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required.
 
 Public API is just `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, and `src/contract.ts`.
 

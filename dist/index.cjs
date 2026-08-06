@@ -298,7 +298,7 @@ function validate(val, builderOrSchema, opts) {
       const typeIncludesNull = Array.isArray(s2.type) && s2.type.includes("null");
       return expectsUndefined || typeIncludesNull || !s2.type || err("Expected value, got undefined");
     }
-    const t = Array.isArray(s2.type) ? s2.type[0] : s2.type;
+    const t = Array.isArray(s2.type) ? s2.type.find((entry) => entry !== "null") ?? "null" : s2.type;
     if (s2.enum && !s2.enum.includes(v))
       return err("Enum mismatch");
     if (t === "integer") {
@@ -462,7 +462,12 @@ function filter(data, builderOrSchema, opts) {
       if (onError)
         onError(path, msg);
     };
-    const valid = validate(filtered, schema, { onError: captureError, fullScan });
+    let valid;
+    try {
+      valid = validate(filtered, schema, { onError: captureError, fullScan });
+    } catch (e) {
+      return new Error(`internal validation error: ${e.message}`);
+    }
     if (!valid) {
       return new Error(`${errorPath}: ${errorMsg}`);
     }
@@ -473,11 +478,13 @@ function filterData(data, schema, fullScan = false) {
   if (data === null || data === undefined) {
     return data;
   }
-  if (schema.anyOf) {
+  if (Array.isArray(schema.anyOf)) {
     for (const sub of schema.anyOf) {
       const candidate = filterData(data, sub, fullScan);
-      if (validate(candidate, sub, { strict: fullScan }))
-        return candidate;
+      try {
+        if (validate(candidate, sub, { strict: fullScan }))
+          return candidate;
+      } catch {}
     }
     return data;
   }
@@ -492,6 +499,13 @@ function filterData(data, schema, fullScan = false) {
     for (const key of Object.keys(schema.properties)) {
       if (hasOwn(data, key)) {
         result[key] = filterData(data[key], schema.properties[key], fullScan);
+      }
+    }
+    if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+      for (const key of Object.keys(data)) {
+        if (!hasOwn(schema.properties, key)) {
+          result[key] = filterData(data[key], schema.additionalProperties, fullScan);
+        }
       }
     }
     return result;
@@ -757,6 +771,71 @@ var enforcedChildren = (s2) => {
   return kids;
 };
 var isNonPrimitive = (x) => x !== null && typeof x === "object";
+var KEYWORD_SHAPES = [
+  [
+    "type",
+    (v) => typeof v === "string" || Array.isArray(v) && v.every((x) => typeof x === "string"),
+    "a string or array of strings"
+  ],
+  ["anyOf", Array.isArray, "an array"],
+  [
+    "required",
+    (v) => Array.isArray(v) && v.every((x) => typeof x === "string"),
+    "an array of strings"
+  ],
+  ["enum", Array.isArray, "an array"],
+  [
+    "properties",
+    (v) => v !== null && typeof v === "object" && !Array.isArray(v),
+    "an object"
+  ],
+  ["items", (v) => v !== null && typeof v === "object", "a schema or array"],
+  [
+    "additionalProperties",
+    (v) => typeof v === "boolean" || v !== null && typeof v === "object",
+    "a boolean or schema"
+  ],
+  ["pattern", (v) => typeof v === "string", "a string"],
+  ["format", (v) => typeof v === "string", "a string"],
+  ["$predicate", (v) => typeof v === "string", "a string"],
+  ...[
+    "minimum",
+    "maximum",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+    "minProperties",
+    "maxProperties"
+  ].map((key) => [
+    key,
+    (v) => typeof v === "number",
+    "a number"
+  ])
+];
+var CONSTRAINT_DOMAINS = [
+  ["minLength", ["string"]],
+  ["maxLength", ["string"]],
+  ["pattern", ["string"]],
+  ["format", ["string"]],
+  ["minimum", ["number", "integer"]],
+  ["maximum", ["number", "integer"]],
+  ["multipleOf", ["number", "integer"]],
+  ["items", ["array"]],
+  ["minItems", ["array"]],
+  ["maxItems", ["array"]],
+  ["properties", ["object"]],
+  ["required", ["object"]],
+  ["additionalProperties", ["object"]],
+  ["minProperties", ["object"]],
+  ["maxProperties", ["object"]]
+];
+var TYPE_DEPENDENT_KEYWORDS = [
+  ...CONSTRAINT_DOMAINS.map(([key]) => key),
+  "enum",
+  "$predicate"
+];
 var unenforced = (s2, at = "root") => {
   if (s2 === true || s2 === false)
     return [];
@@ -767,6 +846,25 @@ var unenforced = (s2, at = "root") => {
   for (const key of Object.keys(s2)) {
     if (!ENFORCED_KEYWORDS.has(key) && !ANNOTATION_KEYWORDS.has(key) && !key.startsWith("x-")) {
       found.push(`${at}.${key}`);
+    }
+  }
+  for (const [key, wellFormed, expected] of KEYWORD_SHAPES) {
+    if (s2[key] !== undefined && !wellFormed(s2[key])) {
+      found.push(`${at}.${key} (must be ${expected})`);
+    }
+  }
+  if (s2.type === undefined && s2.const === undefined && s2.anyOf === undefined) {
+    const dark = TYPE_DEPENDENT_KEYWORDS.filter((key) => s2[key] !== undefined);
+    if (dark.length > 0) {
+      found.push(`${at} (constraints without a type — null/undefined and mismatched ` + `primitives bypass ${dark.join("/")}; add an explicit type)`);
+    }
+  }
+  const declaredTypes = typeof s2.type === "string" ? [s2.type] : Array.isArray(s2.type) && s2.type.every((x) => typeof x === "string") ? s2.type : null;
+  if (declaredTypes) {
+    for (const [key, domain] of CONSTRAINT_DOMAINS) {
+      if (s2[key] !== undefined && !declaredTypes.some((entry) => domain.includes(entry))) {
+        found.push(`${at}.${key} (never applies to type ${JSON.stringify(s2.type)})`);
+      }
     }
   }
   if (typeof s2.format === "string" && !ENFORCED_FORMATS.has(s2.format)) {
@@ -840,10 +938,15 @@ var agentContract = (schemas, options) => {
         return new Error(`contract breach at ${at} — contracted root '${proposal.root}' carries ` + `a $predicate but no evaluator is registered; the gate would fail open`);
       }
       const reasons = [];
-      const ok = validate(proposal.proposed, schema, {
-        strict,
-        onError: (at2, msg) => void reasons.push(`${at2}: ${msg}`)
-      });
+      let ok;
+      try {
+        ok = validate(proposal.proposed, schema, {
+          strict,
+          onError: (errAt, msg) => void reasons.push(`${errAt}: ${msg}`)
+        });
+      } catch (e) {
+        return new Error(`contract violation at ${at} — internal validation error: ${e.message}`);
+      }
       return ok ? true : new Error(`contract violation at ${at} — ${reasons.join("; ")}`);
     },
     describe: () => structuredClone(plain)
@@ -894,10 +997,16 @@ function checkExamples(schemaOrBuilder) {
     if (Array.isArray(s2.examples)) {
       s2.examples.forEach((example, index) => {
         const reasons = [];
-        const ok = validate(example, s2, {
-          strict: true,
-          onError: (p, m) => void reasons.push(`${p}: ${m}`)
-        });
+        let ok;
+        try {
+          ok = validate(example, s2, {
+            strict: true,
+            onError: (p, m) => void reasons.push(`${p}: ${m}`)
+          });
+        } catch (e) {
+          ok = false;
+          reasons.push(`internal validation error: ${e.message}`);
+        }
         if (!ok) {
           findings.push({
             schemaPath: at,
@@ -906,12 +1015,25 @@ function checkExamples(schemaOrBuilder) {
             problem: "rejected",
             reasons
           });
+        } else if (getPredicateEvaluator() == null && hasPredicate(s2)) {
+          findings.push({
+            schemaPath: at,
+            kind: "example",
+            index,
+            problem: "unverifiable"
+          });
         }
       });
     }
     if (Array.isArray(s2.$counterexamples)) {
       s2.$counterexamples.forEach((counter, index) => {
-        if (validate(counter, s2, { strict: true })) {
+        let passes;
+        try {
+          passes = validate(counter, s2, { strict: true });
+        } catch {
+          passes = false;
+        }
+        if (passes) {
           const unverifiable = getPredicateEvaluator() == null && hasPredicate(s2);
           findings.push({
             schemaPath: at,

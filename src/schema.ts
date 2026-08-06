@@ -84,6 +84,7 @@ export interface JSONSchema {
   properties?: Record<string, JSONSchema>
   additionalProperties?: boolean | JSONSchema
   items?: JSONSchema
+  /** typed for interop but NOT enforced by validate (agentContract refuses it) */
   prefixItems?: JSONSchema[]
   required?: string[]
   enum?: readonly unknown[]
@@ -521,7 +522,11 @@ export function validate(
       return expectsUndefined || typeIncludesNull || !s.type || err('Expected value, got undefined')
     }
 
-    const t = Array.isArray(s.type) ? s.type[0] : s.type
+    // multi-type arrays: enforce the first NON-null entry (null itself is
+    // handled above), so ['null','string'] and ['string','null'] agree
+    const t = Array.isArray(s.type)
+      ? s.type.find((entry: any) => entry !== 'null') ?? 'null'
+      : s.type
     if (s.enum && !s.enum.includes(v)) return err('Enum mismatch')
 
     if (t === 'integer') {
@@ -693,10 +698,10 @@ export interface FilterOptions {
 
 export function filter(
   data: any,
-  builderOrSchema: any,
+  builderOrSchema: Base<any> | Record<string, any> | boolean,
   opts?: FilterOptions | ErrorHandler
 ): any {
-  const schema = builderOrSchema?.schema || builderOrSchema
+  const schema = (builderOrSchema as any)?.schema || builderOrSchema
   const onError = typeof opts === 'function' ? opts : opts?.onError
   const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
   const skipValidation = typeof opts === 'object' ? opts?.skipValidation : false
@@ -716,7 +721,13 @@ export function filter(
       if (onError) onError(path, msg)
     }
 
-    const valid = validate(filtered, schema, { onError: captureError, fullScan })
+    let valid: boolean
+    try {
+      valid = validate(filtered, schema, { onError: captureError, fullScan })
+    } catch (e) {
+      // filter's contract is data-or-Error — a malformed schema must not throw
+      return new Error(`internal validation error: ${(e as Error).message}`)
+    }
     if (!valid) {
       return new Error(`${errorPath}: ${errorMsg}`)
     }
@@ -731,10 +742,14 @@ function filterData(data: any, schema: any, fullScan = false): any {
   }
 
   // Unions: strip against the first branch the stripped data satisfies
-  if (schema.anyOf) {
+  if (Array.isArray(schema.anyOf)) {
     for (const sub of schema.anyOf) {
       const candidate = filterData(data, sub, fullScan)
-      if (validate(candidate, sub, { strict: fullScan })) return candidate
+      try {
+        if (validate(candidate, sub, { strict: fullScan })) return candidate
+      } catch {
+        // a malformed branch schema cannot match — try the next branch
+      }
     }
     return data
   }
@@ -755,12 +770,24 @@ function filterData(data: any, schema: any, fullScan = false): any {
     return {}
   }
 
-  // For objects, only keep properties defined in the schema
+  // For objects, only keep properties defined in the schema — plus, when
+  // additionalProperties is itself a schema, extras filtered through it
+  // (they are legal there; only additionalProperties: false means "strip")
   if (asObject && schema.properties) {
     const result: Record<string, any> = {}
     for (const key of Object.keys(schema.properties)) {
       if (hasOwn(data, key)) {
         result[key] = filterData(data[key], schema.properties[key], fullScan)
+      }
+    }
+    if (
+      schema.additionalProperties &&
+      typeof schema.additionalProperties === 'object'
+    ) {
+      for (const key of Object.keys(data)) {
+        if (!hasOwn(schema.properties, key)) {
+          result[key] = filterData(data[key], schema.additionalProperties, fullScan)
+        }
       }
     }
     return result

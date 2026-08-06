@@ -90,6 +90,83 @@ const enforcedChildren = (s: any): [string, any][] => {
 
 const isNonPrimitive = (x: any) => x !== null && typeof x === 'object'
 
+/** keyword → the value shape validate's walk dereferences without checking */
+const KEYWORD_SHAPES: [string, (v: any) => boolean, string][] = [
+  [
+    'type',
+    (v) =>
+      typeof v === 'string' ||
+      (Array.isArray(v) && v.every((x) => typeof x === 'string')),
+    'a string or array of strings',
+  ],
+  ['anyOf', Array.isArray, 'an array'],
+  [
+    'required',
+    (v) => Array.isArray(v) && v.every((x) => typeof x === 'string'),
+    'an array of strings',
+  ],
+  ['enum', Array.isArray, 'an array'],
+  [
+    'properties',
+    (v) => v !== null && typeof v === 'object' && !Array.isArray(v),
+    'an object',
+  ],
+  ['items', (v) => v !== null && typeof v === 'object', 'a schema or array'],
+  [
+    'additionalProperties',
+    (v) => typeof v === 'boolean' || (v !== null && typeof v === 'object'),
+    'a boolean or schema',
+  ],
+  ['pattern', (v) => typeof v === 'string', 'a string'],
+  ['format', (v) => typeof v === 'string', 'a string'],
+  ['$predicate', (v) => typeof v === 'string', 'a string'],
+  ...(
+    [
+      'minimum',
+      'maximum',
+      'multipleOf',
+      'minLength',
+      'maxLength',
+      'minItems',
+      'maxItems',
+      'minProperties',
+      'maxProperties',
+    ] as const
+  ).map(
+    (key): [string, (v: any) => boolean, string] => [
+      key,
+      (v) => typeof v === 'number',
+      'a number',
+    ]
+  ),
+]
+
+/** constraint keyword → the type(s) it applies to; anywhere else it is dead */
+const CONSTRAINT_DOMAINS: [string, string[]][] = [
+  ['minLength', ['string']],
+  ['maxLength', ['string']],
+  ['pattern', ['string']],
+  ['format', ['string']],
+  ['minimum', ['number', 'integer']],
+  ['maximum', ['number', 'integer']],
+  ['multipleOf', ['number', 'integer']],
+  ['items', ['array']],
+  ['minItems', ['array']],
+  ['maxItems', ['array']],
+  ['properties', ['object']],
+  ['required', ['object']],
+  ['additionalProperties', ['object']],
+  ['minProperties', ['object']],
+  ['maxProperties', ['object']],
+]
+
+/** constraint keywords that silently stop applying when `type` is absent (null/mismatched primitives bypass them) */
+const TYPE_DEPENDENT_KEYWORDS = [
+  ...CONSTRAINT_DOMAINS.map(([key]) => key),
+  'enum',
+  '$predicate',
+]
+
 /** paths of anything in a schema tree a gate could advertise but validate would not enforce */
 const unenforced = (s: any, at = 'root'): string[] => {
   // boolean schemas are fully enforced (true accepts all, false refuses all)
@@ -105,6 +182,46 @@ const unenforced = (s: any, at = 'root'): string[] => {
       !key.startsWith('x-')
     ) {
       found.push(`${at}.${key}`)
+    }
+  }
+  // malformed keyword value shapes make the walk THROW — refuse them here so
+  // check() can honor its true|Error contract
+  for (const [key, wellFormed, expected] of KEYWORD_SHAPES) {
+    if (s[key] !== undefined && !wellFormed(s[key])) {
+      found.push(`${at}.${key} (must be ${expected})`)
+    }
+  }
+  // typeless constraints: per JSON Schema, applicators/constraints only apply
+  // when the value matches their type — so null/undefined and mismatched
+  // primitives BYPASS them entirely. A gate node must pin the type (or be
+  // const/anyOf, which constrain before the null early-out).
+  if (s.type === undefined && s.const === undefined && s.anyOf === undefined) {
+    const dark = TYPE_DEPENDENT_KEYWORDS.filter((key) => s[key] !== undefined)
+    if (dark.length > 0) {
+      found.push(
+        `${at} (constraints without a type — null/undefined and mismatched ` +
+          `primitives bypass ${dark.join('/')}; add an explicit type)`
+      )
+    }
+  }
+  // cross-type dead constraints: minLength on a number, minimum on a string…
+  // advertised in describe() but validate never consults them
+  const declaredTypes: string[] | null =
+    typeof s.type === 'string'
+      ? [s.type]
+      : Array.isArray(s.type) && s.type.every((x: any) => typeof x === 'string')
+        ? s.type
+        : null
+  if (declaredTypes) {
+    for (const [key, domain] of CONSTRAINT_DOMAINS) {
+      if (
+        s[key] !== undefined &&
+        !declaredTypes.some((entry) => domain.includes(entry))
+      ) {
+        found.push(
+          `${at}.${key} (never applies to type ${JSON.stringify(s.type)})`
+        )
+      }
     }
   }
   // value-level holes in otherwise-enforced keywords:
@@ -247,10 +364,19 @@ export const agentContract = (
         )
       }
       const reasons: string[] = []
-      const ok = validate(proposal.proposed, schema, {
-        strict,
-        onError: (at, msg) => void reasons.push(`${at}: ${msg}`),
-      })
+      let ok: boolean
+      try {
+        ok = validate(proposal.proposed, schema, {
+          strict,
+          onError: (errAt, msg) => void reasons.push(`${errAt}: ${msg}`),
+        })
+      } catch (e) {
+        // the seam is true | Error — an internal throw (malformed schema
+        // smuggled past construction, a throwing evaluator) fails CLOSED
+        return new Error(
+          `contract violation at ${at} — internal validation error: ${(e as Error).message}`
+        )
+      }
       return ok
         ? true
         : new Error(`contract violation at ${at} — ${reasons.join('; ')}`)
@@ -268,9 +394,9 @@ export interface ExampleFinding {
   /**
    * `rejected` — an example its own schema refuses (a lying spec);
    * `accepted` — a counterexample the gate lets through;
-   * `unverifiable` — a counterexample that passes structurally but the node
-   * carries a `$predicate` and no evaluator is registered, so the refusal
-   * may be computational — register an evaluator to settle it
+   * `unverifiable` — an example or counterexample that passes structurally
+   * but the node carries a `$predicate` and no evaluator is registered, so
+   * the computational half went unchecked — register an evaluator to settle it
    */
   problem: 'rejected' | 'accepted' | 'unverifiable'
   reasons?: string[]
@@ -334,10 +460,16 @@ export function checkExamples(schemaOrBuilder: SchemaLike): ExampleFinding[] {
     if (Array.isArray(s.examples)) {
       s.examples.forEach((example: unknown, index: number) => {
         const reasons: string[] = []
-        const ok = validate(example, s, {
-          strict: true,
-          onError: (p, m) => void reasons.push(`${p}: ${m}`),
-        })
+        let ok: boolean
+        try {
+          ok = validate(example, s, {
+            strict: true,
+            onError: (p, m) => void reasons.push(`${p}: ${m}`),
+          })
+        } catch (e) {
+          ok = false
+          reasons.push(`internal validation error: ${(e as Error).message}`)
+        }
         if (!ok) {
           findings.push({
             schemaPath: at,
@@ -346,12 +478,27 @@ export function checkExamples(schemaOrBuilder: SchemaLike): ExampleFinding[] {
             problem: 'rejected',
             reasons,
           })
+        } else if (getPredicateEvaluator() == null && hasPredicate(s)) {
+          // structurally fine, but the predicate half went unchecked — the
+          // example is not yet PROVEN accepted
+          findings.push({
+            schemaPath: at,
+            kind: 'example',
+            index,
+            problem: 'unverifiable',
+          })
         }
       })
     }
     if (Array.isArray(s.$counterexamples)) {
       s.$counterexamples.forEach((counter: unknown, index: number) => {
-        if (validate(counter, s, { strict: true })) {
+        let passes: boolean
+        try {
+          passes = validate(counter, s, { strict: true })
+        } catch {
+          passes = false // a throw is a refusal — the counterexample held
+        }
+        if (passes) {
           const unverifiable =
             getPredicateEvaluator() == null && hasPredicate(s)
           findings.push({

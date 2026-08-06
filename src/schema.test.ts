@@ -459,6 +459,13 @@ describe('Algebra', () => {
     }
   })
 
+  test('multi-type arrays enforce the first non-null entry, whatever the order', () => {
+    expect(validate('hi', { type: ['null', 'string'] })).toBeTrue()
+    expect(validate('hi', { type: ['string', 'null'] })).toBeTrue()
+    expect(validate(null, { type: ['null', 'string'] })).toBeTrue()
+    expect(validate(1, { type: ['null', 'string'] })).toBeFalse()
+  })
+
   test('prototype-named keys are treated as data, not exempted via the prototype chain', () => {
     const User = s.object({ a: s.number })
     // smuggled prototype-named extras are refused, not silently exempted

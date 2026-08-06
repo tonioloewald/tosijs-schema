@@ -2,8 +2,8 @@
 
 > **Generated:** 2026-08-06
 > **Test Framework:** Bun Test
-> **Total Tests:** 190
-> **Total Assertions:** 460
+> **Total Tests:** 203
+> **Total Assertions:** 564
 > **Pass Rate:** 100%
 
 ---
@@ -13,21 +13,21 @@
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   97.44 |   96.99 |
- src/contract.ts |   95.65 |   96.97 | 243,245,248,257-259
+All files        |   98.18 |   96.73 |
+ src/contract.ts |   97.73 |   96.95 | 83,175,422,424,427,436-438,469-470
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   96.67 |   94.01 | 67-71,263-269,384,734-735,749,769-770,793-802,805-806
+ src/schema.ts   |   96.83 |   93.24 | 67-71,264-270,385,727,786-791,808-809,823,843-844,867-876,879-880
 ```
 
 ## Summary
 
 | Module | Lines | Tests | Line Coverage |
 |--------|-------|-------|---------------|
-| `schema.ts` | 810 | 133 | 94.01% |
+| `schema.ts` | 885 | 139 | 93.24% |
 | `monad.ts` | 179 | 10 | 100% |
-| `contract.ts` | 330 | 30 | 96.97% |
+| `contract.ts` | 520 | 37 | 96.95% |
 | Type Inference | 251 | 17 | (compile-time) |
-| **Total** | **1,570** | **190** | **96.99%** |
+| **Total** | **1,835** | **203** | **96.73%** |
 
 ### contract.ts Coverage
 
@@ -236,7 +236,7 @@ validate(data, schema, { strict: true })
 | Decision | Rationale |
 |----------|-----------|
 | **`maxProperties` skipped by default** | Counting properties is O(n), negating stride optimization benefits. Enforced in `strict` mode. Schema still contains the constraint for OpenAPI/documentation consumers. |
-| **`additionalProperties: false` not enforced** | Validator focuses on type correctness, not property restriction. Use `filter()` to strip extra properties. |
+| **`additionalProperties: false` enforced (since v1.5.0)** | Unknown keys (including prototype-named ones) are refused. Previously skipped by a falsy-check bug; use `filter()` for lenient intake that strips extras. |
 | **Stride sampling (97)** | Prime number avoids patterns. Checks ~1% of large arrays/objects while always verifying first and last items. |
 | **`fullScan` deprecated** | Renamed to `strict` for clarity. `fullScan` still works as alias. |
 

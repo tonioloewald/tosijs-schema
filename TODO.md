@@ -53,6 +53,15 @@ reviewer leads — sanity-check before acting).
 
 ## DRYness
 
+- [ ] *(confirmed by inspection)* `enforcedChildren` (contract.ts) is a third
+  hand-maintained encoding of validate's recursion, already micro-drifted from
+  `subschemas`. Move one exported child-walk into schema.ts beside the walk
+  (where ENFORCED_KEYWORDS lives for the same anti-drift reason); have
+  `subschemas` extend it with lint-only keys.
+- [ ] *(unverified)* Export one `compilePattern(s)` from schema.ts with a
+  module-level cache keyed by pattern+flags — kills the duplicated compile
+  expression (schema.ts/contract.ts) and the per-value hot-path compile.
+
 - [ ] *(unverified)* Builder-unwrap idiom in 3 places with drifted semantics
   (`?? ` in contract.ts vs `||` in validate/filter). Export one `toPlain()`
   from src/schema.ts and use everywhere.
@@ -82,6 +91,15 @@ reviewer leads — sanity-check before acting).
 
 ## Docs / interop
 
+- [ ] *(unverified)* anyOf refusals carry no branch detail ("Union mismatch"
+  only) — on all-branches-fail with onError registered, surface per-branch or
+  best-branch reasons. Matters for union-rooted contracts.
+- [ ] *(unverified)* `filter()` double-validates union data (branch selection
+  + final validate) — have filterData signal already-proven results.
+- [ ] *(unverified)* Sampled mode still walks every key of a
+  properties+additionalProperties object to build the extras list — document
+  the cost nuance; add a large-dict case to bench.ts.
+
 - [ ] *(unverified)* Document the one-proposal-per-transaction protocol at the
   AgentContract seam (bulk per-path writes are O(N×M) with strict full-scan) —
   JSDoc + CONTEXT/README.
@@ -90,18 +108,16 @@ reviewer leads — sanity-check before acting).
 - [ ] *(unverified)* Document the interop cost of `$`-prefixed keys in
   `describe()` output (Ajv's default strict mode rejects unknown keywords);
   consider a `describe({ strip: true })` option.
-- [ ] Comment on tosijs#25: propose dropping/deprecating the now-vestigial
-  `value` arg for contracted-root writes (adapter binds it as `_value`), or
-  documenting it advisory-only, so the repos converge on one signature.
-- [ ] Comment on tjs-lang#26 documenting both candidate `$predicate` dialects
-  (function-cluster vs bare arrow) so the spec author sees them.
+- [x] Commented on tosijs#25 (type-conformance test ask + vestigial `value`
+  arg) and tjs-lang#26 (both `$predicate` dialects) — 2026-08-06.
 
 ## Shared practices KB
 
-Done — committed to `../tosijs-coding-practices` as `c8f5a95` (2026-08-06,
-unpushed): fullScan→strict + maxProperties nuance, ValidateOptions-threading
-gotcha, agentContract/examples conventions, dist/context.md drift-gate lesson,
-review-lens-4 affected-versions rule, testing.md refused-input obligation.
-Remaining there post-publish: close-the-loop items (strike tosijs-schema from
-development.md's baseline-artifacts gap list when issue #1 closes; releasing.md
-post-publish ownership note).
+Done through wave 5 — committed to `../tosijs-coding-practices` as `c8f5a95`
+(waves 1-2 lessons), `b60844d` (verification tiering), `4d518c8`
+(allowlist-not-denylist superseding the wave-2 denylist lesson;
+enumerate-the-fail-open-class; lens-8 wave-currency + push-state). The KB
+checkout is AHEAD OF ORIGIN and needs a human push (see release checklist).
+Remaining there post-publish: strike tosijs-schema from development.md's
+baseline-artifacts gap list when issue #1 closes; releasing.md post-publish
+ownership note.

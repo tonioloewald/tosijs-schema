@@ -6,6 +6,7 @@ export interface JSONSchema {
     properties?: Record<string, JSONSchema>;
     additionalProperties?: boolean | JSONSchema;
     items?: JSONSchema;
+    /** typed for interop but NOT enforced by validate (agentContract refuses it) */
     prefixItems?: JSONSchema[];
     required?: string[];
     enum?: readonly unknown[];
@@ -200,6 +201,6 @@ export interface FilterOptions {
     fullScan?: boolean;
     skipValidation?: boolean;
 }
-export declare function filter(data: any, builderOrSchema: any, opts?: FilterOptions | ErrorHandler): any;
+export declare function filter(data: any, builderOrSchema: Base<any> | Record<string, any> | boolean, opts?: FilterOptions | ErrorHandler): any;
 export declare function diff(a: any, b: any): any;
 export {};

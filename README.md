@@ -109,7 +109,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Output | Native JSON Schema | Proprietary | Native JSON Schema |
 | JSON Schema spec | Practical subset | N/A (not JSON Schema) | Draft 2020-12 compliant |
 | Syntax | `s.email` | `z.string().email()` | `Type.String({ format: 'email' })` |
-| Bundle | ~5kB | ~14kB | ~64kB |
+| Bundle | ~6kB | ~14kB | ~64kB |
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
@@ -153,7 +153,7 @@ This matters for:
 
 ### JSON Schema Coverage
 
-tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~5kB bundle vs spec compliance.
+tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~6kB bundle vs spec compliance.
 
 **Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (common formats), `default`, `title`, `description`
 
@@ -175,7 +175,7 @@ If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable i
 - You have a fixed set of schemas known at startup (compile once, validate millions)
 - You need maximum validation throughput (high-traffic APIs, real-time pipelines)
 - You're building with Fastify or Elysia (native TypeBox support)
-- Bundle size isn't a primary concern (~64kB vs ~5kB)
+- Bundle size isn't a primary concern (~64kB vs ~6kB)
 - Note: JIT mode uses `new Function()`, but interpreted mode (`Value.Check()`) works in CSP environments at ~18x slower
 
 ### When to Use tosijs-schema
@@ -440,10 +440,10 @@ File             | % Funcs | % Lines
 All files        |   97.44 |   96.99
  src/contract.ts |   95.65 |   96.97
  src/monad.ts    |  100.00 |  100.00
- src/schema.ts |   96.49 |   93.24
+ src/schema.ts   |   96.83 |   93.24
 ```
 
-146 tests, 349 assertions.
+203 tests, 564 assertions.
 
 ## License
 

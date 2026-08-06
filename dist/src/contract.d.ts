@@ -65,9 +65,9 @@ export interface ExampleFinding {
     /**
      * `rejected` — an example its own schema refuses (a lying spec);
      * `accepted` — a counterexample the gate lets through;
-     * `unverifiable` — a counterexample that passes structurally but the node
-     * carries a `$predicate` and no evaluator is registered, so the refusal
-     * may be computational — register an evaluator to settle it
+     * `unverifiable` — an example or counterexample that passes structurally
+     * but the node carries a `$predicate` and no evaluator is registered, so
+     * the computational half went unchecked — register an evaluator to settle it
      */
     problem: 'rejected' | 'accepted' | 'unverifiable';
     reasons?: string[];

@@ -431,6 +431,72 @@ describe('agentContract — the blessed seam adapter', () => {
     ).not.toThrow()
   })
 
+  test('typeless constraints are refused at construction (null/mismatched primitives bypass them)', () => {
+    // the B1 shape: typeless applicators — validate(null, …) would be true
+    expect(() =>
+      agentContract({
+        'app.user': {
+          properties: { name: { type: 'string' } },
+          required: ['name'],
+          additionalProperties: false,
+        },
+      })
+    ).toThrow('add an explicit type')
+    // same class: typeless string/numeric constraints, enum, $predicate
+    expect(() => agentContract({ 'app.a': { minLength: 5 } })).toThrow('add an explicit type')
+    expect(() => agentContract({ 'app.b': { enum: ['a'] } })).toThrow('add an explicit type')
+    expect(() => agentContract({ 'app.c': { $predicate: '(n) => n > 0' } })).toThrow('add an explicit type')
+    // const and anyOf constrain before the null early-out — they stay legal
+    expect(() => agentContract({ 'app.d': { const: 5 } })).not.toThrow()
+    expect(() =>
+      agentContract({ 'app.e': { anyOf: [{ type: 'string' }] } })
+    ).not.toThrow()
+  })
+
+  test('malformed keyword value shapes are refused at construction', () => {
+    expect(() => agentContract({ 'app.x': { anyOf: {} } as any })).toThrow('anyOf')
+    expect(() =>
+      agentContract({ 'app.x': { type: 'object', required: 42 } as any })
+    ).toThrow('array of strings')
+    expect(() =>
+      agentContract({ 'app.x': { type: 'object', required: 'name' } as any })
+    ).toThrow('array of strings')
+    expect(() =>
+      agentContract({ 'app.x': { type: 'number', minimum: 'low' } as any })
+    ).toThrow('must be a number')
+    expect(() =>
+      agentContract({ 'app.x': { type: 'object', properties: [] } as any })
+    ).toThrow('properties')
+  })
+
+  test('cross-type dead constraints are refused at construction', () => {
+    expect(() =>
+      agentContract({ 'app.x': { type: 'number', minLength: 5 } })
+    ).toThrow('never applies')
+    expect(() =>
+      agentContract({ 'app.x': { type: 'string', minimum: 5 } })
+    ).toThrow('never applies')
+    expect(() =>
+      agentContract({ 'app.x': { type: 'object', items: { type: 'number' } } })
+    ).toThrow('never applies')
+  })
+
+  test('check() never throws — even a throwing predicate evaluator fails closed', () => {
+    const gate = agentContract({
+      'app.n': { type: 'number', $predicate: '(n) => n > 0' },
+    })
+    const prev = setPredicateEvaluator(() => {
+      throw new Error('evaluator exploded')
+    })
+    try {
+      const verdict = gate.check('app.n', 5, { root: 'app.n', proposed: 5 })
+      expect(verdict).toBeInstanceOf(Error)
+      expect((verdict as Error).message).toContain('internal validation error')
+    } finally {
+      setPredicateEvaluator(prev)
+    }
+  })
+
   test('a whole-root delete (proposed: undefined) fails closed', () => {
     const gate = agentContract({ 'app.order': orderSchema })
     expect(
@@ -529,6 +595,17 @@ describe('checkExamples — the spec proves itself at definition time', () => {
         index: 0,
         problem: 'unverifiable',
       },
+    ])
+  })
+
+  test('an example under an unevaluated $predicate is unverifiable, not silently passed', () => {
+    const findings = checkExamples({
+      type: 'number',
+      $predicate: '(n) => n > 100',
+      examples: [5],
+    })
+    expect(findings).toEqual([
+      { schemaPath: 'root', kind: 'example', index: 0, problem: 'unverifiable' },
     ])
   })
 

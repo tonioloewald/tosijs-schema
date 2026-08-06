@@ -87,7 +87,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `filter()` on typeless applicator schemas (a mid-1.5.0 regression):
   stripping now applies exactly where validation's applicators apply — the
   two walkers share applicability predicates so they cannot drift — and the
-  caller's `strict` flag is threaded through union-branch filtering.
+  caller's `strict` flag is threaded through union-branch filtering. When
+  `additionalProperties` is itself a schema, conforming extras are now kept
+  (filtered through that schema) instead of silently dropped.
+- Multi-type `type` arrays enforce the first **non-null** entry, so
+  `['null','string']` and `['string','null']` agree (the former previously
+  refused every string).
+- `agentContract` construction now also refuses: typeless nodes carrying
+  constraints (per JSON Schema, applicators/`enum`/`$predicate` only apply
+  when the value matches their type — so `null`/`undefined` and mismatched
+  primitives would bypass them entirely; a whole-root `null` delete passed a
+  typeless-root gate), malformed keyword value shapes (`anyOf: {}`,
+  `required: 42` previously constructed and then made `check()` throw
+  `TypeError`), and cross-type dead constraints (`minLength` on a `number`
+  node). `check()`, `filter()`, and `checkExamples()` additionally wrap
+  validation so internal errors fail closed as returned `Error`s/findings —
+  never throws, as documented.
+- `checkExamples()` now reports an example that passes structurally under an
+  unevaluated `$predicate` as `unverifiable` instead of silently passing it
+  (mirroring the counterexample path).
 - The `pack` release pipeline now regenerates `dist/context.md`
   (via `make-context.ts`), which had been stale since v1.0.x.
 
