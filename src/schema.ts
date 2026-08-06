@@ -124,8 +124,18 @@ export interface JSONSchema {
    * (the predicate engine lives in the consumer, e.g. `tjs-lang`).
    */
   $predicate?: string
-  // Allow extension properties (x-* custom keywords)
+  /**
+   * Values this schema must REFUSE (convention, paired with the standard
+   * `examples` keyword): a gate that never says no isn't a gate. Exercised by
+   * {@link checkExamples} and by contract harnesses (e.g. tosijs's
+   * `exerciseContract`). Like all unknown `$`-prefixed keys, ignored by
+   * {@link validate}.
+   */
+  $counterexamples?: unknown[]
+  // Extension keywords pass through validation untouched — guaranteed for
+  // x-* (OpenAPI convention) and unrecognized $-prefixed keys alike
   [key: `x-${string}`]: unknown
+  [key: `$${string}`]: unknown
 }
 
 /**
@@ -426,7 +436,9 @@ export function validate(
   const walk = (v: any, s: any): boolean => {
     if (s.anyOf) {
       for (const sub of s.anyOf) {
-        if (validate(v, sub)) return true
+        // branch trials keep strictness but stay silent — only the union as a
+        // whole fails, so a passing branch never leaks sibling-branch errors
+        if (validate(v, sub, { strict: fullScan })) return true
       }
       return err('Union mismatch')
     }

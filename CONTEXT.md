@@ -27,7 +27,14 @@ The `validate` function is the core engine.
     * **Stochastic Sampling:** If an array or dictionary is large (>97 items) and `fullScan` is false, it checks indices at prime intervals (stride 97) to statistically verify structure in O(1).
     * **Ghost Constraints:** `maxProperties` on objects is documented in the schema but **ignored** at runtime to prevent O(N) key counting overhead.
 
-### C. Monadic Pipelines (`src/monad.ts`)
+### C. Agent Contracts (`src/contract.ts`)
+
+Adapters for capability-gated write paths (tosijs's agent surface, or anything with the same seam shape).
+* **`agentContract(schemas, options?)`:** Maps root path → schema into `{ check, describe }`. `check(path, value, proposal?)` judges the whole-root `proposal.proposed` (never walks paths itself) and returns `true | Error` (the Error message is the refusal reason). Strict validation by default — pass `{ strict: false }` to allow sampling.
+* **`checkExamples(schemaOrBuilder)`:** Definition-time lint. Recursively verifies every `examples` entry passes its own node and every `$counterexamples` entry fails. Counterexamples that pass structurally under a `$predicate` with no registered evaluator report `unverifiable`, not `accepted`.
+* **Guarantee:** `validate` ignores and never mutates unknown `$`-prefixed and `x-*` keys — extension conventions ride along safely.
+
+### D. Monadic Pipelines (`src/monad.ts`)
 
 The `M` module implements "Railway Oriented Programming" for building safe tool chains (Agents).
 * **`M.func(Input, Output, Impl, TimeoutMs?)`:** Wraps a function with strict input/output schema validation (Async) and timeout enforcement (default 5000ms).
@@ -79,6 +86,8 @@ const result = chain.step1("hello").result() // Returns number | SchemaError
 * **Runtime Tests (`*.test.ts`):** Run with `bun test`.
 * `src/any.test.ts`: Tests `s.any` behavior.
 * `src/monad.test.ts`: Tests the `M` class execution and error flow.
+* `src/contract.test.ts`: Tests `agentContract`, `checkExamples`, and the `$`-key passthrough guarantee.
+* `src/predicate.test.ts`: Tests the `$predicate` keyword and evaluator registration.
 
 
 * **Type Tests (`src/inference.types.ts`):** Run with `tsc --noEmit`.

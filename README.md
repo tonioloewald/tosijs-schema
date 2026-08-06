@@ -316,6 +316,39 @@ diff(schemaV1.schema, schemaV2.schema)
 // or null if identical
 ```
 
+## Agent Contracts
+
+`agentContract(schemas)` adapts a map of root path → schema into the contract seam consumed by capability-gated write paths (e.g. [tosijs](https://github.com/tonioloewald/tosijs)'s agent surface): `check()` judges a proposed whole-root value and returns `true` or an `Error` carrying the refusal reason; `describe()` returns the serializable per-root contract.
+
+```typescript
+import { agentContract } from 'tosijs-schema'
+
+const contract = agentContract({
+  'app.order': s.object({ item: s.string, qty: s.number }),
+})
+
+contract.check('app.order.qty', 'x', {
+  root: 'app.order',
+  proposed: { item: 'yuzu', qty: 'x' },
+})
+// Error: contract violation at app.order.qty — qty: Expected number
+
+contract.describe() // plain JSON Schemas — "what's legal", shippable over the wire
+```
+
+Deep writes are judged as the whole root they would produce, so `required` on siblings, cross-field constraints, and root-level `$predicate`s all participate. Validation is strict by default (a gate that samples isn't a gate); pass `{ strict: false }` to opt into sampled validation for huge roots.
+
+### Examples as tests
+
+Two conventions make a contract self-proving:
+
+- **`examples`** (standard keyword) — values the schema must accept
+- **`$counterexamples`** (our convention) — values it must refuse; a gate that never says no isn't a gate
+
+`checkExamples(schema)` lints the whole schema tree at definition time: every example must pass its own node, every counterexample must fail. It returns findings (empty = the spec doesn't lie); a counterexample that passes structurally but sits under a `$predicate` with no evaluator registered is reported as `unverifiable` rather than `accepted`.
+
+**Extension-key guarantee:** `validate` ignores — and never mutates — unrecognized `$`-prefixed keys (and `x-*` keys), so conventions like `$counterexamples` and future `$exercise` metadata are safe to standardize on and travel with the schema.
+
 ## Monadic Pipelines
 
 Type-safe function chains with schema validation:

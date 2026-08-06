@@ -377,6 +377,14 @@ describe('Algebra', () => {
     expect(validate({ type: 'cat', bark: true }, Pet.schema)).toBeFalse()
   })
 
+  test('strict mode propagates into union branches (no sampling gap)', () => {
+    const Union = s.union([s.array(s.number)])
+    const big: any[] = Array.from({ length: 500 }, (_, i) => i)
+    big[3] = 'bad' // an index stride sampling skips
+    expect(validate(big, Union.schema)).toBeTrue() // sampled: legitimately missed
+    expect(validate(big, Union.schema, { strict: true })).toBeFalse()
+  })
+
   test('Diffing Logic', () => {
     // Identical
     expect(diff(s.string.min(5).schema, s.string.min(5).schema)).toBeNull()
