@@ -106,6 +106,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `checkExamples()` now reports an example that passes structurally under an
   unevaluated `$predicate` as `unverifiable` instead of silently passing it
   (mirroring the counterexample path).
+- **`anyOf` and `const` are constraints, not short-circuits** (fail-open in
+  all versions ≤ 1.4.0): sibling keywords beside them were silently dead —
+  `{ anyOf: [{type:'string'}], maxLength: 2 }` accepted `'xxxx'`. Siblings
+  (including `$predicate`) are now enforced after the union/const check.
+- **`filter()` prototype-pollution hardening** (all versions ≤ 1.4.0): an own
+  `__proto__` key in JSON-parsed input replaced the returned object's
+  prototype with attacker data. Filtered objects now receive keys as own data
+  properties; the prototype is never touched.
+- `filter()` applies `additionalProperties`-as-schema stripping with or
+  without sibling `properties` (extras conforming to the subschema are kept,
+  filtered through it).
 - The `pack` release pipeline now regenerates `dist/context.md`
   (via `make-context.ts`), which had been stale since v1.0.x.
 

@@ -459,6 +459,59 @@ describe('Algebra', () => {
     }
   })
 
+  test('sibling constraints beside anyOf/const are enforced, not short-circuited', () => {
+    expect(validate('ab', { const: 'ab' })).toBeTrue()
+    expect(validate('ab', { const: 'ab', minLength: 5 })).toBeFalse()
+    expect(validate('xx', { anyOf: [{ type: 'string' }], maxLength: 2 })).toBeTrue()
+    expect(validate('xxxx', { anyOf: [{ type: 'string' }], maxLength: 2 })).toBeFalse()
+    expect(validate({}, { anyOf: [{ type: 'object' }], required: ['a'] })).toBeFalse()
+    expect(validate({ a: 1 }, { anyOf: [{ type: 'object' }], required: ['a'] })).toBeTrue()
+  })
+
+  test('filter cannot be prototype-polluted via an own __proto__ key', () => {
+    const dirty = JSON.parse('{"p":"q","__proto__":{"a":"hi"}}')
+    const out = filter(dirty, {
+      type: 'object',
+      properties: { p: { type: 'string' } },
+      additionalProperties: { type: 'object' },
+    })
+    expect(out).not.toBeInstanceOf(Error)
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype)
+    expect((out as any).a).toBeUndefined()
+    // the own key survives as DATA, not as a prototype
+    expect(Object.getOwnPropertyNames(out)).toContain('__proto__')
+  })
+
+  test('filter applies additionalProperties-as-schema without sibling properties', () => {
+    expect(
+      filter({ x: { a: 'hi', junk: 42 } }, {
+        type: 'object',
+        additionalProperties: {
+          type: 'object',
+          properties: { a: { type: 'string' } },
+        },
+      })
+    ).toEqual({ x: { a: 'hi' } })
+  })
+
+  test('filter never throws: malformed schemas return an Error', () => {
+    const verdict = filter({ a: 1 }, { type: 'object', required: 42 })
+    expect(verdict).toBeInstanceOf(Error)
+    expect((verdict as Error).message).toContain('internal validation error')
+    // a malformed union branch is skipped, not thrown through
+    expect(
+      filter('ok', { anyOf: [{ required: 42 }, { type: 'string' }] })
+    ).toBe('ok')
+  })
+
+  test('filter handles boolean schemas', () => {
+    expect(filter(1, true)).toBe(1)
+    expect(filter(1, false)).toBeInstanceOf(Error)
+    expect(
+      filter({ k: 1 }, { type: 'object', properties: { k: false } })
+    ).toBeInstanceOf(Error)
+  })
+
   test('multi-type arrays enforce the first non-null entry, whatever the order', () => {
     expect(validate('hi', { type: ['null', 'string'] })).toBeTrue()
     expect(validate('hi', { type: ['string', 'null'] })).toBeTrue()

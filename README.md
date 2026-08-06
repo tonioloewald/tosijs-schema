@@ -155,7 +155,7 @@ This matters for:
 
 tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~6kB bundle vs spec compliance.
 
-**Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (common formats), `default`, `title`, `description`
+**Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (common formats), boolean schemas (`true`/`false`), `$predicate` (with a registered evaluator), `default`, `title`, `description`
 
 **Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `oneOf`, `not`, `exclusiveMinimum` / `exclusiveMaximum`, `uniqueItems`, `contains`, `prefixItems`, `propertyNames`, and other advanced keywords. Unsupported keywords are silently ignored by `validate` (they pass through untouched, like any unknown key) — except in `agentContract`, which refuses them at construction so a gate can't fail open.
 
@@ -437,13 +437,13 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines
 -----------------|---------|--------
-All files        |   97.44 |   96.99
- src/contract.ts |   95.65 |   96.97
+All files        |   98.19 |   97.30
+ src/contract.ts |   97.73 |   97.23
  src/monad.ts    |  100.00 |  100.00
- src/schema.ts   |   96.83 |   93.24
+ src/schema.ts   |   96.88 |   94.64
 ```
 
-203 tests, 564 assertions.
+211 tests, 587 assertions.
 
 ## License
 

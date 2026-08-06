@@ -2,8 +2,8 @@
 
 > **Generated:** 2026-08-06
 > **Test Framework:** Bun Test
-> **Total Tests:** 203
-> **Total Assertions:** 564
+> **Total Tests:** 211
+> **Total Assertions:** 587
 > **Pass Rate:** 100%
 
 ---
@@ -13,21 +13,21 @@
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   98.18 |   96.73 |
- src/contract.ts |   97.73 |   96.95 | 83,175,422,424,427,436-438,469-470
+All files        |   98.19 |   97.30 |
+ src/contract.ts |   97.73 |   97.23 | 83,422,424,427,436-438,469-470
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   96.83 |   93.24 | 67-71,264-270,385,727,786-791,808-809,823,843-844,867-876,879-880
+ src/schema.ts   |   96.88 |   94.64 | 67-71,264-270,385,828-829,843,863-864,887-896,899-900
 ```
 
 ## Summary
 
 | Module | Lines | Tests | Line Coverage |
 |--------|-------|-------|---------------|
-| `schema.ts` | 885 | 139 | 93.24% |
+| `schema.ts` | 925 | 145 | 94.64% |
 | `monad.ts` | 179 | 10 | 100% |
-| `contract.ts` | 520 | 37 | 96.95% |
+| `contract.ts` | 519 | 39 | 97.23% |
 | Type Inference | 251 | 17 | (compile-time) |
-| **Total** | **1,835** | **203** | **96.73%** |
+| **Total** | **1,874** | **211** | **97.30%** |
 
 ### contract.ts Coverage
 
@@ -284,7 +284,7 @@ None
 | Runtime dependencies | ✅ **None** | Excellent - zero supply chain risk |
 | Dev dependencies | ✅ Trusted | Microsoft (TS), Bun team, Zod |
 | Post-install scripts | ✅ None | No arbitrary code execution |
-| Published files | ✅ Limited | Only `dist/` folder via `files` field |
+| Published files | ✅ Limited | `dist/`, `CHANGELOG.md`, `llms.txt` via `files` field |
 | Reproducible builds | ⚠️ Caution | `@types/bun: latest` may vary |
 
 ### Dependency Analysis

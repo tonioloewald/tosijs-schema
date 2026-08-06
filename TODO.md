@@ -14,7 +14,9 @@ reviewer leads — sanity-check before acting).
   lead with the tosijs agent-surface unblock (#2). Note the "pin 1.4.0"
   escape hatch retains a known validation bypass — short-lived migration only.
 - [ ] Close issues #1 and #2 naming v1.5.0.
-- [ ] Push `../tosijs-coding-practices` (KB commits are local-only until then).
+- [ ] Push `../tosijs-coding-practices` (KB commits are local-only until then;
+  includes the scoreboard row + gap-list annotation for this release).
+- [ ] Update the KB scoreboard row's "publish pending" note once published.
 - [ ] Verify tosijs's dependency pin picks up 1.5.0 (its `one-user-interface`
   contract suite passed 24/24 against this tree pre-release).
 
@@ -110,6 +112,16 @@ reviewer leads — sanity-check before acting).
   consider a `describe({ strip: true })` option.
 - [x] Commented on tosijs#25 (type-conformance test ask + vestigial `value`
   arg) and tjs-lang#26 (both `$predicate` dialects) — 2026-08-06.
+
+## Process
+
+- [ ] Encode two review lessons into the pre-release-review workflow script
+  (`~/.claude/skills/pre-release-review/`): (1) lens prompts instruct a
+  class-sweep on any fail-open finding (enumerate every keyword/default/
+  shape/branch of the same enforcement path in one pass); (2) a
+  falsifies-documented-guarantee trigger so such leads are adversarially
+  verified even at depth=fast. Both lessons are recorded in
+  practices/review.md; the workflow file is the human's to edit.
 
 ## Shared practices KB
 

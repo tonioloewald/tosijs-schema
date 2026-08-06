@@ -481,6 +481,37 @@ describe('agentContract — the blessed seam adapter', () => {
     ).toThrow('never applies')
   })
 
+  test('sibling constraints beside anyOf/const are enforced by the gate', () => {
+    const g1 = agentContract({ r: { const: 'ab', minLength: 5 } })
+    expect(g1.check('r', 0, { root: 'r', proposed: 'ab' })).toBeInstanceOf(Error)
+    const g2 = agentContract({ r: { anyOf: [{ type: 'string' }], maxLength: 2 } })
+    expect(g2.check('r', 0, { root: 'r', proposed: 'xxxx' })).toBeInstanceOf(Error)
+    expect(g2.check('r', 0, { root: 'r', proposed: 'xx' })).toBe(true)
+  })
+
+  test('a NESTED $predicate with no evaluator also refuses writes', () => {
+    const gate = agentContract({
+      'app.o': {
+        type: 'object',
+        properties: { n: { type: 'number', $predicate: '(n) => n > 0' } },
+      },
+    })
+    const verdict = gate.check('app.o', 0, {
+      root: 'app.o',
+      proposed: { n: 5 },
+    })
+    expect(verdict).toBeInstanceOf(Error)
+    expect((verdict as Error).message).toContain('no evaluator is registered')
+  })
+
+  test('malformed child nodes are refused as not-a-schema at construction', () => {
+    expect(() =>
+      agentContract({
+        'app.x': { type: 'object', properties: { a: 42 } } as any,
+      })
+    ).toThrow('not a schema')
+  })
+
   test('check() never throws — even a throwing predicate evaluator fails closed', () => {
     const gate = agentContract({
       'app.n': { type: 'number', $predicate: '(n) => n > 0' },

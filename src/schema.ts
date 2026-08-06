@@ -391,6 +391,16 @@ export const s = new Proxy(methods, {
 
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
+// plain assignment would let a key named '__proto__' REPLACE the target's
+// prototype with attacker data — define it as an own data property instead
+const setKey = (o: any, k: string, v: any) =>
+  Object.defineProperty(o, k, {
+    value: v,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  })
+
 const STRIDE = 97
 const FMT: Record<string, (v: string) => boolean> = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
@@ -495,17 +505,24 @@ export function validate(
     if (s === true) return true
     if (s === false) return err('Schema forbids value')
 
-    if (s.anyOf) {
+    if (Array.isArray(s.anyOf)) {
+      let matched = false
       for (const sub of s.anyOf) {
         // branch trials keep strictness but stay silent — only the union as a
         // whole fails, so a passing branch never leaks sibling-branch errors
-        if (validate(v, sub, { strict: fullScan })) return true
+        if (validate(v, sub, { strict: fullScan })) {
+          matched = true
+          break
+        }
       }
-      return err('Union mismatch')
+      if (!matched) return err('Union mismatch')
+      // anyOf is a constraint, not the whole schema — sibling keywords
+      // (const, min/max, properties, $predicate, …) still apply below
     }
 
     if (s.const !== undefined) {
-      return v === s.const || err('Const mismatch')
+      if (v !== s.const) return err('Const mismatch')
+      // fall through: const pins the value, siblings still apply
     }
 
     // Handle null - check if schema expects null (type: 'null' without x-tjs-undefined)
@@ -772,22 +789,25 @@ function filterData(data: any, schema: any, fullScan = false): any {
 
   // For objects, only keep properties defined in the schema — plus, when
   // additionalProperties is itself a schema, extras filtered through it
-  // (they are legal there; only additionalProperties: false means "strip")
-  if (asObject && schema.properties) {
+  // (they are legal there; only additionalProperties: false means "strip").
+  // The AP branch applies with or without sibling `properties`.
+  const apSchema =
+    schema.additionalProperties && typeof schema.additionalProperties === 'object'
+      ? schema.additionalProperties
+      : null
+  if (asObject && (schema.properties || apSchema)) {
     const result: Record<string, any> = {}
-    for (const key of Object.keys(schema.properties)) {
-      if (hasOwn(data, key)) {
-        result[key] = filterData(data[key], schema.properties[key], fullScan)
+    if (schema.properties) {
+      for (const key of Object.keys(schema.properties)) {
+        if (hasOwn(data, key)) {
+          setKey(result, key, filterData(data[key], schema.properties[key], fullScan))
+        }
       }
     }
-    if (
-      schema.additionalProperties &&
-      typeof schema.additionalProperties === 'object'
-    ) {
+    if (apSchema) {
       for (const key of Object.keys(data)) {
-        if (!hasOwn(schema.properties, key)) {
-          result[key] = filterData(data[key], schema.additionalProperties, fullScan)
-        }
+        if (schema.properties && hasOwn(schema.properties, key)) continue
+        setKey(result, key, filterData(data[key], apSchema, fullScan))
       }
     }
     return result

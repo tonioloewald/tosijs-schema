@@ -221,6 +221,12 @@ var s = new Proxy(methods, {
   }
 });
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+var setKey = (o, k, v) => Object.defineProperty(o, k, {
+  value: v,
+  enumerable: true,
+  writable: true,
+  configurable: true
+});
 var STRIDE = 97;
 var FMT = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
@@ -278,15 +284,20 @@ function validate(val, builderOrSchema, opts) {
       return true;
     if (s2 === false)
       return err("Schema forbids value");
-    if (s2.anyOf) {
+    if (Array.isArray(s2.anyOf)) {
+      let matched = false;
       for (const sub of s2.anyOf) {
-        if (validate(v, sub, { strict: fullScan }))
-          return true;
+        if (validate(v, sub, { strict: fullScan })) {
+          matched = true;
+          break;
+        }
       }
-      return err("Union mismatch");
+      if (!matched)
+        return err("Union mismatch");
     }
     if (s2.const !== undefined) {
-      return v === s2.const || err("Const mismatch");
+      if (v !== s2.const)
+        return err("Const mismatch");
     }
     if (v === null) {
       const expectsNull = s2.type === "null" && !s2["x-tjs-undefined"];
@@ -494,18 +505,21 @@ function filterData(data, schema, fullScan = false) {
   if (asObject && !schema.properties && schema.additionalProperties === false) {
     return {};
   }
-  if (asObject && schema.properties) {
+  const apSchema = schema.additionalProperties && typeof schema.additionalProperties === "object" ? schema.additionalProperties : null;
+  if (asObject && (schema.properties || apSchema)) {
     const result = {};
-    for (const key of Object.keys(schema.properties)) {
-      if (hasOwn(data, key)) {
-        result[key] = filterData(data[key], schema.properties[key], fullScan);
+    if (schema.properties) {
+      for (const key of Object.keys(schema.properties)) {
+        if (hasOwn(data, key)) {
+          setKey(result, key, filterData(data[key], schema.properties[key], fullScan));
+        }
       }
     }
-    if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+    if (apSchema) {
       for (const key of Object.keys(data)) {
-        if (!hasOwn(schema.properties, key)) {
-          result[key] = filterData(data[key], schema.additionalProperties, fullScan);
-        }
+        if (schema.properties && hasOwn(schema.properties, key))
+          continue;
+        setKey(result, key, filterData(data[key], apSchema, fullScan));
       }
     }
     return result;
