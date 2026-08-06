@@ -91,6 +91,13 @@ reviewer leads — sanity-check before acting).
 - [ ] Consider wiring COVERAGE.md regeneration into `pack` (it was 6 months
   stale before the v1.5.0 refresh).
 
+- [ ] *(unverified)* `filter`'s anyOf fallback returns the ORIGINAL unstripped
+  data when every stripped candidate fails its branch — extras can survive a
+  "successful" filter. Keep required-listed keys in candidates, or make the
+  fallback detectable.
+- [ ] *(unverified)* filterData writes every key via `Object.defineProperty`;
+  fast-path plain assignment except for the literal `'__proto__'` key.
+
 ## Docs / interop
 
 - [ ] *(unverified)* anyOf refusals carry no branch detail ("Union mismatch"

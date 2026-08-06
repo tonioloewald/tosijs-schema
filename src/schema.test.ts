@@ -459,6 +459,20 @@ describe('Algebra', () => {
     }
   })
 
+  test('enum constrains null like every other instance (spec semantics)', () => {
+    // null passes an enum only when the enum lists it
+    expect(validate(null, { type: ['null', 'string'], enum: ['a', 'b'] })).toBeFalse()
+    expect(validate(null, { type: ['null', 'string'], enum: ['a', null] })).toBeTrue()
+    expect(validate(null, { enum: ['a', 'b'] })).toBeFalse()
+    expect(validate('a', { type: ['string', 'null'], enum: ['a', 'b'] })).toBeTrue()
+    // the builder keeps .optional's intent by adding null to the enum
+    const Role = s.enum(['admin', 'user']).optional
+    expect(Role.schema.enum).toEqual(['admin', 'user', null])
+    expect(validate(null, Role)).toBeTrue()
+    expect(validate('admin', Role)).toBeTrue()
+    expect(validate('other', Role)).toBeFalse()
+  })
+
   test('sibling constraints beside anyOf/const are enforced, not short-circuited', () => {
     expect(validate('ab', { const: 'ab' })).toBeTrue()
     expect(validate('ab', { const: 'ab', minLength: 5 })).toBeFalse()

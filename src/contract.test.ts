@@ -481,6 +481,18 @@ describe('agentContract — the blessed seam adapter', () => {
     ).toThrow('never applies')
   })
 
+  test('a gate advertising an enum refuses null unless the enum lists it', () => {
+    const gate = agentContract({
+      x: { type: ['null', 'string'], enum: ['a', 'b'] },
+    })
+    expect(gate.check('x', null, { root: 'x', proposed: null })).toBeInstanceOf(Error)
+    expect(gate.check('x', 'a', { root: 'x', proposed: 'a' })).toBe(true)
+    const nullable = agentContract({
+      x: { type: ['null', 'string'], enum: ['a', null] },
+    })
+    expect(nullable.check('x', null, { root: 'x', proposed: null })).toBe(true)
+  })
+
   test('sibling constraints beside anyOf/const are enforced by the gate', () => {
     const g1 = agentContract({ r: { const: 'ab', minLength: 5 } })
     expect(g1.check('r', 0, { root: 'r', proposed: 'ab' })).toBeInstanceOf(Error)

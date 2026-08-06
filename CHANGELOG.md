@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.5.0] — 2026-08-06
 
+> **Behavior-tightening release.** Several long-standing fail-open validator
+> bugs are fixed; previously-passing data may now be refused. Read
+> "Upgrading from 1.4.x" in the README before upgrading. The minor (not
+> major) bump is deliberate: strict-by-default has been the documented
+> behavior since 1.0 — the implementation is catching up to the contract.
+
 ### Added
 
 - `agentContract(schemas, options?)` — adapter for capability-gated write paths
@@ -117,6 +123,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `filter()` applies `additionalProperties`-as-schema stripping with or
   without sibling `properties` (extras conforming to the subschema are kept,
   filtered through it).
+- **`enum` now constrains `null`** per JSON Schema (bypassed in all versions
+  ≤ 1.4.0): `{ type: ['null','string'], enum: ['a','b'] }` no longer accepts
+  `null` — the enum must list `null` to allow it. The builder keeps
+  `.optional`'s intent by appending `null` to the enum
+  (`s.enum(['a']).optional` → `enum: ['a', null]`). Note: `$predicate` still
+  does not run against `null`/`undefined` (they are settled by `type`
+  before the predicate) — encode null-handling in the type, not the
+  predicate.
 - The `pack` release pipeline now regenerates `dist/context.md`
   (via `make-context.ts`), which had been stale since v1.0.x.
 

@@ -65,7 +65,8 @@ var create = (s) => ({
   get optional() {
     return create({
       ...s,
-      type: Array.isArray(s.type) ? [...s.type, "null"] : [s.type, "null"]
+      type: Array.isArray(s.type) ? [...s.type, "null"] : [s.type, "null"],
+      ...Array.isArray(s.enum) && !s.enum.includes(null) ? { enum: [...s.enum, null] } : {}
     });
   },
   title: (t) => create({ ...s, title: t }),
@@ -299,6 +300,9 @@ function validate(val, builderOrSchema, opts) {
       if (v !== s2.const)
         return err("Const mismatch");
     }
+    if (Array.isArray(s2.enum) && v !== undefined && !s2.enum.includes(v)) {
+      return err("Enum mismatch");
+    }
     if (v === null) {
       const expectsNull = s2.type === "null" && !s2["x-tjs-undefined"];
       const typeIncludesNull = Array.isArray(s2.type) && s2.type.includes("null");
@@ -310,8 +314,6 @@ function validate(val, builderOrSchema, opts) {
       return expectsUndefined || typeIncludesNull || !s2.type || err("Expected value, got undefined");
     }
     const t = Array.isArray(s2.type) ? s2.type.find((entry) => entry !== "null") ?? "null" : s2.type;
-    if (s2.enum && !s2.enum.includes(v))
-      return err("Enum mismatch");
     if (t === "integer") {
       if (typeof v !== "number" || !Number.isInteger(v))
         return err("Expected integer");

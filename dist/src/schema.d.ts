@@ -47,6 +47,10 @@ export interface JSONSchema {
      * A predicate-aware one runs it — but only when an evaluator has been
      * registered via {@link setPredicateEvaluator}, so this library stays zero-dep
      * (the predicate engine lives in the consumer, e.g. `tjs-lang`).
+     *
+     * Predicates run against TYPE-VALID values only and never against
+     * `null`/`undefined` (those are settled by `type` first) — encode
+     * null-handling in the type, not the predicate.
      */
     $predicate?: string;
     /**

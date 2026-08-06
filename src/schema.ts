@@ -11,6 +11,10 @@ const create = (s: any): any => ({
     return create({
       ...s,
       type: Array.isArray(s.type) ? [...s.type, 'null'] : [s.type, 'null'],
+      // enum constrains null too (spec), so an optional enum must list it
+      ...(Array.isArray(s.enum) && !s.enum.includes(null)
+        ? { enum: [...s.enum, null] }
+        : {}),
     })
   },
 
@@ -125,6 +129,10 @@ export interface JSONSchema {
    * A predicate-aware one runs it — but only when an evaluator has been
    * registered via {@link setPredicateEvaluator}, so this library stays zero-dep
    * (the predicate engine lives in the consumer, e.g. `tjs-lang`).
+   *
+   * Predicates run against TYPE-VALID values only and never against
+   * `null`/`undefined` (those are settled by `type` first) — encode
+   * null-handling in the type, not the predicate.
    */
   $predicate?: string
   /**
@@ -525,6 +533,13 @@ export function validate(
       // fall through: const pins the value, siblings still apply
     }
 
+    // enum applies to EVERY instance including null (like const above), so it
+    // must run before the null early-out — null passes only if the enum lists
+    // it. undefined falls through to the type-based handling below.
+    if (Array.isArray(s.enum) && v !== undefined && !s.enum.includes(v)) {
+      return err('Enum mismatch')
+    }
+
     // Handle null - check if schema expects null (type: 'null' without x-tjs-undefined)
     if (v === null) {
       const expectsNull = s.type === 'null' && !s['x-tjs-undefined']
@@ -544,8 +559,6 @@ export function validate(
     const t = Array.isArray(s.type)
       ? s.type.find((entry: any) => entry !== 'null') ?? 'null'
       : s.type
-    if (s.enum && !s.enum.includes(v)) return err('Enum mismatch')
-
     if (t === 'integer') {
       if (typeof v !== 'number' || !Number.isInteger(v))
         return err('Expected integer')
