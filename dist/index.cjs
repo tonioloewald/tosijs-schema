@@ -51,6 +51,7 @@ __export(exports_tosijs_schema, {
   TimeoutError: () => TimeoutError,
   SchemaError: () => SchemaError,
   M: () => M,
+  ENFORCED_KEYWORDS: () => ENFORCED_KEYWORDS,
   ENFORCED_FORMATS: () => ENFORCED_FORMATS
 });
 module.exports = __toCommonJS(exports_tosijs_schema);
@@ -237,6 +238,31 @@ var FMT = {
   emoji: (v) => new RegExp(RX_EMOJI_ATOM, "u").test(v)
 };
 var ENFORCED_FORMATS = new Set(Object.keys(FMT));
+var ENFORCED_KEYWORDS = new Set([
+  "type",
+  "properties",
+  "required",
+  "items",
+  "enum",
+  "const",
+  "anyOf",
+  "minimum",
+  "maximum",
+  "multipleOf",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "format",
+  "minItems",
+  "maxItems",
+  "minProperties",
+  "maxProperties",
+  "additionalProperties",
+  "$predicate",
+  "x-tjs-undefined"
+]);
+var objectKeywordsPresent = (s2) => s2.properties !== undefined || s2.required !== undefined || s2.additionalProperties !== undefined || s2.minProperties !== undefined || s2.maxProperties !== undefined;
+var arrayKeywordsPresent = (s2) => s2.items !== undefined || s2.minItems !== undefined || s2.maxItems !== undefined;
 function validate(val, builderOrSchema, opts) {
   const schema = builderOrSchema?.schema || builderOrSchema;
   const onError = typeof opts === "function" ? opts : opts?.onError;
@@ -248,6 +274,10 @@ function validate(val, builderOrSchema, opts) {
     return false;
   };
   const walk = (v, s2) => {
+    if (s2 === true)
+      return true;
+    if (s2 === false)
+      return err("Schema forbids value");
     if (s2.anyOf) {
       for (const sub of s2.anyOf) {
         if (validate(v, sub, { strict: fullScan }))
@@ -305,12 +335,18 @@ function validate(val, builderOrSchema, opts) {
         return err("Len < min");
       if (s2.maxLength !== undefined && v.length > s2.maxLength)
         return err("Len > max");
-      if (s2.pattern && !new RegExp(s2.pattern, s2.format === "emoji" ? "u" : "").test(v))
-        return err("Pattern mismatch");
+      if (s2.pattern) {
+        try {
+          if (!new RegExp(s2.pattern, s2.format === "emoji" ? "u" : "").test(v))
+            return err("Pattern mismatch");
+        } catch {
+          return err("Invalid pattern");
+        }
+      }
       if (s2.format && FMT[s2.format] && !FMT[s2.format](v))
         return err("Format invalid");
     }
-    if (t === "object" || !t && typeof v === "object" && !Array.isArray(v) && (s2.properties !== undefined || s2.required !== undefined || s2.additionalProperties !== undefined || s2.minProperties !== undefined || s2.maxProperties !== undefined)) {
+    if (t === "object" || !t && typeof v === "object" && !Array.isArray(v) && objectKeywordsPresent(s2)) {
       const checkMin = s2.minProperties !== undefined;
       const checkMax = fullScan && s2.maxProperties !== undefined;
       if (checkMin || checkMax) {
@@ -373,7 +409,7 @@ function validate(val, builderOrSchema, opts) {
       }
       return true;
     }
-    if (t === "array" || !t && Array.isArray(v) && (s2.items !== undefined || s2.minItems !== undefined || s2.maxItems !== undefined)) {
+    if (t === "array" || !t && Array.isArray(v) && arrayKeywordsPresent(s2)) {
       const len = v.length;
       if (s2.minItems !== undefined && len < s2.minItems)
         return err("Array too short");
@@ -414,7 +450,7 @@ function filter(data, builderOrSchema, opts) {
   const onError = typeof opts === "function" ? opts : opts?.onError;
   const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const skipValidation = typeof opts === "object" ? opts?.skipValidation : false;
-  const filtered = filterData(data, schema);
+  const filtered = filterData(data, schema, fullScan);
   if (!skipValidation) {
     let errorPath = "";
     let errorMsg = "";
@@ -433,37 +469,39 @@ function filter(data, builderOrSchema, opts) {
   }
   return filtered;
 }
-function filterData(data, schema) {
+function filterData(data, schema, fullScan = false) {
   if (data === null || data === undefined) {
     return data;
   }
   if (schema.anyOf) {
     for (const sub of schema.anyOf) {
-      const candidate = filterData(data, sub);
-      if (validate(candidate, sub))
+      const candidate = filterData(data, sub, fullScan);
+      if (validate(candidate, sub, { strict: fullScan }))
         return candidate;
     }
     return data;
   }
   const t = schema.type;
-  if (t === "object" && !schema.properties && schema.additionalProperties === false && typeof data === "object" && !Array.isArray(data)) {
+  const asObject = (t === "object" || !t && objectKeywordsPresent(schema)) && typeof data === "object" && !Array.isArray(data);
+  const asArray = (t === "array" || !t && arrayKeywordsPresent(schema)) && Array.isArray(data);
+  if (asObject && !schema.properties && schema.additionalProperties === false) {
     return {};
   }
-  if (t === "object" && schema.properties && typeof data === "object" && !Array.isArray(data)) {
+  if (asObject && schema.properties) {
     const result = {};
     for (const key of Object.keys(schema.properties)) {
       if (hasOwn(data, key)) {
-        result[key] = filterData(data[key], schema.properties[key]);
+        result[key] = filterData(data[key], schema.properties[key], fullScan);
       }
     }
     return result;
   }
-  if (t === "array" && Array.isArray(data)) {
+  if (asArray) {
     if (schema.items) {
       if (Array.isArray(schema.items)) {
-        return data.slice(0, schema.items.length).map((item, i) => filterData(item, schema.items[i]));
+        return data.slice(0, schema.items.length).map((item, i) => filterData(item, schema.items[i], fullScan));
       } else {
-        return data.map((item) => filterData(item, schema.items));
+        return data.map((item) => filterData(item, schema.items, fullScan));
       }
     }
     return data;
@@ -683,45 +721,77 @@ var createM = (r) => {
 };
 // src/contract.ts
 var toPlain = (schema) => schema?.schema ?? schema;
-var UNENFORCED_KEYWORDS = [
-  "allOf",
-  "oneOf",
-  "not",
-  "$ref",
-  "if",
-  "then",
-  "else",
-  "dependentRequired",
-  "dependentSchemas",
-  "patternProperties",
-  "propertyNames",
-  "unevaluatedProperties",
-  "unevaluatedItems",
-  "exclusiveMinimum",
-  "exclusiveMaximum",
-  "uniqueItems",
-  "contains",
-  "minContains",
-  "maxContains",
-  "prefixItems",
-  "additionalItems",
-  "dependencies"
-];
+var ANNOTATION_KEYWORDS = new Set([
+  "title",
+  "description",
+  "default",
+  "examples",
+  "$counterexamples",
+  "$schema",
+  "$id",
+  "$comment",
+  "deprecated",
+  "readOnly",
+  "writeOnly"
+]);
+var enforcedChildren = (s2) => {
+  const kids = [];
+  if (s2.properties && typeof s2.properties === "object") {
+    for (const k of Object.keys(s2.properties)) {
+      kids.push([`properties.${k}`, s2.properties[k]]);
+    }
+  }
+  if (s2.items !== undefined) {
+    if (Array.isArray(s2.items)) {
+      s2.items.forEach((item, i) => kids.push([`items.${i}`, item]));
+    } else {
+      kids.push(["items", s2.items]);
+    }
+  }
+  if (s2.additionalProperties !== undefined && typeof s2.additionalProperties === "object") {
+    kids.push(["additionalProperties", s2.additionalProperties]);
+  }
+  if (Array.isArray(s2.anyOf)) {
+    s2.anyOf.forEach((sub, i) => kids.push([`anyOf.${i}`, sub]));
+  }
+  return kids;
+};
+var isNonPrimitive = (x) => x !== null && typeof x === "object";
 var unenforced = (s2, at = "root") => {
-  if (s2 == null || typeof s2 !== "object")
+  if (s2 === true || s2 === false)
     return [];
+  if (s2 == null || typeof s2 !== "object" || Array.isArray(s2)) {
+    return [`${at} (not a schema)`];
+  }
   const found = [];
-  for (const key of UNENFORCED_KEYWORDS) {
-    if (s2[key] !== undefined)
+  for (const key of Object.keys(s2)) {
+    if (!ENFORCED_KEYWORDS.has(key) && !ANNOTATION_KEYWORDS.has(key) && !key.startsWith("x-")) {
       found.push(`${at}.${key}`);
+    }
   }
   if (typeof s2.format === "string" && !ENFORCED_FORMATS.has(s2.format)) {
     found.push(`${at}.format:'${s2.format}'`);
   }
+  if (typeof s2.pattern === "string") {
+    try {
+      new RegExp(s2.pattern, s2.format === "emoji" ? "u" : "");
+    } catch {
+      found.push(`${at}.pattern (invalid regex)`);
+    }
+  }
   if (Array.isArray(s2.items) && s2.maxItems !== s2.items.length) {
     found.push(`${at}.items (tuple without maxItems: ${s2.items.length})`);
   }
-  for (const [segment, kid] of subschemas(s2)) {
+  if (isNonPrimitive(s2.const)) {
+    found.push(`${at}.const (non-primitive; === comparison never matches)`);
+  }
+  if (Array.isArray(s2.enum) && s2.enum.some(isNonPrimitive)) {
+    found.push(`${at}.enum (non-primitive member never matches)`);
+  }
+  if (Array.isArray(s2.type) && s2.type.filter((entry) => entry !== "null").length > 1) {
+    found.push(`${at}.type (multi-type array; use anyOf)`);
+  }
+  for (const [segment, kid] of enforcedChildren(s2)) {
     found.push(...unenforced(kid, `${at}.${segment}`));
   }
   return found;
@@ -754,26 +824,27 @@ var agentContract = (schemas, options) => {
   };
   return {
     check(path, _value, proposal) {
+      const at = path || "''";
       const affected = affectedRoots(path);
       if (affected.length === 0)
         return true;
       if (proposal == null) {
-        return new Error(`contract breach at ${path || "''"} — write affecting contracted root ` + `'${affected[0]}' arrived without a proposal`);
+        return new Error(`contract breach at ${at} — write affecting contracted root ` + `'${affected[0]}' arrived without a proposal`);
       }
       const uncovered = affected.filter((root) => root !== proposal.root);
       if (uncovered.length > 0) {
-        return new Error(`contract breach at ${path || "''"} — proposal root '${proposal.root}' ` + `does not cover contracted root(s) ` + uncovered.map((root) => `'${root}'`).join(", ") + (affected.length > 1 ? "; decompose the write below the shared ancestor" : ""));
+        return new Error(`contract breach at ${at} — proposal root '${proposal.root}' ` + `does not cover contracted root(s) ` + uncovered.map((root) => `'${root}'`).join(", ") + (affected.length > 1 ? "; decompose the write below the shared ancestor" : ""));
       }
       const schema = plain[proposal.root];
       if (predicated[proposal.root] && getPredicateEvaluator() == null) {
-        return new Error(`contract breach at ${path} — contracted root '${proposal.root}' carries ` + `a $predicate but no evaluator is registered; the gate would fail open`);
+        return new Error(`contract breach at ${at} — contracted root '${proposal.root}' carries ` + `a $predicate but no evaluator is registered; the gate would fail open`);
       }
       const reasons = [];
       const ok = validate(proposal.proposed, schema, {
         strict,
-        onError: (at, msg) => void reasons.push(`${at}: ${msg}`)
+        onError: (at2, msg) => void reasons.push(`${at2}: ${msg}`)
       });
-      return ok ? true : new Error(`contract violation at ${path} — ${reasons.join("; ")}`);
+      return ok ? true : new Error(`contract violation at ${at} — ${reasons.join("; ")}`);
     },
     describe: () => structuredClone(plain)
   };

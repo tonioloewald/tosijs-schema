@@ -24,10 +24,10 @@ export interface ContractProposal {
  */
 export interface AgentContract {
     check(path: string, value: any, proposal?: ContractProposal): true | Error;
-    describe(): Record<string, JSONSchema>;
+    describe(): Record<string, JSONSchema | boolean>;
 }
 /** a builder (`s.object(...)`) or a plain JSON Schema object */
-export type SchemaLike = JSONSchema | Base<any> | Record<string, any>;
+export type SchemaLike = JSONSchema | boolean | Base<any> | Record<string, any>;
 /**
  * Build an {@link AgentContract} over a map of root path → schema (builders
  * or plain JSON Schema). Judges every proposal against the whole-root schema,

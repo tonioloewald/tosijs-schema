@@ -419,6 +419,49 @@ const FMT: Record<string, (v: string) => boolean> = {
  */
 export const ENFORCED_FORMATS: ReadonlySet<string> = new Set(Object.keys(FMT))
 
+/**
+ * Every keyword `validate`'s walk actually reads. Lives beside the walk so
+ * the two cannot drift silently — `agentContract` refuses any schema key
+ * outside this set (plus annotations and `x-*`) at construction, which is
+ * what keeps typos and unimplemented keywords from shipping as advertised
+ * constraints that enforce nothing.
+ */
+export const ENFORCED_KEYWORDS: ReadonlySet<string> = new Set([
+  'type',
+  'properties',
+  'required',
+  'items',
+  'enum',
+  'const',
+  'anyOf',
+  'minimum',
+  'maximum',
+  'multipleOf',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'format',
+  'minItems',
+  'maxItems',
+  'minProperties',
+  'maxProperties',
+  'additionalProperties',
+  '$predicate',
+  'x-tjs-undefined',
+])
+
+/** object-applicator keywords present — shared by validate's walk and filterData so their applicability can't drift */
+const objectKeywordsPresent = (s: any): boolean =>
+  s.properties !== undefined ||
+  s.required !== undefined ||
+  s.additionalProperties !== undefined ||
+  s.minProperties !== undefined ||
+  s.maxProperties !== undefined
+
+/** array-applicator keywords present — shared by validate's walk and filterData */
+const arrayKeywordsPresent = (s: any): boolean =>
+  s.items !== undefined || s.minItems !== undefined || s.maxItems !== undefined
+
 export type ErrorHandler = (path: string, msg: string) => void
 
 export interface ValidateOptions {
@@ -431,10 +474,10 @@ export interface ValidateOptions {
 
 export function validate(
   val: any,
-  builderOrSchema: Base<any> | Record<string, any>,
+  builderOrSchema: Base<any> | Record<string, any> | boolean,
   opts?: ValidateOptions | ErrorHandler
 ): boolean {
-  const schema = builderOrSchema?.schema || builderOrSchema
+  const schema = (builderOrSchema as any)?.schema || builderOrSchema
   const onError = typeof opts === 'function' ? opts : opts?.onError
   const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
 
@@ -446,6 +489,11 @@ export function validate(
   }
 
   const walk = (v: any, s: any): boolean => {
+    // boolean schemas (standard JSON Schema): true accepts everything,
+    // false accepts nothing — `properties: { key: false }` forbids the key
+    if (s === true) return true
+    if (s === false) return err('Schema forbids value')
+
     if (s.anyOf) {
       for (const sub of s.anyOf) {
         // branch trials keep strictness but stay silent — only the union as a
@@ -509,11 +557,16 @@ export function validate(
         return err('Len < min')
       if (s.maxLength !== undefined && v.length > s.maxLength)
         return err('Len > max')
-      if (
-        s.pattern &&
-        !new RegExp(s.pattern, s.format === 'emoji' ? 'u' : '').test(v)
-      )
-        return err('Pattern mismatch')
+      if (s.pattern) {
+        // an invalid regex cannot prove the value valid — fail closed,
+        // never throw (agentContract also refuses it at construction)
+        try {
+          if (!new RegExp(s.pattern, s.format === 'emoji' ? 'u' : '').test(v))
+            return err('Pattern mismatch')
+        } catch {
+          return err('Invalid pattern')
+        }
+      }
       if (s.format && FMT[s.format] && !FMT[s.format]!(v))
         return err('Format invalid')
     }
@@ -528,11 +581,7 @@ export function validate(
       (!t &&
         typeof v === 'object' &&
         !Array.isArray(v) &&
-        (s.properties !== undefined ||
-          s.required !== undefined ||
-          s.additionalProperties !== undefined ||
-          s.minProperties !== undefined ||
-          s.maxProperties !== undefined))
+        objectKeywordsPresent(s))
     ) {
       // Check property count constraints
       // minProperties: always checked (required for empty object rejection)
@@ -590,14 +639,7 @@ export function validate(
       return true
     }
 
-    if (
-      t === 'array' ||
-      (!t &&
-        Array.isArray(v) &&
-        (s.items !== undefined ||
-          s.minItems !== undefined ||
-          s.maxItems !== undefined))
-    ) {
+    if (t === 'array' || (!t && Array.isArray(v) && arrayKeywordsPresent(s))) {
       // min/maxItems are NOT gated behind `items` — a bare
       // { type: 'array', minItems: 1 } must still refuse []
       const len = v.length
@@ -661,7 +703,7 @@ export function filter(
 
   // Strip first, then validate the stripped result — filter's job is to
   // remove extras, so they must not trip additionalProperties: false
-  const filtered = filterData(data, schema)
+  const filtered = filterData(data, schema, fullScan)
 
   if (!skipValidation) {
     let errorPath = ''
@@ -683,7 +725,7 @@ export function filter(
   return filtered
 }
 
-function filterData(data: any, schema: any): any {
+function filterData(data: any, schema: any, fullScan = false): any {
   if (data === null || data === undefined) {
     return data
   }
@@ -691,50 +733,55 @@ function filterData(data: any, schema: any): any {
   // Unions: strip against the first branch the stripped data satisfies
   if (schema.anyOf) {
     for (const sub of schema.anyOf) {
-      const candidate = filterData(data, sub)
-      if (validate(candidate, sub)) return candidate
+      const candidate = filterData(data, sub, fullScan)
+      if (validate(candidate, sub, { strict: fullScan })) return candidate
     }
     return data
   }
 
   const t = schema.type
-
-  // A propertyless strict object schema means "empty object" — strip to it
-  if (
-    t === 'object' &&
-    !schema.properties &&
-    schema.additionalProperties === false &&
+  // stripping applies exactly where validation's applicators apply —
+  // including typeless schemas — so the two walkers cannot drift
+  const asObject =
+    (t === 'object' || (!t && objectKeywordsPresent(schema))) &&
     typeof data === 'object' &&
     !Array.isArray(data)
-  ) {
+  const asArray =
+    (t === 'array' || (!t && arrayKeywordsPresent(schema))) &&
+    Array.isArray(data)
+
+  // A propertyless strict object schema means "empty object" — strip to it
+  if (asObject && !schema.properties && schema.additionalProperties === false) {
     return {}
   }
 
   // For objects, only keep properties defined in the schema
-  if (t === 'object' && schema.properties && typeof data === 'object' && !Array.isArray(data)) {
+  if (asObject && schema.properties) {
     const result: Record<string, any> = {}
     for (const key of Object.keys(schema.properties)) {
       if (hasOwn(data, key)) {
-        result[key] = filterData(data[key], schema.properties[key])
+        result[key] = filterData(data[key], schema.properties[key], fullScan)
       }
     }
     return result
   }
-  
+
   // For arrays, filter each item
-  if (t === 'array' && Array.isArray(data)) {
+  if (asArray) {
     if (schema.items) {
       if (Array.isArray(schema.items)) {
         // Tuple: filter each item with corresponding schema
-        return data.slice(0, schema.items.length).map((item, i) => filterData(item, schema.items[i]))
+        return data.slice(0, schema.items.length).map((item: any, i: number) =>
+          filterData(item, schema.items[i], fullScan)
+        )
       } else {
         // Array: filter each item with the same schema
-        return data.map(item => filterData(item, schema.items))
+        return data.map((item: any) => filterData(item, schema.items, fullScan))
       }
     }
     return data
   }
-  
+
   // For primitives, just return the value
   return data
 }

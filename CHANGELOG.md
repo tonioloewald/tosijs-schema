@@ -69,6 +69,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `additionalItems`/`dependencies` are refused at construction; a contracted
   schema carrying `$predicate` refuses writes while no evaluator is
   registered rather than silently skipping the predicate.
+- **Boolean schemas are now enforced** (ignored in all versions ≤ 1.4.0):
+  `true` accepts everything, `false` accepts nothing — so the standard
+  `properties: { key: false }` "forbidden key" idiom works.
+- **`agentContract` construction now validates against an allowlist** (the
+  exported `ENFORCED_KEYWORDS` set beside `validate`'s walk) instead of a
+  hand-maintained denylist — typos (`minumum`), unimplemented spec keywords
+  (`contentEncoding`, `$dynamicRef`), and future keywords are all refused
+  rather than shipping as advertised-but-unenforced constraints. Non-primitive
+  `const`/`enum` members and multi-type `type` arrays (which `validate`
+  compares too naively to honor) are refused at construction too.
+- **Invalid `pattern` regexes no longer throw**: `validate` fails closed
+  (`Invalid pattern`) instead of raising `SyntaxError`, honoring the
+  documented never-throws / `true | Error` contracts; `agentContract`
+  additionally refuses invalid patterns at construction. (Threw in all
+  versions ≤ 1.4.0.)
+- `filter()` on typeless applicator schemas (a mid-1.5.0 regression):
+  stripping now applies exactly where validation's applicators apply — the
+  two walkers share applicability predicates so they cannot drift — and the
+  caller's `strict` flag is threaded through union-branch filtering.
 - The `pack` release pipeline now regenerates `dist/context.md`
   (via `make-context.ts`), which had been stale since v1.0.x.
 

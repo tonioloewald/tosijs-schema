@@ -10,6 +10,7 @@ import {
   validate,
   getPredicateEvaluator,
   ENFORCED_FORMATS,
+  ENFORCED_KEYWORDS,
   type JSONSchema,
   type Base,
 } from './schema'
@@ -32,64 +33,115 @@ export interface ContractProposal {
  */
 export interface AgentContract {
   check(path: string, value: any, proposal?: ContractProposal): true | Error
-  describe(): Record<string, JSONSchema>
+  describe(): Record<string, JSONSchema | boolean>
 }
 
 /** a builder (`s.object(...)`) or a plain JSON Schema object */
-export type SchemaLike = JSONSchema | Base<any> | Record<string, any>
+export type SchemaLike = JSONSchema | boolean | Base<any> | Record<string, any>
 
-const toPlain = (schema: SchemaLike): JSONSchema =>
+const toPlain = (schema: SchemaLike): JSONSchema | boolean =>
   ((schema as any)?.schema ?? schema) as JSONSchema
 
 /**
- * JSON Schema keywords `validate` silently ignores. A schema using one of
- * these would make the gate fail open — the keyword ships in `describe()` as
- * "what's legal" while enforcement never happens — so `agentContract` refuses
- * them at construction.
+ * Keys that are pure annotations — legal in a gate schema because they
+ * advertise no constraint. Everything that is neither here, nor in
+ * {@link ENFORCED_KEYWORDS}, nor `x-*` / a recognized `$`-convention is
+ * refused at construction: an ALLOWLIST, because a denylist of "known
+ * unenforced" keywords cannot catch typos (`minumum`), new spec keywords,
+ * or anything else `validate` silently ignores.
  */
-const UNENFORCED_KEYWORDS = [
-  'allOf',
-  'oneOf',
-  'not',
-  '$ref',
-  'if',
-  'then',
-  'else',
-  'dependentRequired',
-  'dependentSchemas',
-  'patternProperties',
-  'propertyNames',
-  'unevaluatedProperties',
-  'unevaluatedItems',
-  'exclusiveMinimum',
-  'exclusiveMaximum',
-  'uniqueItems',
-  'contains',
-  'minContains',
-  'maxContains',
-  'prefixItems',
-  'additionalItems',
-  'dependencies',
-] as const
+const ANNOTATION_KEYWORDS: ReadonlySet<string> = new Set([
+  'title',
+  'description',
+  'default',
+  'examples',
+  '$counterexamples',
+  '$schema',
+  '$id',
+  '$comment',
+  'deprecated',
+  'readOnly',
+  'writeOnly',
+])
 
-/** paths of unenforced keywords (and unenforced formats) anywhere in a schema tree */
-const unenforced = (s: any, at = 'root'): string[] => {
-  if (s == null || typeof s !== 'object') return []
-  const found: string[] = []
-  for (const key of UNENFORCED_KEYWORDS) {
-    if (s[key] !== undefined) found.push(`${at}.${key}`)
+/** child nodes validate actually recurses into (unlike checkExamples' broader subschemas walk) */
+const enforcedChildren = (s: any): [string, any][] => {
+  const kids: [string, any][] = []
+  if (s.properties && typeof s.properties === 'object') {
+    for (const k of Object.keys(s.properties)) {
+      kids.push([`properties.${k}`, s.properties[k]])
+    }
   }
-  // format is an annotation for values outside ENFORCED_FORMATS — for a gate
-  // that's an advertised constraint validate never checks
+  if (s.items !== undefined) {
+    if (Array.isArray(s.items)) {
+      s.items.forEach((item: any, i: number) => kids.push([`items.${i}`, item]))
+    } else {
+      kids.push(['items', s.items])
+    }
+  }
+  if (s.additionalProperties !== undefined && typeof s.additionalProperties === 'object') {
+    kids.push(['additionalProperties', s.additionalProperties])
+  }
+  if (Array.isArray(s.anyOf)) {
+    s.anyOf.forEach((sub: any, i: number) => kids.push([`anyOf.${i}`, sub]))
+  }
+  return kids
+}
+
+const isNonPrimitive = (x: any) => x !== null && typeof x === 'object'
+
+/** paths of anything in a schema tree a gate could advertise but validate would not enforce */
+const unenforced = (s: any, at = 'root'): string[] => {
+  // boolean schemas are fully enforced (true accepts all, false refuses all)
+  if (s === true || s === false) return []
+  if (s == null || typeof s !== 'object' || Array.isArray(s)) {
+    return [`${at} (not a schema)`]
+  }
+  const found: string[] = []
+  for (const key of Object.keys(s)) {
+    if (
+      !ENFORCED_KEYWORDS.has(key) &&
+      !ANNOTATION_KEYWORDS.has(key) &&
+      !key.startsWith('x-')
+    ) {
+      found.push(`${at}.${key}`)
+    }
+  }
+  // value-level holes in otherwise-enforced keywords:
+  // format is an annotation for values outside ENFORCED_FORMATS
   if (typeof s.format === 'string' && !ENFORCED_FORMATS.has(s.format)) {
     found.push(`${at}.format:'${s.format}'`)
+  }
+  // an invalid pattern regex cannot enforce anything (validate fails closed
+  // on it, which would refuse every string — surface it at construction)
+  if (typeof s.pattern === 'string') {
+    try {
+      new RegExp(s.pattern, s.format === 'emoji' ? 'u' : '')
+    } catch {
+      found.push(`${at}.pattern (invalid regex)`)
+    }
   }
   // tuple-form items: validate walks only the declared positions, so extra
   // trailing items pass unless maxItems caps the tuple exactly
   if (Array.isArray(s.items) && s.maxItems !== s.items.length) {
     found.push(`${at}.items (tuple without maxItems: ${s.items.length})`)
   }
-  for (const [segment, kid] of subschemas(s)) {
+  // const/enum compare with ===/includes — non-primitive members can never
+  // match, so the gate would refuse everything
+  if (isNonPrimitive(s.const)) {
+    found.push(`${at}.const (non-primitive; === comparison never matches)`)
+  }
+  if (Array.isArray(s.enum) && s.enum.some(isNonPrimitive)) {
+    found.push(`${at}.enum (non-primitive member never matches)`)
+  }
+  // multi-type arrays: only the first non-null entry is enforced
+  if (
+    Array.isArray(s.type) &&
+    s.type.filter((entry: any) => entry !== 'null').length > 1
+  ) {
+    found.push(`${at}.type (multi-type array; use anyOf)`)
+  }
+  for (const [segment, kid] of enforcedChildren(s)) {
     found.push(...unenforced(kid, `${at}.${segment}`))
   }
   return found
@@ -125,7 +177,7 @@ export const agentContract = (
   options?: { strict?: boolean }
 ): AgentContract => {
   const strict = options?.strict ?? true
-  const plain: Record<string, JSONSchema> = {}
+  const plain: Record<string, JSONSchema | boolean> = {}
   const predicated: Record<string, boolean> = {}
   for (const [root, schema] of Object.entries(schemas)) {
     const copy = structuredClone(toPlain(schema))
@@ -164,11 +216,12 @@ export const agentContract = (
   }
   return {
     check(path, _value, proposal) {
+      const at = path || "''"
       const affected = affectedRoots(path)
       if (affected.length === 0) return true // touches no contracted root
       if (proposal == null) {
         return new Error(
-          `contract breach at ${path || "''"} — write affecting contracted root ` +
+          `contract breach at ${at} — write affecting contracted root ` +
             `'${affected[0]}' arrived without a proposal`
         )
       }
@@ -178,7 +231,7 @@ export const agentContract = (
       const uncovered = affected.filter((root) => root !== proposal.root)
       if (uncovered.length > 0) {
         return new Error(
-          `contract breach at ${path || "''"} — proposal root '${proposal.root}' ` +
+          `contract breach at ${at} — proposal root '${proposal.root}' ` +
             `does not cover contracted root(s) ` +
             uncovered.map((root) => `'${root}'`).join(', ') +
             (affected.length > 1
@@ -189,7 +242,7 @@ export const agentContract = (
       const schema = plain[proposal.root]!
       if (predicated[proposal.root] && getPredicateEvaluator() == null) {
         return new Error(
-          `contract breach at ${path} — contracted root '${proposal.root}' carries ` +
+          `contract breach at ${at} — contracted root '${proposal.root}' carries ` +
             `a $predicate but no evaluator is registered; the gate would fail open`
         )
       }
@@ -200,7 +253,7 @@ export const agentContract = (
       })
       return ok
         ? true
-        : new Error(`contract violation at ${path} — ${reasons.join('; ')}`)
+        : new Error(`contract violation at ${at} — ${reasons.join('; ')}`)
     },
     describe: () => structuredClone(plain),
   }

@@ -582,6 +582,17 @@ describe('Filter function - additional coverage', () => {
     expect(filter({ x: 1 }, { type: 'object', additionalProperties: false })).toEqual({})
   })
 
+  test('filter strips typeless applicator schemas (zero-preprocessing runtime schemas)', () => {
+    expect(
+      filter({ a: 1, b: 2 }, {
+        properties: { a: { type: 'number' } },
+        additionalProperties: false,
+        required: ['a'],
+      })
+    ).toEqual({ a: 1 })
+    expect(filter([{ x: 1, extra: 2 }], { items: { properties: { x: { type: 'number' } } } })).toEqual([{ x: 1 }])
+  })
+
   test('filter deeply nested structure', () => {
     const schema = s.object({
       users: s.array(s.object({

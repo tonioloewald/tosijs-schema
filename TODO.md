@@ -3,21 +3,30 @@
 Follow-ups from the v1.5.0 pre-release review (items marked *(unverified)* are
 reviewer leads — sanity-check before acting).
 
+## Release checklist (at publish — human gate first)
+
+- [ ] Push this repo + tag; `npm publish`.
+- [ ] Publish a GitHub security advisory (GHSA) for the ≤ 1.4.0 fail-open
+  bypasses (`additionalProperties: false` never enforced; prototype-named key
+  bypass; boolean schemas ignored), affected ≤ 1.4.0, patched 1.5.0 — so
+  audit/Dependabot tooling reaches consumers who never read changelogs.
+- [ ] Mirror README's "Upgrading from 1.4.x" into the GitHub release notes;
+  lead with the tosijs agent-surface unblock (#2). Note the "pin 1.4.0"
+  escape hatch retains a known validation bypass — short-lived migration only.
+- [ ] Close issues #1 and #2 naming v1.5.0.
+- [ ] Push `../tosijs-coding-practices` (KB commits are local-only until then).
+- [ ] Verify tosijs's dependency pin picks up 1.5.0 (its `one-user-interface`
+  contract suite passed 24/24 against this tree pre-release).
+
 ## Correctness
 
-- [ ] *(unverified)* Multi-entry `type` arrays enforce only the first entry
-  (`['string','number']` refuses 42; `['null','string']` refuses everything
-  non-null). Fail-closed direction, but breaks legitimate contracted writes.
-  Enforce membership across entries, or refuse multi-type arrays at
-  `agentContract` construction.
-- [ ] *(unverified)* An invalid `pattern` regex makes `check()` throw a
-  SyntaxError instead of returning `true | Error`. Compile patterns at
-  construction and/or try/catch in `check()`.
-- [ ] *(unverified)* Single-source `UNENFORCED_KEYWORDS` with `validate`'s
-  actual enforcement: add a per-keyword self-verifying test (each listed
-  keyword genuinely unenforced, each enforced keyword absent from the list).
-  The hand-maintained mirror is the drift mechanism that produced the
-  additionalProperties fail-open.
+- [ ] *(unverified)* `additionalProperties: false` sweep uses `for..in`, so
+  non-enumerable own properties escape the `Unexpected` refusal — reachable
+  only via live JS objects, not JSON. Use `Object.getOwnPropertyNames` or
+  document that `proposed` must be JSON-clean.
+- [ ] Implement real multi-type `type` array semantics (membership across
+  entries) and deep-equality `const`/`enum`, then relax the corresponding
+  construction refusals in `agentContract`.
 
 - [ ] *(unverified)* `hasPredicate` over-approximates reachability: a
   `$predicate` in unreferenced `$defs` / `not` makes `checkExamples` report
@@ -34,8 +43,8 @@ reviewer leads — sanity-check before acting).
   Hoist one shared options object; longer-term let `walk()` handle anyOf
   internally instead of re-entering `validate()`.
 - [ ] *(unverified)* Contract/lint tooling ships in the runtime entry
-  (+~18% gzipped). Add `"sideEffects": false` to package.json and/or split a
-  `tosijs-schema/contract` subpath export.
+  (+~18% gzipped). `sideEffects: false` landed in 1.5.0; consider a
+  `tosijs-schema/contract` subpath export split.
 - [ ] *(unverified)* Document `check()`'s cost model in README (O(root size)
   per write): contract fine-grained roots; reserve `strict: false` for huge
   roots; note surface-side batching in CONTEXT.md for the tosijs consumer.
@@ -81,8 +90,11 @@ reviewer leads — sanity-check before acting).
 - [ ] *(unverified)* Document the interop cost of `$`-prefixed keys in
   `describe()` output (Ajv's default strict mode rejects unknown keywords);
   consider a `describe({ strip: true })` option.
-- [ ] *(unverified)* `unenforced()` flags a banned keyword AND recurses into
-  its children, producing redundant paths in the construction error.
+- [ ] Comment on tosijs#25: propose dropping/deprecating the now-vestigial
+  `value` arg for contracted-root writes (adapter binds it as `_value`), or
+  documenting it advisory-only, so the repos converge on one signature.
+- [ ] Comment on tjs-lang#26 documenting both candidate `$predicate` dialects
+  (function-cluster vs bare arrow) so the spec author sees them.
 
 ## Shared practices KB
 

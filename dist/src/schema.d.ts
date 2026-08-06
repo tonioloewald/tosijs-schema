@@ -175,6 +175,14 @@ export declare const s: TinySchema;
  * gate can't advertise a constraint it doesn't enforce.
  */
 export declare const ENFORCED_FORMATS: ReadonlySet<string>;
+/**
+ * Every keyword `validate`'s walk actually reads. Lives beside the walk so
+ * the two cannot drift silently — `agentContract` refuses any schema key
+ * outside this set (plus annotations and `x-*`) at construction, which is
+ * what keeps typos and unimplemented keywords from shipping as advertised
+ * constraints that enforce nothing.
+ */
+export declare const ENFORCED_KEYWORDS: ReadonlySet<string>;
 export type ErrorHandler = (path: string, msg: string) => void;
 export interface ValidateOptions {
     onError?: ErrorHandler;
@@ -183,7 +191,7 @@ export interface ValidateOptions {
     /** @deprecated Use `strict` instead. */
     fullScan?: boolean;
 }
-export declare function validate(val: any, builderOrSchema: Base<any> | Record<string, any>, opts?: ValidateOptions | ErrorHandler): boolean;
+export declare function validate(val: any, builderOrSchema: Base<any> | Record<string, any> | boolean, opts?: ValidateOptions | ErrorHandler): boolean;
 export interface FilterOptions {
     onError?: ErrorHandler;
     /** Enable strict validation: no stride sampling, enforces maxProperties. */

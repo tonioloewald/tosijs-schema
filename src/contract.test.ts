@@ -122,14 +122,14 @@ describe('agentContract — the blessed seam adapter', () => {
     // round-trips as JSON — nothing but data in there
     expect(JSON.parse(JSON.stringify(described))).toEqual(described)
     // examples and $counterexamples travel with the contract
-    expect(described['app.order']!.examples!.length).toBe(2)
+    expect((described['app.order'] as any).examples.length).toBe(2)
     expect((described['app.order'] as any).$counterexamples.length).toBe(3)
   })
 
   test('mutating describe() output cannot disarm the gate', () => {
     const gate = agentContract({ 'app.order': orderSchema })
     const desc = gate.describe()
-    desc['app.order']!.required = []
+    ;(desc['app.order'] as any).required = []
     delete desc['app.order']
     const verdict = gate.check('app.order', {}, {
       root: 'app.order',
@@ -356,6 +356,81 @@ describe('agentContract — the blessed seam adapter', () => {
     }
   })
 
+  test('boolean schemas are enforced: false forbids, true allows', () => {
+    // `properties: { key: false }` is the standard "this key is forbidden" idiom
+    const gate = agentContract({
+      'app.x': {
+        type: 'object',
+        properties: { allowed: { type: 'number' }, forbidden: false },
+        required: ['allowed'],
+        additionalProperties: false,
+      },
+    })
+    expect(
+      gate.check('app.x', 0, { root: 'app.x', proposed: { allowed: 1 } })
+    ).toBe(true)
+    const verdict = gate.check('app.x', 0, {
+      root: 'app.x',
+      proposed: { allowed: 1, forbidden: 666 },
+    })
+    expect(verdict).toBeInstanceOf(Error)
+    // a root-level `false` contract refuses every write (deliberate lock)
+    const locked = agentContract({ 'app.locked': false })
+    expect(
+      locked.check('app.locked', 1, { root: 'app.locked', proposed: 1 })
+    ).toBeInstanceOf(Error)
+  })
+
+  test('unknown keywords — typos, unimplemented spec keys — are refused at construction', () => {
+    expect(() =>
+      agentContract({ 'app.x': { type: 'number', minumum: 5 } as any })
+    ).toThrow('minumum')
+    expect(() =>
+      agentContract({
+        'app.x': { type: 'string', contentEncoding: 'base64' } as any,
+      })
+    ).toThrow('contentEncoding')
+    expect(() =>
+      agentContract({ 'app.x': { $dynamicRef: '#thing' } as any })
+    ).toThrow('$dynamicRef')
+    // annotations and x-* extension keys remain legal
+    expect(() =>
+      agentContract({
+        'app.ok': {
+          type: 'number',
+          title: 'fine',
+          description: 'fine',
+          default: 1,
+          'x-custom': true,
+        },
+      })
+    ).not.toThrow()
+  })
+
+  test('an invalid pattern regex is refused at construction, and validate fails closed on it', () => {
+    expect(() =>
+      agentContract({ 'app.p': { type: 'string', pattern: '(' } })
+    ).toThrow('invalid regex')
+    // validate itself must not throw — it fails closed
+    expect(validate('abc', { type: 'string', pattern: '[' })).toBeFalse()
+  })
+
+  test('constraints that could never match are refused at construction', () => {
+    expect(() =>
+      agentContract({ 'app.c': { const: { deep: true } } as any })
+    ).toThrow('non-primitive')
+    expect(() =>
+      agentContract({ 'app.e': { enum: [1, { deep: true }] } as any })
+    ).toThrow('non-primitive')
+    expect(() =>
+      agentContract({ 'app.m': { type: ['string', 'number'] } })
+    ).toThrow('multi-type')
+    // [T, 'null'] (what .optional emits) stays legal
+    expect(() =>
+      agentContract({ 'app.opt': { type: ['string', 'null'] } })
+    ).not.toThrow()
+  })
+
   test('a whole-root delete (proposed: undefined) fails closed', () => {
     const gate = agentContract({ 'app.order': orderSchema })
     expect(
@@ -373,7 +448,7 @@ describe('agentContract — the blessed seam adapter', () => {
         $predicate: '(cart) => cart.length >= 3',
       },
     })
-    expect(gate.describe()['app.cart']!.$predicate).toBe(
+    expect((gate.describe()['app.cart'] as any).$predicate).toBe(
       '(cart) => cart.length >= 3'
     )
   })

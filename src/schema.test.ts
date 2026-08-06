@@ -1,5 +1,13 @@
 import { describe, test, expect } from 'bun:test'
-import { s, validate, diff, filter, type Infer } from './schema'
+import {
+  s,
+  validate,
+  diff,
+  filter,
+  setPredicateEvaluator,
+  ENFORCED_KEYWORDS,
+  type Infer,
+} from './schema'
 
 // --- 1. BUILDER STRUCTURE CHECKS ---
 describe('Builder Output', () => {
@@ -395,6 +403,60 @@ describe('Algebra', () => {
     // absent or schema-valued additionalProperties still allows extras
     expect(validate({ a: 1, b: 2 }, { type: 'object', properties: { a: { type: 'number' } } })).toBeTrue()
     expect(validate({ a: 1, b: 2 }, s.record(s.number))).toBeTrue()
+  })
+
+  test('boolean schemas: true accepts everything, false accepts nothing', () => {
+    expect(validate(42, true)).toBeTrue()
+    expect(validate(42, false)).toBeFalse()
+    expect(validate(undefined, false)).toBeFalse()
+    expect(
+      validate({ a: 1 }, { type: 'object', properties: { a: false } })
+    ).toBeFalse()
+    expect(
+      validate({}, { type: 'object', properties: { a: false } })
+    ).toBeTrue()
+  })
+
+  test('every ENFORCED_KEYWORD is demonstrably enforced (drift test)', () => {
+    const prev = setPredicateEvaluator((src, v) => (0, eval)(src)(v))
+    try {
+      // keyword → [schema, passing value, failing value]
+      const table: Record<string, [any, any, any]> = {
+        type: [{ type: 'string' }, 'x', 1],
+        properties: [{ type: 'object', properties: { a: { type: 'number' } } }, { a: 1 }, { a: 'x' }],
+        required: [{ type: 'object', required: ['a'] }, { a: 1 }, {}],
+        items: [{ type: 'array', items: { type: 'number' } }, [1], ['x']],
+        enum: [{ enum: ['a', 'b'] }, 'a', 'c'],
+        const: [{ const: 5 }, 5, 6],
+        anyOf: [{ anyOf: [{ type: 'string' }] }, 'x', 1],
+        minimum: [{ type: 'number', minimum: 1 }, 1, 0],
+        maximum: [{ type: 'number', maximum: 1 }, 1, 2],
+        multipleOf: [{ type: 'number', multipleOf: 2 }, 4, 3],
+        minLength: [{ type: 'string', minLength: 2 }, 'ab', 'a'],
+        maxLength: [{ type: 'string', maxLength: 1 }, 'a', 'ab'],
+        pattern: [{ type: 'string', pattern: '^a$' }, 'a', 'b'],
+        format: [{ type: 'string', format: 'email' }, 'a@b.co', 'nope'],
+        minItems: [{ type: 'array', minItems: 1 }, [1], []],
+        maxItems: [{ type: 'array', maxItems: 1 }, [1], [1, 2]],
+        minProperties: [{ type: 'object', minProperties: 1 }, { a: 1 }, {}],
+        maxProperties: [{ type: 'object', maxProperties: 1 }, { a: 1 }, { a: 1, b: 2 }],
+        additionalProperties: [
+          { type: 'object', properties: { a: { type: 'number' } }, additionalProperties: false },
+          { a: 1 },
+          { a: 1, b: 2 },
+        ],
+        $predicate: [{ type: 'number', $predicate: '(n) => n > 0' }, 1, -1],
+        'x-tjs-undefined': [{ type: 'null', 'x-tjs-undefined': true }, undefined, null],
+      }
+      for (const keyword of ENFORCED_KEYWORDS) {
+        expect(table[keyword]).toBeDefined()
+        const [schema, pass, fail] = table[keyword]!
+        expect(validate(pass, schema, { strict: true })).toBeTrue()
+        expect(validate(fail, schema, { strict: true })).toBeFalse()
+      }
+    } finally {
+      setPredicateEvaluator(prev)
+    }
   })
 
   test('prototype-named keys are treated as data, not exempted via the prototype chain', () => {

@@ -35,6 +35,6 @@ gzipped, zero dependencies, no eval/new Function.
 
 ## Files
 
-- README.md — full API, comparisons (Zod/TypeBox), design decisions
-- CONTEXT.md — architecture guide (bundled with examples into dist/context.md)
-- CHANGELOG.md — release history
+- README.md — full API, comparisons (Zod/TypeBox), design decisions (GitHub)
+- dist/context.md — architecture guide + examples (ships in the npm package)
+- CHANGELOG.md — release history (ships in the npm package)
