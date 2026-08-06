@@ -123,6 +123,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `filter()` applies `additionalProperties`-as-schema stripping with or
   without sibling `properties` (extras conforming to the subschema are kept,
   filtered through it).
+- **`.optional` on typeless builders** (`s.const`, `s.union`, `s.any`): these
+  previously emitted a malformed `type: [undefined, 'null']` and, combined
+  with `const`/`anyOf` running before the null early-out, accepted either
+  everything-but-null or (mid-1.5.0) nothing at all. `.optional` now expresses
+  null-allowance in each builder's own vocabulary — `type` gains `'null'`,
+  `const` becomes a typed enum listing `null`, `anyOf` gains a
+  `{type:'null'}` branch — plus an `x-tjs-optional` annotation that lets
+  `s.object()` treat typeless optionals (e.g. `s.any.optional`) as
+  non-required. `s.record()` without a value schema now throws an actionable
+  error instead of a bare TypeError.
 - **`enum` now constrains `null`** per JSON Schema (bypassed in all versions
   ≤ 1.4.0): `{ type: ['null','string'], enum: ['a','b'] }` no longer accepts
   `null` — the enum must list `null` to allow it. The builder keeps

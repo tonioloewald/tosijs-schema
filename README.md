@@ -11,7 +11,7 @@ A **schema-first** validation library. Define schemas, infer TypeScript types, v
 
 **1.5.0 makes `validate` enforce what your schemas already declared.** Several fail-open validator bugs are fixed, and data that previously slipped through will now be refused:
 
-- `additionalProperties: false` (which `s.object()` has always emitted) now rejects unknown keys — including prototype-named ones like `constructor`. If you were relying on extras passing, run data through `filter()` first (it strips extras) or model open objects with `s.record()`.
+- `additionalProperties: false` (which `s.object()` has always emitted) now rejects unknown keys — including prototype-named ones like `constructor`. If you were relying on extras passing, run data through `filter()` first (it strips extras) or model open objects with `s.record(s.any)`.
 - `minItems`/`maxItems` apply even without an `items` schema; typeless schemas apply object/array keywords when the value matches; `strict` now propagates into `anyOf` branches.
 
 This ships as a **minor** version deliberately: strict-by-default (non-extensible objects) has been the documented behavior since 1.0 — the implementation is catching up to the contract, not changing it. If your code depended on the lenient bug, pin `1.4.0` while you adopt `filter()`.
@@ -437,13 +437,13 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines
 -----------------|---------|--------
-All files        |   98.20 |   97.35
+All files        |   98.22 |   97.44
  src/contract.ts |   97.73 |   97.30
  src/monad.ts    |  100.00 |  100.00
- src/schema.ts   |   96.88 |   94.74
+ src/schema.ts   |   96.92 |   95.01
 ```
 
-216 tests, 639 assertions.
+218 tests, 659 assertions.
 
 ## License
 

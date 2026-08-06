@@ -459,6 +459,46 @@ describe('Algebra', () => {
     }
   })
 
+  test('.optional on typeless builders (const/union/any) keeps their semantics AND accepts null', () => {
+    const OptUnion = s.union([s.string, s.number]).optional
+    expect(validate('hello', OptUnion)).toBeTrue()
+    expect(validate(42, OptUnion)).toBeTrue()
+    expect(validate(null, OptUnion)).toBeTrue()
+    expect(validate(true, OptUnion)).toBeFalse()
+    // no junk in the emitted schema — never a type array with undefined
+    expect(JSON.stringify(OptUnion.schema)).not.toContain('null,"null"')
+
+    const OptConst = s.const('a').optional
+    expect(validate('a', OptConst)).toBeTrue()
+    expect(validate(null, OptConst)).toBeTrue()
+    expect(validate('b', OptConst)).toBeFalse()
+
+    expect(validate(42, s.any.optional)).toBeTrue()
+    expect(validate(null, s.any.optional)).toBeTrue()
+
+    // object composition: optional typeless property is not required
+    const Tagged = s.object({ tag: s.union([s.string, s.number]).optional })
+    expect(validate({}, Tagged)).toBeTrue()
+    expect(validate({ tag: 'x' }, Tagged)).toBeTrue()
+    expect(validate({ tag: null }, Tagged)).toBeTrue()
+    expect(validate({ tag: true }, Tagged)).toBeFalse()
+
+    // idempotent: .optional.optional does not duplicate null anywhere
+    const Twice = s.enum(['a']).optional.optional
+    expect(Twice.schema.enum).toEqual(['a', null])
+    expect(Twice.schema.type).toEqual(['string', 'null'])
+
+    // junk type-array entries are ignored: ['junk','null'] declares only
+    // null; a junk-only array is treated as typeless, not as "expect null"
+    expect(validate(null, { type: [undefined, 'null'] } as any)).toBeTrue()
+    expect(validate('hi', { type: [undefined, 'null'] } as any)).toBeFalse()
+    expect(validate('hi', { type: [undefined] } as any)).toBeTrue()
+  })
+
+  test('s.record without a value schema throws an actionable error', () => {
+    expect(() => (s.record as any)()).toThrow('s.record(s.any)')
+  })
+
   test('enum constrains null like every other instance (spec semantics)', () => {
     // null passes an enum only when the enum lists it
     expect(validate(null, { type: ['null', 'string'], enum: ['a', 'b'] })).toBeFalse()

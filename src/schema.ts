@@ -8,14 +8,41 @@ const create = (s: any): any => ({
 
   // --- Modifiers ---
   get optional() {
-    return create({
-      ...s,
-      type: Array.isArray(s.type) ? [...s.type, 'null'] : [s.type, 'null'],
-      // enum constrains null too (spec), so an optional enum must list it
-      ...(Array.isArray(s.enum) && !s.enum.includes(null)
-        ? { enum: [...s.enum, null] }
-        : {}),
-    })
+    // null-allowance must live in whatever constraint the schema actually
+    // uses: type gains 'null', const becomes a typed enum listing null,
+    // anyOf gains a null branch, enum lists null. The x-tjs-optional marker
+    // lets s.object() treat typeless optionals (e.g. s.any.optional) as
+    // non-required — never place undefined in a type array.
+    const out: any = { ...s, 'x-tjs-optional': true }
+    if (s.type !== undefined) {
+      const types = Array.isArray(s.type) ? s.type : [s.type]
+      out.type = types.includes('null') ? types : [...types, 'null']
+    }
+    if (out.const !== undefined) {
+      const constType = out.const === null ? 'null' : typeof out.const
+      out.enum = [out.const, null]
+      delete out.const
+      if (out.type === undefined && constType !== 'null') {
+        out.type = [constType, 'null']
+      }
+    }
+    if (Array.isArray(out.enum) && !out.enum.includes(null)) {
+      out.enum = [...out.enum, null]
+    }
+    if (
+      out.type === undefined &&
+      out.enum === undefined &&
+      Array.isArray(out.anyOf) &&
+      !out.anyOf.some(
+        (branch: any) =>
+          branch === true ||
+          branch?.type === 'null' ||
+          (Array.isArray(branch?.type) && branch.type.includes('null'))
+      )
+    ) {
+      out.anyOf = [...out.anyOf, { type: 'null' }]
+    }
+    return create(out)
   },
 
   // --- Metadata ---
@@ -321,11 +348,13 @@ const methods = {
     const required: string[] = []
     for (const k in props) {
       properties[k] = props[k]!.schema
-      // Heuristic: If the schema type includes 'null', it's optional.
-      // This allows .optional() to result in a non-required field.
+      // Optionality: the x-tjs-optional marker (set by .optional, covers
+      // typeless builders like s.any.optional), or a null-including type
+      // array for hand-written schemas.
+      const p = properties[k]
       if (
-        !Array.isArray(properties[k].type) ||
-        !properties[k].type.includes('null')
+        p['x-tjs-optional'] !== true &&
+        (!Array.isArray(p.type) || !p.type.includes('null'))
       ) {
         required.push(k)
       }
@@ -338,11 +367,17 @@ const methods = {
     }) as Obj<SmartObject<{ [K in keyof P]: Infer<P[K]> }>>
   },
 
-  record: <T>(value: Base<T>) =>
-    create({
+  record: <T>(value: Base<T>) => {
+    if (value == null) {
+      throw new Error(
+        's.record(valueSchema) requires a value schema — use s.record(s.any) for unconstrained values'
+      )
+    }
+    return create({
       type: 'object',
       additionalProperties: value.schema,
-    }) as Obj<Record<string, T>>,
+    }) as Obj<Record<string, T>>
+  },
 
   infer: (value: any): Base<any> => {
     if (value === null) return create({ type: 'null' }) as Base<null>
@@ -561,10 +596,13 @@ export function validate(
       return expectsUndefined || typeIncludesNull || !s.type || err('Expected value, got undefined')
     }
 
-    // multi-type arrays: enforce the first NON-null entry (null itself is
-    // handled above), so ['null','string'] and ['string','null'] agree
+    // multi-type arrays: enforce the first NON-null STRING entry (null itself
+    // is handled above), so ['null','string'] and ['string','null'] agree.
+    // Junk entries are ignored rather than misread as "expect null".
     const t = Array.isArray(s.type)
-      ? s.type.find((entry: any) => entry !== 'null') ?? 'null'
+      ? s.type.find(
+          (entry: any) => typeof entry === 'string' && entry !== 'null'
+        ) ?? (s.type.includes('null') ? 'null' : undefined)
       : s.type
     if (t === 'integer') {
       if (typeof v !== 'number' || !Number.isInteger(v))

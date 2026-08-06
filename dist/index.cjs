@@ -65,11 +65,26 @@ var create = (s) => ({
   _type: null,
   validate: (data, opts) => validate(data, s, opts),
   get optional() {
-    return create({
-      ...s,
-      type: Array.isArray(s.type) ? [...s.type, "null"] : [s.type, "null"],
-      ...Array.isArray(s.enum) && !s.enum.includes(null) ? { enum: [...s.enum, null] } : {}
-    });
+    const out = { ...s, "x-tjs-optional": true };
+    if (s.type !== undefined) {
+      const types = Array.isArray(s.type) ? s.type : [s.type];
+      out.type = types.includes("null") ? types : [...types, "null"];
+    }
+    if (out.const !== undefined) {
+      const constType = out.const === null ? "null" : typeof out.const;
+      out.enum = [out.const, null];
+      delete out.const;
+      if (out.type === undefined && constType !== "null") {
+        out.type = [constType, "null"];
+      }
+    }
+    if (Array.isArray(out.enum) && !out.enum.includes(null)) {
+      out.enum = [...out.enum, null];
+    }
+    if (out.type === undefined && out.enum === undefined && Array.isArray(out.anyOf) && !out.anyOf.some((branch) => branch === true || branch?.type === "null" || Array.isArray(branch?.type) && branch.type.includes("null"))) {
+      out.anyOf = [...out.anyOf, { type: "null" }];
+    }
+    return create(out);
   },
   title: (t) => create({ ...s, title: t }),
   describe: (d) => create({ ...s, description: d }),
@@ -167,7 +182,8 @@ var methods = {
     const required = [];
     for (const k in props) {
       properties[k] = props[k].schema;
-      if (!Array.isArray(properties[k].type) || !properties[k].type.includes("null")) {
+      const p = properties[k];
+      if (p["x-tjs-optional"] !== true && (!Array.isArray(p.type) || !p.type.includes("null"))) {
         required.push(k);
       }
     }
@@ -178,10 +194,15 @@ var methods = {
       additionalProperties: false
     });
   },
-  record: (value) => create({
-    type: "object",
-    additionalProperties: value.schema
-  }),
+  record: (value) => {
+    if (value == null) {
+      throw new Error("s.record(valueSchema) requires a value schema — use s.record(s.any) for unconstrained values");
+    }
+    return create({
+      type: "object",
+      additionalProperties: value.schema
+    });
+  },
   infer: (value) => {
     if (value === null)
       return create({ type: "null" });
@@ -321,7 +342,7 @@ function validate(val, builderOrSchema, opts) {
       const typeIncludesNull = Array.isArray(s2.type) && s2.type.includes("null");
       return expectsUndefined || typeIncludesNull || !s2.type || err("Expected value, got undefined");
     }
-    const t = Array.isArray(s2.type) ? s2.type.find((entry) => entry !== "null") ?? "null" : s2.type;
+    const t = Array.isArray(s2.type) ? s2.type.find((entry) => typeof entry === "string" && entry !== "null") ?? (s2.type.includes("null") ? "null" : undefined) : s2.type;
     if (t === "integer") {
       if (typeof v !== "number" || !Number.isInteger(v))
         return err("Expected integer");

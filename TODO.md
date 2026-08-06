@@ -128,6 +128,12 @@ reviewer leads — sanity-check before acting).
 - [x] Commented on tosijs#25 (type-conformance test ask + vestigial `value`
   arg) and tjs-lang#26 (both `$predicate` dialects) — 2026-08-06.
 
+- [ ] *(unverified)* filterData's anyOf branch skips sibling applicators —
+  filter can error where validate accepts the stripped result. Mirror
+  validate's fall-through; add a test.
+- [ ] *(unverified)* filter() does 3-4 validation passes per anyOf item;
+  record the matched branch or share one walk.
+
 ## Process
 
 - [ ] Encode two review lessons into the pre-release-review workflow script
