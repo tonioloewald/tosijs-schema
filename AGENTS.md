@@ -11,5 +11,6 @@
 > voice concerns, flag inconsistencies, and suggest improvements as you work. Continuous
 > improvement is the goal — see the repo's `CONTRIBUTING.md`.
 
-This project has no other agent doc yet; the shared practices above are the baseline.
-Add project-specific instructions here as they emerge.
+Project-specific guidance lives in `CLAUDE.md` (commands, architecture, releasing —
+including the **human-only publish/push gate**). The shared practices above are the
+baseline; add further project-specific instructions there as they emerge.

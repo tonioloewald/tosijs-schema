@@ -171,3 +171,59 @@ validate({ count: 10 }, externalSchema)
 `.trim()
 )
 console.log('```\n')
+
+// ------------------------------------------------------------------
+// EXAMPLE 6: Agent Contracts
+// ------------------------------------------------------------------
+import { agentContract, checkExamples } from './src/contract'
+
+const Order = s
+  .object({
+    item: s.string,
+    qty: s.number.min(1),
+  })
+  .meta({
+    examples: [{ item: 'kumquat', qty: 3 }],
+    $counterexamples: [{ item: 'kumquat' }, { item: 42, qty: 1 }],
+  })
+
+print(
+  '6. Agent Contracts & Examples-as-Tests',
+  'Demonstrates `agentContract` — the adapter for capability-gated write paths ' +
+    '(e.g. the tosijs agent surface). `check()` judges a proposed whole-root value ' +
+    'and returns `true` or an `Error` carrying the refusal reason; `describe()` ' +
+    'returns the serializable per-root contract. The `examples` / `$counterexamples` ' +
+    'conventions make the contract self-proving: `checkExamples()` lints that every ' +
+    'example passes and every counterexample fails, at definition time.',
+  `const Order = s.object({
+  item: s.string,
+  qty: s.number.min(1),
+}).meta({
+  examples: [{ item: 'kumquat', qty: 3 }],
+  $counterexamples: [{ item: 'kumquat' }, { item: 42, qty: 1 }],
+})
+
+const contract = agentContract({ 'app.order': Order })
+
+contract.check('app.order.qty', 'x', {
+  root: 'app.order',
+  proposed: { item: 'yuzu', qty: 'x' },
+})
+// Error: contract violation at app.order.qty — qty: Expected number
+
+checkExamples(Order) // [] — the spec doesn't lie`,
+  Order.schema
+)
+
+console.log('### Refusal Output')
+console.log('```')
+console.log(
+  String(
+    agentContract({ 'app.order': Order }).check('app.order.qty', 'x', {
+      root: 'app.order',
+      proposed: { item: 'yuzu', qty: 'x' },
+    })
+  )
+)
+console.log(`checkExamples findings: ${JSON.stringify(checkExamples(Order))}`)
+console.log('```\n')

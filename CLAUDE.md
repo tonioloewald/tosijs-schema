@@ -27,7 +27,7 @@ bun run pack                    # full pipeline: tests + typecheck + bench + exa
 
 A ~3kB **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required.
 
-Public API is just `index.ts` re-exporting `src/schema.ts` and `src/monad.ts`.
+Public API is just `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, and `src/contract.ts`.
 
 ## Architecture
 
@@ -35,8 +35,8 @@ Public API is just `index.ts` re-exporting `src/schema.ts` and `src/monad.ts`.
 
 - **The builder `s`** is a Proxy producing fluent schema builders (`s.string`, `s.email`, `s.object({...})`, `.min()`, etc.). Two-layer design: a recursive `Base<T>` interface ("the Lie") exists purely for TypeScript inference, while `create()` ("the Truth") builds the actual plain-JSON schema object. Builders expose `.schema` (plain JSON) and `.validate(data)` for convenience.
 - **`validate(value, schemaOrBuilder, options?)`** returns boolean, never throws, allocates nothing, and accepts plain JSON schemas received at runtime (over the wire, from a DB) with zero preprocessing — a core selling point, don't break it.
-- **Stochastic sampling**: arrays/dictionaries larger than 97 items are validated at prime-stride (97) sampled indices in O(1) unless `{ fullScan: true }` is passed. `maxProperties` is a "ghost constraint" — kept in the schema but deliberately ignored at runtime to avoid O(N) key counting.
-- **`$predicate`** (v1.4.0): pluggable computational validation. The keyword is inert until a consumer calls `registerPredicate()` to install an evaluator; then it runs against type-valid values.
+- **Stochastic sampling**: arrays/dictionaries larger than 97 items are validated at prime-stride (97) sampled indices in O(1) unless `{ strict: true }` is passed (`fullScan` is a deprecated alias). `maxProperties` is a "ghost constraint" — kept in the schema but deliberately ignored at runtime to avoid O(N) key counting.
+- **`$predicate`** (v1.4.0): pluggable computational validation. The keyword is inert until a consumer calls `setPredicateEvaluator()` to install an evaluator; then it runs against type-valid values.
 - **Gotcha**: `s.any` produces the empty schema `{}`; the validator has special-case logic allowing `null`/`undefined` when no `type` is present. `validate` is defined after `create` but attached via closure — refactoring declaration order needs care.
 
 ### `src/contract.ts` — agent-surface contracts
@@ -49,10 +49,12 @@ Public API is just `index.ts` re-exporting `src/schema.ts` and `src/monad.ts`.
 
 ### Tests
 
-- `src/schema.test.ts`, `src/coverage.test.ts` — validator behavior; `src/any.test.ts` — `s.any`; `src/monad.test.ts` — pipelines; `src/predicate.test.ts` — `$predicate`.
+- `src/schema.test.ts`, `src/coverage.test.ts` — validator behavior; `src/any.test.ts` — `s.any`; `src/monad.test.ts` — pipelines; `src/predicate.test.ts` — `$predicate`; `src/contract.test.ts` — `agentContract`, `checkExamples`, `$`-key passthrough.
 - `src/inference.types.ts` — compile-time-only type inference tests (tsc, not bun).
 - High coverage is a marketed feature (schemas are data flowing through tested code) — keep it that way.
 
 ## Releasing
 
-`bun run pack` is the prepublish gate (runs everything, builds ESM + CJS + declarations into `dist/`). Before a minor/major bump, run the `pre-release-review` skill (part of the shared practices process).
+`bun run pack` is the prepublish gate (runs everything, regenerates `examples.md` and `dist/context.md`, builds ESM + CJS + declarations into `dist/`). Before a minor/major bump, run the `pre-release-review` skill (part of the shared practices process). Update `CHANGELOG.md` and `llms.txt` with every release.
+
+**Publishing and pushing are human-only.** Stop after commit + tag and wait for an explicit go-ahead; never run `npm publish`/`bun publish` or `git push` yourself.

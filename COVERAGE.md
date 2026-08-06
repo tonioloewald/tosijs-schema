@@ -1,9 +1,9 @@
 # Test Coverage Report
 
-> **Generated:** 2025-01-14
+> **Generated:** 2026-08-06
 > **Test Framework:** Bun Test
-> **Total Tests:** 146
-> **Total Assertions:** 349
+> **Total Tests:** 175
+> **Total Assertions:** 410
 > **Pass Rate:** 100%
 
 ---
@@ -11,21 +11,33 @@
 ## Measured Coverage (`bun test --coverage`)
 
 ```
-File           | % Funcs | % Lines | Uncovered Line #s
----------------|---------|---------|-------------------
-All files      |   98.25 |   96.62 |
- src/monad.ts  |  100.00 |  100.00 |
- src/schema.ts |   96.49 |   93.24 | 67-71,173-179,294,568-569,583,603-604,627-636,639-640
+File             | % Funcs | % Lines | Uncovered Line #s
+-----------------|---------|---------|-------------------
+All files        |   95.36 |   96.38 |
+ src/contract.ts |   89.47 |   95.71 | 184,190,192,195,204-206
+ src/monad.ts    |  100.00 |  100.00 |
+ src/schema.ts   |   96.61 |   93.42 | 67-71,261-267,382,665-666,680,700-701,724-733,736-737
 ```
 
 ## Summary
 
 | Module | Lines | Tests | Line Coverage |
 |--------|-------|-------|---------------|
-| `schema.ts` | 665 | 119 | 93.24% |
+| `schema.ts` | 762 | 126 | 93.42% |
 | `monad.ts` | 179 | 10 | 100% |
+| `contract.ts` | 266 | 22 | 95.71% |
 | Type Inference | 251 | 17 | (compile-time) |
-| **Total** | **1,095** | **146** | **96.62%** |
+| **Total** | **1,458** | **175** | **96.38%** |
+
+### contract.ts Coverage
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `agentContract().check()` | ✅ Covered | proposal judgment, refusal reasons, strict default, uncontracted passthrough |
+| Fail-closed invariants | ✅ Covered | describe()/caller-mutation immunity, unenforced-keyword rejection, missing-proposal breach, `proposed: undefined` |
+| `describe()` | ✅ Covered | plain-JSON round-trip, `$predicate`/examples ride-along |
+| `checkExamples()` | ✅ Covered | rejected examples, accepted/unverifiable counterexamples, nested traversal, strict lint |
+| `$`-key passthrough | ✅ Covered | verdict-neutrality + no mutation |
 
 ---
 

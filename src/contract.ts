@@ -41,10 +41,62 @@ const toPlain = (schema: SchemaLike): JSONSchema =>
   ((schema as any)?.schema ?? schema) as JSONSchema
 
 /**
+ * JSON Schema keywords `validate` silently ignores. A schema using one of
+ * these would make the gate fail open — the keyword ships in `describe()` as
+ * "what's legal" while enforcement never happens — so `agentContract` refuses
+ * them at construction.
+ */
+const UNENFORCED_KEYWORDS = [
+  'allOf',
+  'oneOf',
+  'not',
+  '$ref',
+  'if',
+  'then',
+  'else',
+  'dependentRequired',
+  'dependentSchemas',
+  'patternProperties',
+  'propertyNames',
+  'unevaluatedProperties',
+  'unevaluatedItems',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'uniqueItems',
+  'contains',
+  'minContains',
+  'maxContains',
+  'prefixItems',
+] as const
+
+/** paths of unenforced keywords anywhere in a schema tree */
+const unenforced = (s: any, at = 'root'): string[] => {
+  if (s == null || typeof s !== 'object') return []
+  const found: string[] = []
+  for (const key of UNENFORCED_KEYWORDS) {
+    if (s[key] !== undefined) found.push(`${at}.${key}`)
+  }
+  for (const [segment, kid] of subschemas(s)) {
+    found.push(...unenforced(kid, `${at}.${segment}`))
+  }
+  return found
+}
+
+/**
  * Build an {@link AgentContract} over a map of root path → schema (builders
  * or plain JSON Schema). Judges every proposal against the whole-root schema,
  * so `required` on siblings, cross-field constraints, and root-level
  * `$predicate`s all see deep edits; ignores writes outside contracted roots.
+ *
+ * Fail-closed by construction:
+ * - schemas are deep-copied in (and out via `describe()`), so no caller-side
+ *   mutation can rewrite the gate after the fact;
+ * - schemas using keywords `validate` does not enforce (`allOf`, `oneOf`,
+ *   `not`, `$ref`, `exclusiveMinimum`/`Maximum`, …) are refused with an Error
+ *   at construction rather than silently un-enforced;
+ * - a write at or under a contracted root that arrives WITHOUT a proposal is
+ *   refused as a protocol breach — the surface owes the gate a whole-root
+ *   proposal for every contracted write.
  *
  * Validation is strict by default — a gate that stochastically samples isn't
  * a gate. Pass `{ strict: false }` to accept sampled validation on huge roots.
@@ -56,11 +108,36 @@ export const agentContract = (
   const strict = options?.strict ?? true
   const plain: Record<string, JSONSchema> = {}
   for (const [root, schema] of Object.entries(schemas)) {
-    plain[root] = toPlain(schema)
+    const copy = structuredClone(toPlain(schema))
+    const dead = unenforced(copy)
+    if (dead.length > 0) {
+      throw new Error(
+        `agentContract('${root}'): schema uses keyword(s) validate does not enforce — ` +
+          `${dead.join(', ')} — a gate must not fail open. Remove them, or express ` +
+          `the constraint via $predicate.`
+      )
+    }
+    plain[root] = copy
   }
+  const roots = Object.keys(plain)
+  const contractedRoot = (path: string): string | undefined =>
+    roots.find(
+      (root) =>
+        path === root ||
+        path.startsWith(root + '.') ||
+        path.startsWith(root + '[')
+    )
   return {
     check(path, _value, proposal) {
-      if (proposal == null) return true // outside any contracted root
+      if (proposal == null) {
+        const breached = contractedRoot(path)
+        return breached == null
+          ? true // outside any contracted root
+          : new Error(
+              `contract breach at ${path} — write at or under contracted root ` +
+                `'${breached}' arrived without a proposal`
+            )
+      }
       const schema = plain[proposal.root]
       if (schema == null) return true
       const reasons: string[] = []
@@ -72,7 +149,7 @@ export const agentContract = (
         ? true
         : new Error(`contract violation at ${path} — ${reasons.join('; ')}`)
     },
-    describe: () => plain,
+    describe: () => structuredClone(plain),
   }
 }
 

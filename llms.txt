@@ -1,0 +1,40 @@
+# tosijs-schema v1.5.0
+
+Schema-first validation for TypeScript/JavaScript — plain JSON Schema is the
+source of truth; types are inferred from it, not the other way around. ~4kB
+gzipped, zero dependencies, no eval/new Function.
+
+- Source: https://github.com/tonioloewald/tosijs-schema
+- npm: https://www.npmjs.com/package/tosijs-schema
+- Examples: https://github.com/tonioloewald/tosijs-schema/blob/main/examples.md
+
+## Key facts
+
+- Schemas are plain, serializable JSON Schema objects (`s.email.schema` is
+  `{ "type": "string", "format": "email" }`) — storable, wire-shippable, and
+  usable directly by OpenAI/Anthropic structured outputs.
+- `validate(value, schemaOrBuilder, opts?)` returns boolean, never throws,
+  and accepts runtime plain-JSON schemas with zero preprocessing. Arrays and
+  dictionaries over 97 items are validated by prime-stride sampling in O(1)
+  unless `{ strict: true }`.
+- Implements a practical subset of JSON Schema. NOT enforced: `$ref`,
+  `allOf`/`oneOf`/`not`, `if`/`then`/`else`, `exclusiveMinimum`/`Maximum`,
+  `patternProperties`, `unevaluatedProperties` (see README "JSON Schema
+  Coverage").
+- Validation-only: no coercion, no transforms.
+- Objects are strict by default: `additionalProperties: false`, all keys
+  required (`.optional` opts a field out).
+- `Infer<typeof Schema>` derives the TypeScript type from a builder.
+- `$predicate` keyword: serialized computational validation, inert until an
+  evaluator is registered via `setPredicateEvaluator()`.
+- `agentContract(schemas)`: fail-closed contract gate for agent write
+  surfaces (tosijs). `checkExamples(schema)`: lints `examples` (must pass)
+  and `$counterexamples` (must fail).
+- `M` / `M.func`: railway-oriented pipelines with schema-validated I/O and
+  timeouts.
+
+## Files
+
+- README.md — full API, comparisons (Zod/TypeBox), design decisions
+- CONTEXT.md — architecture guide (bundled with examples into dist/context.md)
+- CHANGELOG.md — release history

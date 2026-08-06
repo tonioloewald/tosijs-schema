@@ -126,6 +126,91 @@ describe('agentContract — the blessed seam adapter', () => {
     expect((described['app.order'] as any).$counterexamples.length).toBe(3)
   })
 
+  test('mutating describe() output cannot disarm the gate', () => {
+    const gate = agentContract({ 'app.order': orderSchema })
+    const desc = gate.describe()
+    desc['app.order']!.required = []
+    delete desc['app.order']
+    const verdict = gate.check('app.order', {}, {
+      root: 'app.order',
+      proposed: {},
+    })
+    expect(verdict).toBeInstanceOf(Error)
+    expect((verdict as Error).message).toContain('Missing item')
+  })
+
+  test('mutating the schema passed to agentContract cannot disarm the gate', () => {
+    const live = JSON.parse(JSON.stringify(orderSchema))
+    const gate = agentContract({ 'app.order': live })
+    live.required = []
+    live.properties.qty.type = 'string'
+    const verdict = gate.check('app.order', {}, {
+      root: 'app.order',
+      proposed: { item: 'plum', qty: 'not a number' },
+    })
+    expect(verdict).toBeInstanceOf(Error)
+    // builders share .schema too — same guarantee
+    const built = s.object({ n: s.number })
+    const builtGate = agentContract({ 'app.b': built })
+    ;(built.schema as any).required = []
+    expect(
+      builtGate.check('app.b', {}, { root: 'app.b', proposed: {} })
+    ).toBeInstanceOf(Error)
+  })
+
+  test('schemas using keywords validate does not enforce are refused at construction', () => {
+    expect(() =>
+      agentContract({ 'app.x': { type: 'number', not: { const: 5 } } })
+    ).toThrow('not')
+    expect(() =>
+      agentContract({ 'app.x': { oneOf: [{ type: 'string' }] } })
+    ).toThrow('oneOf')
+    expect(() =>
+      agentContract({ 'app.x': { type: 'number', exclusiveMinimum: 0 } })
+    ).toThrow('exclusiveMinimum')
+    // nested occurrences are found too, with their schema path named
+    expect(() =>
+      agentContract({
+        'app.x': {
+          type: 'object',
+          properties: { deep: { allOf: [{ type: 'number' }] } },
+        },
+      })
+    ).toThrow('root.properties.deep.allOf')
+    // enforced keywords (anyOf, $predicate, plain constraints) still pass
+    expect(() =>
+      agentContract({
+        'app.ok': {
+          anyOf: [{ type: 'string' }, { type: 'number', minimum: 0 }],
+        },
+      })
+    ).not.toThrow()
+  })
+
+  test('a contracted-root write without a proposal fails closed (protocol breach)', () => {
+    const gate = agentContract({ 'app.order': orderSchema })
+    const atRoot = gate.check('app.order', { item: 'x', qty: 1 })
+    expect(atRoot).toBeInstanceOf(Error)
+    expect((atRoot as Error).message).toContain('without a proposal')
+    // sub-path writes, dot- and bracket-style, breach too
+    expect(gate.check('app.order.qty', 5)).toBeInstanceOf(Error)
+    const docs = agentContract({ 'wp.docs': { type: 'array' } })
+    expect(gate.check('app.order[0]', 5)).toBeInstanceOf(Error)
+    expect(docs.check('wp.docs[2].title', 'x')).toBeInstanceOf(Error)
+    // a sibling that merely shares the root as a prefix is NOT contracted
+    expect(gate.check('app.orders', 5)).toBe(true)
+  })
+
+  test('a whole-root delete (proposed: undefined) fails closed', () => {
+    const gate = agentContract({ 'app.order': orderSchema })
+    expect(
+      gate.check('app.order', undefined, {
+        root: 'app.order',
+        proposed: undefined,
+      })
+    ).toBeInstanceOf(Error)
+  })
+
   test('$predicate strings ride into describe() even with no evaluator', () => {
     const gate = agentContract({
       'app.cart': {

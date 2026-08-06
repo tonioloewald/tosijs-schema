@@ -148,7 +148,7 @@ tosijs-schema implements a **practical subset** of JSON Schema - the features th
 
 **Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (common formats), `default`, `title`, `description`
 
-**Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `oneOf`, `not`, and other advanced keywords
+**Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `oneOf`, `not`, `exclusiveMinimum` / `exclusiveMaximum`, `uniqueItems`, `contains`, `prefixItems`, `propertyNames`, and other advanced keywords. Unsupported keywords are silently ignored by `validate` (they pass through untouched, like any unknown key) — except in `agentContract`, which refuses them at construction so a gate can't fail open.
 
 If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable in your environment, TypeBox or Ajv are options. If you need the 80% of features that cover 99% of real-world schemas in a tiny, eval-free package, use tosijs-schema.
 
@@ -337,6 +337,8 @@ contract.describe() // plain JSON Schemas — "what's legal", shippable over the
 ```
 
 Deep writes are judged as the whole root they would produce, so `required` on siblings, cross-field constraints, and root-level `$predicate`s all participate. Validation is strict by default (a gate that samples isn't a gate); pass `{ strict: false }` to opt into sampled validation for huge roots.
+
+**The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Schemas using JSON Schema keywords `validate` does not implement (`allOf`, `oneOf`, `not`, `$ref`, `if`/`then`/`else`, `exclusiveMinimum`/`Maximum`, `patternProperties`, `uniqueItems`, `prefixItems`, …) are refused with an `Error` at construction — a keyword that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. And a write at or under a contracted root that arrives *without* a proposal is refused as a protocol breach rather than waved through.
 
 ### Examples as tests
 
