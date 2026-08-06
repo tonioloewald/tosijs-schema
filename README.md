@@ -437,13 +437,13 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines
 -----------------|---------|--------
-All files        |   98.19 |   97.30
- src/contract.ts |   97.73 |   97.23
+All files        |   98.20 |   97.35
+ src/contract.ts |   97.73 |   97.30
  src/monad.ts    |  100.00 |  100.00
- src/schema.ts   |   96.88 |   94.64
+ src/schema.ts   |   96.88 |   94.74
 ```
 
-211 tests, 587 assertions.
+216 tests, 639 assertions.
 
 ## License
 

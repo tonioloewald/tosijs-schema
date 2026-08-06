@@ -582,6 +582,15 @@ describe('Filter function - additional coverage', () => {
     expect(filter({ x: 1 }, { type: 'object', additionalProperties: false })).toEqual({})
   })
 
+  test('filter keeps extras under additionalProperties: true (spec-equivalent to {})', () => {
+    const schema = {
+      type: 'object',
+      properties: { a: { type: 'number' } },
+      additionalProperties: true,
+    }
+    expect(filter({ a: 1, b: 2 }, schema)).toEqual({ a: 1, b: 2 })
+  })
+
   test('filter strips typeless applicator schemas (zero-preprocessing runtime schemas)', () => {
     expect(
       filter({ a: 1, b: 2 }, {

@@ -51,8 +51,10 @@ __export(exports_tosijs_schema, {
   TimeoutError: () => TimeoutError,
   SchemaError: () => SchemaError,
   M: () => M,
+  KEYWORD_SHAPES: () => KEYWORD_SHAPES,
   ENFORCED_KEYWORDS: () => ENFORCED_KEYWORDS,
-  ENFORCED_FORMATS: () => ENFORCED_FORMATS
+  ENFORCED_FORMATS: () => ENFORCED_FORMATS,
+  CONSTRAINT_DOMAINS: () => CONSTRAINT_DOMAINS
 });
 module.exports = __toCommonJS(exports_tosijs_schema);
 
@@ -222,12 +224,18 @@ var s = new Proxy(methods, {
   }
 });
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-var setKey = (o, k, v) => Object.defineProperty(o, k, {
-  value: v,
-  enumerable: true,
-  writable: true,
-  configurable: true
-});
+var setKey = (o, k, v) => {
+  if (k === "__proto__") {
+    Object.defineProperty(o, k, {
+      value: v,
+      enumerable: true,
+      writable: true,
+      configurable: true
+    });
+  } else {
+    o[k] = v;
+  }
+};
 var STRIDE = 97;
 var FMT = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
@@ -507,7 +515,7 @@ function filterData(data, schema, fullScan = false) {
   if (asObject && !schema.properties && schema.additionalProperties === false) {
     return {};
   }
-  const apSchema = schema.additionalProperties && typeof schema.additionalProperties === "object" ? schema.additionalProperties : null;
+  const apSchema = schema.additionalProperties && typeof schema.additionalProperties === "object" ? schema.additionalProperties : schema.additionalProperties === true ? {} : null;
   if (asObject && (schema.properties || apSchema)) {
     const result = {};
     if (schema.properties) {
@@ -912,8 +920,8 @@ var unenforced = (s2, at = "root") => {
 };
 var agentContract = (schemas, options) => {
   const strict = options?.strict ?? true;
-  const plain = {};
-  const predicated = {};
+  const plain = Object.create(null);
+  const predicated = Object.create(null);
   for (const [root, schema] of Object.entries(schemas)) {
     const copy = structuredClone(toPlain(schema));
     const dead = unenforced(copy);
@@ -965,7 +973,18 @@ var agentContract = (schemas, options) => {
       }
       return ok ? true : new Error(`contract violation at ${at} — ${reasons.join("; ")}`);
     },
-    describe: () => structuredClone(plain)
+    describe: () => {
+      const out = {};
+      for (const root of roots) {
+        Object.defineProperty(out, root, {
+          value: structuredClone(plain[root]),
+          enumerable: true,
+          writable: true,
+          configurable: true
+        });
+      }
+      return out;
+    }
   };
 };
 var subschemas = (s2) => {

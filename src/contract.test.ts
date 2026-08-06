@@ -1,6 +1,11 @@
 import { describe, test, expect } from 'bun:test'
-import { s, validate, setPredicateEvaluator } from './schema'
-import { agentContract, checkExamples } from './contract'
+import { s, validate, setPredicateEvaluator, ENFORCED_KEYWORDS } from './schema'
+import {
+  agentContract,
+  checkExamples,
+  KEYWORD_SHAPES,
+  CONSTRAINT_DOMAINS,
+} from './contract'
 
 const orderSchema = {
   type: 'object',
@@ -537,6 +542,48 @@ describe('agentContract — the blessed seam adapter', () => {
       expect((verdict as Error).message).toContain('internal validation error')
     } finally {
       setPredicateEvaluator(prev)
+    }
+  })
+
+  test("a root literally named '__proto__' is a first-class contracted root", () => {
+    const gate = agentContract({
+      ['__proto__']: {
+        type: 'object',
+        properties: { x: { type: 'number' } },
+        required: ['x'],
+        additionalProperties: false,
+      },
+      ['constructor']: { type: 'number' },
+    })
+    // the roots exist — not silently dropped by prototype assignment
+    const described = gate.describe()
+    expect(Object.getOwnPropertyNames(described)).toContain('__proto__')
+    expect(Object.getOwnPropertyNames(described)).toContain('constructor')
+    // and they gate: no proposal = breach, bad proposal = violation
+    expect(gate.check('__proto__.x', 'evil')).toBeInstanceOf(Error)
+    expect(
+      gate.check('__proto__', 0, { root: '__proto__', proposed: { x: 'bad' } })
+    ).toBeInstanceOf(Error)
+    expect(
+      gate.check('__proto__', 0, { root: '__proto__', proposed: { x: 1 } })
+    ).toBe(true)
+    expect(
+      gate.check('constructor', 0, { root: 'constructor', proposed: 7 })
+    ).toBe(true)
+  })
+
+  test('drift guard: every enforced keyword has a construction-time shape check', () => {
+    const shapeKeys = new Set(KEYWORD_SHAPES.map(([key]) => key))
+    const domainKeys = new Set(CONSTRAINT_DOMAINS.map(([key]) => key))
+    for (const keyword of ENFORCED_KEYWORDS) {
+      // const accepts any JSON value and x-tjs-undefined is a boolean marker
+      // consumed by the walk directly — everything else must be shape-checked
+      if (keyword === 'const' || keyword === 'x-tjs-undefined') continue
+      expect(shapeKeys.has(keyword)).toBeTrue()
+    }
+    // every domain-restricted keyword is itself an enforced keyword
+    for (const keyword of domainKeys) {
+      expect(ENFORCED_KEYWORDS.has(keyword)).toBeTrue()
     }
   })
 

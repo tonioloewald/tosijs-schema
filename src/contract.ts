@@ -90,8 +90,8 @@ const enforcedChildren = (s: any): [string, any][] => {
 
 const isNonPrimitive = (x: any) => x !== null && typeof x === 'object'
 
-/** keyword → the value shape validate's walk dereferences without checking */
-const KEYWORD_SHAPES: [string, (v: any) => boolean, string][] = [
+/** keyword → the value shape validate's walk dereferences without checking (exported for drift tests) */
+export const KEYWORD_SHAPES: [string, (v: any) => boolean, string][] = [
   [
     'type',
     (v) =>
@@ -141,8 +141,8 @@ const KEYWORD_SHAPES: [string, (v: any) => boolean, string][] = [
   ),
 ]
 
-/** constraint keyword → the type(s) it applies to; anywhere else it is dead */
-const CONSTRAINT_DOMAINS: [string, string[]][] = [
+/** constraint keyword → the type(s) it applies to; anywhere else it is dead (exported for drift tests) */
+export const CONSTRAINT_DOMAINS: [string, string[]][] = [
   ['minLength', ['string']],
   ['maxLength', ['string']],
   ['pattern', ['string']],
@@ -294,8 +294,11 @@ export const agentContract = (
   options?: { strict?: boolean }
 ): AgentContract => {
   const strict = options?.strict ?? true
-  const plain: Record<string, JSONSchema | boolean> = {}
-  const predicated: Record<string, boolean> = {}
+  // null-prototype maps: a root literally named '__proto__' must land as an
+  // own key, not silently become a prototype assignment (dropping the root
+  // from the gate entirely)
+  const plain: Record<string, JSONSchema | boolean> = Object.create(null)
+  const predicated: Record<string, boolean> = Object.create(null)
   for (const [root, schema] of Object.entries(schemas)) {
     const copy = structuredClone(toPlain(schema))
     const dead = unenforced(copy)
@@ -381,7 +384,20 @@ export const agentContract = (
         ? true
         : new Error(`contract violation at ${at} — ${reasons.join('; ')}`)
     },
-    describe: () => structuredClone(plain),
+    describe: () => {
+      // per-root clone into a fresh plain object; a '__proto__' root must
+      // survive as an own key of the output too
+      const out: Record<string, JSONSchema | boolean> = {}
+      for (const root of roots) {
+        Object.defineProperty(out, root, {
+          value: structuredClone(plain[root]),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        })
+      }
+      return out
+    },
   }
 }
 

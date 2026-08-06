@@ -95,8 +95,16 @@ reviewer leads — sanity-check before acting).
   data when every stripped candidate fails its branch — extras can survive a
   "successful" filter. Keep required-listed keys in candidates, or make the
   fallback detectable.
-- [ ] *(unverified)* filterData writes every key via `Object.defineProperty`;
-  fast-path plain assignment except for the literal `'__proto__'` key.
+- [x] filterData `setKey` fast-paths plain assignment except `'__proto__'`
+  (wave 8); `additionalProperties: true` extras kept (spec ≡ `{}`).
+- [ ] *(confirmed by probe)* filterData's anyOf branch doesn't apply sibling
+  applicators after branch selection — filter can refuse (`Unexpected junk`)
+  where validate accepts the stripped result. Fail-closed, but drifts from
+  the anyOf-sibling semantics. Mirror validate's fall-through; add a test.
+- [ ] *(unverified nit)* `properties: {key: false}` makes filter return an
+  Error instead of stripping the forbidden key. Decide strip-vs-refuse; pin.
+- [ ] *(unverified nit)* `describe()` structuredClones per call; add a cheap
+  `roots()` accessor for callers that only need the contracted-root list.
 
 ## Docs / interop
 

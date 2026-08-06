@@ -400,14 +400,21 @@ export const s = new Proxy(methods, {
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
 // plain assignment would let a key named '__proto__' REPLACE the target's
-// prototype with attacker data — define it as an own data property instead
-const setKey = (o: any, k: string, v: any) =>
-  Object.defineProperty(o, k, {
-    value: v,
-    enumerable: true,
-    writable: true,
-    configurable: true,
-  })
+// prototype with attacker data — define that one as an own data property
+// instead (plain assignment for everything else; defineProperty on every
+// key is ~10x slower on the filter copy path)
+const setKey = (o: any, k: string, v: any) => {
+  if (k === '__proto__') {
+    Object.defineProperty(o, k, {
+      value: v,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    })
+  } else {
+    o[k] = v
+  }
+}
 
 const STRIDE = 97
 const FMT: Record<string, (v: string) => boolean> = {
@@ -804,10 +811,14 @@ function filterData(data: any, schema: any, fullScan = false): any {
   // additionalProperties is itself a schema, extras filtered through it
   // (they are legal there; only additionalProperties: false means "strip").
   // The AP branch applies with or without sibling `properties`.
+  // additionalProperties: true is spec-equivalent to the empty schema {} —
+  // extras are kept (unconstrained), never silently stripped
   const apSchema =
     schema.additionalProperties && typeof schema.additionalProperties === 'object'
       ? schema.additionalProperties
-      : null
+      : schema.additionalProperties === true
+        ? {}
+        : null
   if (asObject && (schema.properties || apSchema)) {
     const result: Record<string, any> = {}
     if (schema.properties) {

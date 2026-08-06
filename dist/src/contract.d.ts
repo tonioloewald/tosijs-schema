@@ -28,6 +28,10 @@ export interface AgentContract {
 }
 /** a builder (`s.object(...)`) or a plain JSON Schema object */
 export type SchemaLike = JSONSchema | boolean | Base<any> | Record<string, any>;
+/** keyword → the value shape validate's walk dereferences without checking (exported for drift tests) */
+export declare const KEYWORD_SHAPES: [string, (v: any) => boolean, string][];
+/** constraint keyword → the type(s) it applies to; anywhere else it is dead (exported for drift tests) */
+export declare const CONSTRAINT_DOMAINS: [string, string[]][];
 /**
  * Build an {@link AgentContract} over a map of root path → schema (builders
  * or plain JSON Schema). Judges every proposal against the whole-root schema,
