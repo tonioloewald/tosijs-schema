@@ -3,19 +3,19 @@
 Follow-ups from the v1.5.0 pre-release review (items marked *(unverified)* are
 reviewer leads — sanity-check before acting).
 
-## Release checklist (at publish — human gate first)
+## Release checklist
 
-- [ ] Push this repo + tag; `npm publish`.
-- [ ] Publish a GitHub security advisory (GHSA) for the ≤ 1.4.0 fail-open
-  bypasses (`additionalProperties: false` never enforced; prototype-named key
-  bypass; boolean schemas ignored), affected ≤ 1.4.0, patched 1.5.0 — so
-  audit/Dependabot tooling reaches consumers who never read changelogs.
+- [x] Push this repo `main` + `v1.5.0` tag (2026-08-07).
+- [ ] `npm publish` — **human-only, pending.**
+- [x] Draft GHSA filed for the ≤ 1.4.0 fail-open bypasses:
+  [GHSA-3qw7-pvr3-2gpq](https://github.com/tonioloewald/tosijs-schema/security/advisories/GHSA-3qw7-pvr3-2gpq)
+  (severity high, CWE-20 + CWE-1321, patched 1.5.0). **Human: review + publish
+  the advisory** — drafts are not visible to Dependabot/npm audit until published.
 - [ ] Mirror README's "Upgrading from 1.4.x" into the GitHub release notes;
   lead with the tosijs agent-surface unblock (#2). Note the "pin 1.4.0"
   escape hatch retains a known validation bypass — short-lived migration only.
-- [ ] Close issues #1 and #2 naming v1.5.0.
-- [ ] Push `../tosijs-coding-practices` (KB commits are local-only until then;
-  includes the scoreboard row + gap-list annotation for this release).
+- [x] Closed issues #1 and #2 naming v1.5.0 (2026-08-07).
+- [x] Pushed `../tosijs-coding-practices` (2026-08-07).
 - [ ] Update the KB scoreboard row's "publish pending" note once published.
 - [ ] Verify tosijs's dependency pin picks up 1.5.0 (its `one-user-interface`
   contract suite passed 24/24 against this tree pre-release).
