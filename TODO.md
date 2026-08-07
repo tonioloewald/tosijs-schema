@@ -6,7 +6,8 @@ reviewer leads — sanity-check before acting).
 ## Release checklist
 
 - [x] Push this repo `main` + `v1.5.0` tag (2026-08-07).
-- [ ] `npm publish` — **human-only, pending.**
+- [x] `npm publish` — live as `latest` (2026-08-07); tarball verified to
+  ship the new API + CHANGELOG.md + llms.txt + dist/context.md.
 - [x] Draft GHSA filed for the ≤ 1.4.0 fail-open bypasses:
   [GHSA-3qw7-pvr3-2gpq](https://github.com/tonioloewald/tosijs-schema/security/advisories/GHSA-3qw7-pvr3-2gpq)
   (severity high, CWE-20 + CWE-1321, patched 1.5.0). **Human: review + publish
@@ -16,7 +17,7 @@ reviewer leads — sanity-check before acting).
   escape hatch retains a known validation bypass — short-lived migration only.
 - [x] Closed issues #1 and #2 naming v1.5.0 (2026-08-07).
 - [x] Pushed `../tosijs-coding-practices` (2026-08-07).
-- [ ] Update the KB scoreboard row's "publish pending" note once published.
+- [x] Updated the KB scoreboard row to published (2026-08-07).
 - [ ] Verify tosijs's dependency pin picks up 1.5.0 (its `one-user-interface`
   contract suite passed 24/24 against this tree pre-release).
 
