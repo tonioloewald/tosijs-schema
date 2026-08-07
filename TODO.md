@@ -12,9 +12,8 @@ reviewer leads — sanity-check before acting).
   [GHSA-3qw7-pvr3-2gpq](https://github.com/tonioloewald/tosijs-schema/security/advisories/GHSA-3qw7-pvr3-2gpq)
   (severity high, CWE-20 + CWE-1321, patched 1.5.0). **Human: review + publish
   the advisory** — drafts are not visible to Dependabot/npm audit until published.
-- [ ] Mirror README's "Upgrading from 1.4.x" into the GitHub release notes;
-  lead with the tosijs agent-surface unblock (#2). Note the "pin 1.4.0"
-  escape hatch retains a known validation bypass — short-lived migration only.
+- [x] GitHub release notes published for v1.5.0 (2026-08-07): agent-surface
+  unblock (#2) lead, GHSA security callout, "Upgrading from 1.4.x" guidance.
 - [x] Closed issues #1 and #2 naming v1.5.0 (2026-08-07).
 - [x] Pushed `../tosijs-coding-practices` (2026-08-07).
 - [x] Updated the KB scoreboard row to published (2026-08-07).
