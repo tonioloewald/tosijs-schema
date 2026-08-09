@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] — 2026-08-09
+
+### Fixed
+
+- **`.optional` no longer leaks an internal marker into serialized schema
+  output** ([#3](https://github.com/tonioloewald/tosijs-schema/issues/3)).
+  1.5.0 tagged optional typeless builders (e.g. `s.any.optional`) with an
+  `x-tjs-optional` key inside the schema JSON so `s.object()` could detect
+  them as non-required. That flag now rides on the builder object instead, so
+  it never appears in `.schema`, `describe()`, or any published artifact —
+  `s.any.describe('x').optional` serializes to `{"description":"x"}`, and
+  `s.any.optional` to `{}`. The flag carries through chaining in any order
+  (`s.any.optional.describe('x')` stays optional). This also fully resolves
+  the original ≤1.4.0 report — the invalid `{"type":[null,"null"]}` output —
+  which 1.5.0 had already corrected.
+
 ## [1.5.0] — 2026-08-06
 
 > **Behavior-tightening release.** Several long-standing fail-open validator
@@ -169,5 +185,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Assorted validation bugs.
 
+[1.5.1]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.1
 [1.5.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.0
 [1.4.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.4.0

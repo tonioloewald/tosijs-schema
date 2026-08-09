@@ -50,8 +50,7 @@ const Person = s.object({
         "string",
         "null"
       ],
-      "format": "email",
-      "x-tjs-optional": true
+      "format": "email"
     },
     "tags": {
       "type": "array",

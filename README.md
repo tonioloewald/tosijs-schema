@@ -440,10 +440,10 @@ File             | % Funcs | % Lines
 All files        |   98.22 |   97.44
  src/contract.ts |   97.73 |   97.30
  src/monad.ts    |  100.00 |  100.00
- src/schema.ts   |   96.92 |   95.01
+  src/schema.ts   |   96.92 |   95.02
 ```
 
-218 tests, 659 assertions.
+219 tests, 667 assertions.
 
 ## License
 

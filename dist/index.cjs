@@ -60,12 +60,13 @@ module.exports = __toCommonJS(exports_tosijs_schema);
 
 // src/schema.ts
 var RX_EMOJI_ATOM = "\\p{Extended_Pictographic}";
-var create = (s) => ({
+var create = (s, optional = false) => ({
   schema: s,
   _type: null,
+  _optional: optional,
   validate: (data, opts) => validate(data, s, opts),
   get optional() {
-    const out = { ...s, "x-tjs-optional": true };
+    const out = { ...s };
     if (s.type !== undefined) {
       const types = Array.isArray(s.type) ? s.type : [s.type];
       out.type = types.includes("null") ? types : [...types, "null"];
@@ -84,43 +85,43 @@ var create = (s) => ({
     if (out.type === undefined && out.enum === undefined && Array.isArray(out.anyOf) && !out.anyOf.some((branch) => branch === true || branch?.type === "null" || Array.isArray(branch?.type) && branch.type.includes("null"))) {
       out.anyOf = [...out.anyOf, { type: "null" }];
     }
-    return create(out);
+    return create(out, true);
   },
-  title: (t) => create({ ...s, title: t }),
-  describe: (d) => create({ ...s, description: d }),
-  default: (v) => create({ ...s, default: v }),
-  meta: (m) => create({ ...m, ...s, ...m }),
+  title: (t) => create({ ...s, title: t }, optional),
+  describe: (d) => create({ ...s, description: d }, optional),
+  default: (v) => create({ ...s, default: v }, optional),
+  meta: (m) => create({ ...m, ...s, ...m }, optional),
   min: (v) => {
     const key = s.type === "string" ? "minLength" : s.type === "array" ? "minItems" : s.type === "object" ? "minProperties" : "minimum";
-    return create({ ...s, [key]: v });
+    return create({ ...s, [key]: v }, optional);
   },
   max: (v) => {
     const key = s.type === "string" ? "maxLength" : s.type === "array" ? "maxItems" : s.type === "object" ? "maxProperties" : "maximum";
-    return create({ ...s, [key]: v });
+    return create({ ...s, [key]: v }, optional);
   },
-  pattern: (r) => create({ ...s, pattern: typeof r === "string" ? r : r.source }),
+  pattern: (r) => create({ ...s, pattern: typeof r === "string" ? r : r.source }, optional),
   get email() {
-    return create({ ...s, format: "email" });
+    return create({ ...s, format: "email" }, optional);
   },
   get uuid() {
-    return create({ ...s, format: "uuid" });
+    return create({ ...s, format: "uuid" }, optional);
   },
   get ipv4() {
-    return create({ ...s, format: "ipv4" });
+    return create({ ...s, format: "ipv4" }, optional);
   },
   get url() {
-    return create({ ...s, format: "uri" });
+    return create({ ...s, format: "uri" }, optional);
   },
   get datetime() {
-    return create({ ...s, format: "date-time" });
+    return create({ ...s, format: "date-time" }, optional);
   },
   get emoji() {
-    return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: "emoji" });
+    return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: "emoji" }, optional);
   },
   get int() {
-    return create({ ...s, type: "integer" });
+    return create({ ...s, type: "integer" }, optional);
   },
-  step: (v) => create({ ...s, multipleOf: v })
+  step: (v) => create({ ...s, multipleOf: v }, optional)
 });
 var predicateEvaluator = null;
 function setPredicateEvaluator(fn) {
@@ -183,7 +184,7 @@ var methods = {
     for (const k in props) {
       properties[k] = props[k].schema;
       const p = properties[k];
-      if (p["x-tjs-optional"] !== true && (!Array.isArray(p.type) || !p.type.includes("null"))) {
+      if (props[k]._optional !== true && (!Array.isArray(p.type) || !p.type.includes("null"))) {
         required.push(k);
       }
     }

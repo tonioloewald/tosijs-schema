@@ -459,6 +459,26 @@ describe('Algebra', () => {
     }
   })
 
+  test('optional never leaks an internal marker into serialized schema (issue #3)', () => {
+    // exact repro from the issue: no invalid type, no x-tjs-* marker
+    const o = s.object({ a: s.any.describe('x').optional })
+    expect(o.schema.properties!.a).toEqual({ description: 'x' })
+    expect(JSON.stringify(o.schema)).not.toContain('x-tjs-optional')
+    // s.any.optional is spec-valid: an empty schema, no bogus type array
+    expect(s.any.optional.schema).toEqual({})
+    // the optional flag rides on the builder, order-independent
+    expect((s.any.optional.describe('x') as any)._optional).toBe(true)
+    expect((s.any.describe('x').optional as any)._optional).toBe(true)
+    // and it survives chaining AFTER .optional, so the field stays non-required
+    const composed = s.object({
+      a: s.any.optional.describe('x'),
+      b: s.string,
+    })
+    expect(composed.schema.required).toEqual(['b'])
+    expect(validate({ b: 'y' }, composed)).toBeTrue()
+    expect(validate({ b: 'y', a: 42 }, composed)).toBeTrue()
+  })
+
   test('.optional on typeless builders (const/union/any) keeps their semantics AND accepts null', () => {
     const OptUnion = s.union([s.string, s.number]).optional
     expect(validate('hello', OptUnion)).toBeTrue()

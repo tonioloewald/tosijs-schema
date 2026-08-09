@@ -1,19 +1,25 @@
 // THE TRUTH
 const RX_EMOJI_ATOM = '\\p{Extended_Pictographic}'
 
-const create = (s: any): any => ({
+// `optional` rides on the BUILDER, never inside the schema JSON — so it never
+// leaks into serialized/published output. It carries forward through every
+// chaining method (order-independent: s.any.optional.describe(x) and
+// s.any.describe(x).optional both stay optional).
+const create = (s: any, optional = false): any => ({
   schema: s,
   _type: null as any,
+  _optional: optional,
   validate: (data: any, opts?: any) => validate(data, s, opts),
 
   // --- Modifiers ---
   get optional() {
     // null-allowance must live in whatever constraint the schema actually
     // uses: type gains 'null', const becomes a typed enum listing null,
-    // anyOf gains a null branch, enum lists null. The x-tjs-optional marker
-    // lets s.object() treat typeless optionals (e.g. s.any.optional) as
-    // non-required — never place undefined in a type array.
-    const out: any = { ...s, 'x-tjs-optional': true }
+    // anyOf gains a null branch, enum lists null. Typeless schemas
+    // (e.g. s.any) get no type key at all — s.object() reads the builder's
+    // _optional flag, so never place undefined in a type array or leak a
+    // marker into the schema.
+    const out: any = { ...s }
     if (s.type !== undefined) {
       const types = Array.isArray(s.type) ? s.type : [s.type]
       out.type = types.includes('null') ? types : [...types, 'null']
@@ -42,14 +48,14 @@ const create = (s: any): any => ({
     ) {
       out.anyOf = [...out.anyOf, { type: 'null' }]
     }
-    return create(out)
+    return create(out, true)
   },
 
   // --- Metadata ---
-  title: (t: string) => create({ ...s, title: t }),
-  describe: (d: string) => create({ ...s, description: d }),
-  default: (v: any) => create({ ...s, default: v }),
-  meta: (m: Record<string, any>) => create({ ...m, ...s, ...m }),
+  title: (t: string) => create({ ...s, title: t }, optional),
+  describe: (d: string) => create({ ...s, description: d }, optional),
+  default: (v: any) => create({ ...s, default: v }, optional),
+  meta: (m: Record<string, any>) => create({ ...m, ...s, ...m }, optional),
 
   // --- Polymorphic Constraints ---
   min: (v: number) => {
@@ -61,7 +67,7 @@ const create = (s: any): any => ({
         : s.type === 'object'
         ? 'minProperties'
         : 'minimum'
-    return create({ ...s, [key]: v })
+    return create({ ...s, [key]: v }, optional)
   },
   max: (v: number) => {
     const key =
@@ -72,37 +78,37 @@ const create = (s: any): any => ({
         : s.type === 'object'
         ? 'maxProperties' // Generated for docs, ignored by validator (Ghost)
         : 'maximum'
-    return create({ ...s, [key]: v })
+    return create({ ...s, [key]: v }, optional)
   },
 
   // --- String Specific ---
   pattern: (r: RegExp | string) =>
-    create({ ...s, pattern: typeof r === 'string' ? r : r.source }),
+    create({ ...s, pattern: typeof r === 'string' ? r : r.source }, optional),
 
   get email() {
-    return create({ ...s, format: 'email' })
+    return create({ ...s, format: 'email' }, optional)
   },
   get uuid() {
-    return create({ ...s, format: 'uuid' })
+    return create({ ...s, format: 'uuid' }, optional)
   },
   get ipv4() {
-    return create({ ...s, format: 'ipv4' })
+    return create({ ...s, format: 'ipv4' }, optional)
   },
   get url() {
-    return create({ ...s, format: 'uri' })
+    return create({ ...s, format: 'uri' }, optional)
   },
   get datetime() {
-    return create({ ...s, format: 'date-time' })
+    return create({ ...s, format: 'date-time' }, optional)
   },
   get emoji() {
-    return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: 'emoji' })
+    return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: 'emoji' }, optional)
   },
 
   // --- Number Specific ---
   get int() {
-    return create({ ...s, type: 'integer' })
+    return create({ ...s, type: 'integer' }, optional)
   },
-  step: (v: number) => create({ ...s, multipleOf: v }),
+  step: (v: number) => create({ ...s, multipleOf: v }, optional),
 })
 
 // THE LIE
@@ -348,12 +354,12 @@ const methods = {
     const required: string[] = []
     for (const k in props) {
       properties[k] = props[k]!.schema
-      // Optionality: the x-tjs-optional marker (set by .optional, covers
-      // typeless builders like s.any.optional), or a null-including type
-      // array for hand-written schemas.
+      // Optionality comes from the builder's _optional flag (set by
+      // .optional, covers typeless builders like s.any.optional), or a
+      // null-including type array for hand-written plain-JSON schemas.
       const p = properties[k]
       if (
-        p['x-tjs-optional'] !== true &&
+        (props[k] as any)._optional !== true &&
         (!Array.isArray(p.type) || !p.type.includes('null'))
       ) {
         required.push(k)

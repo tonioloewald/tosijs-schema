@@ -2,8 +2,8 @@
 
 > **Generated:** 2026-08-06
 > **Test Framework:** Bun Test
-> **Total Tests:** 218
-> **Total Assertions:** 659
+> **Total Tests:** 219
+> **Total Assertions:** 667
 > **Pass Rate:** 100%
 
 ---
@@ -16,18 +16,18 @@ File             | % Funcs | % Lines | Uncovered Line #s
 All files        |   98.22 |   97.44 |
  src/contract.ts |   97.73 |   97.30 | 83,438,440,443,452-454,485-486
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   96.92 |   95.01 | 98-102,299-305,428,890-891,905,925-926,949-958,961-962
+ src/schema.ts   |   96.92 |   95.02 | 104-108,305-311,434,896-897,911,931-932,955-964,967-968
 ```
 
 ## Summary
 
 | Module | Lines | Tests | Line Coverage |
 |--------|-------|-------|---------------|
-| `schema.ts` | 979 | 154 | 95.01% |
+| `schema.ts` | 993 | 155 | 95.02% |
 | `monad.ts` | 179 | 10 | 100% |
 | `contract.ts` | 546 | 42 | 97.30% |
 | Type Inference | 251 | 17 | (compile-time) |
-| **Total** | **1,955** | **218** | **97.44%** |
+| **Total** | **1,969** | **219** | **97.44%** |
 
 ### contract.ts Coverage
 
