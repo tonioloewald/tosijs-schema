@@ -427,9 +427,14 @@ describe('agentContract — the blessed seam adapter', () => {
     expect(() =>
       agentContract({ 'app.e': { enum: [1, { deep: true }] } as any })
     ).toThrow('non-primitive')
-    expect(() =>
-      agentContract({ 'app.m': { type: ['string', 'number'] } })
-    ).toThrow('multi-type')
+    // multi-type arrays are enforced with union semantics since 1.6.0 —
+    // legal in a gate, and the gate actually enforces the union
+    const mt = agentContract({ 'app.m': { type: ['string', 'number'] } })
+    expect(mt.check('app.m', 0, { root: 'app.m', proposed: 5 })).toBe(true)
+    expect(mt.check('app.m', 0, { root: 'app.m', proposed: 'x' })).toBe(true)
+    expect(
+      mt.check('app.m', 0, { root: 'app.m', proposed: true })
+    ).toBeInstanceOf(Error)
     // [T, 'null'] (what .optional emits) stays legal
     expect(() =>
       agentContract({ 'app.opt': { type: ['string', 'null'] } })

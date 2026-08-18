@@ -1,3 +1,5 @@
+import { ENFORCED_FORMATS } from './formats';
+export { ENFORCED_FORMATS };
 export type Infer<S> = S extends {
     _type: infer T;
 } ? T : never;
@@ -61,6 +63,13 @@ export interface JSONSchema {
      * {@link validate}.
      */
     $counterexamples?: unknown[];
+    /**
+     * Marks a schema as OBSERVED (derived by {@link inferSchema} from a sample)
+     * rather than AUTHORED — so a reader can tell "a sample looked like this"
+     * from "someone promised this". A pure annotation: ignored by
+     * {@link validate}, allowed through `agentContract`.
+     */
+    $inferred?: boolean;
     [key: `x-${string}`]: unknown;
     [key: `$${string}`]: unknown;
 }
@@ -142,6 +151,8 @@ interface Obj<T> extends Base<T> {
     meta(m: Record<string, any>): Obj<T>;
     min(count: number): Obj<T>;
     max(count: number): Obj<T>;
+    /** keep the declared fields, admit unknown ones (`additionalProperties: true`) */
+    get open(): Obj<T>;
 }
 declare const methods: {
     readonly email: Str;
@@ -159,8 +170,16 @@ declare const methods: {
     const: <T extends string | number | boolean | null>(val: T) => Base<T>;
     array: <T>(items: Base<T>) => Arr<T[]>;
     tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never; }>;
-    object: <P extends Record<string, Base<any>>>(props: P) => Obj<SmartObject<{ [K in keyof P]: Infer<P[K]>; }>>;
+    object: <P extends Record<string, Base<any>>>(props: P, options?: {
+        additionalProperties?: boolean;
+    }) => Obj<SmartObject<{ [K in keyof P]: Infer<P[K]>; }>>;
     record: <T>(value: Base<T>) => Obj<Record<string, T>>;
+    /**
+     * @deprecated Legacy: samples only the first array element and closes
+     * objects (`additionalProperties: false`). Use `inferSchema` (from
+     * `tosijs-schema` / `tosijs-schema/infer`), which unifies across every
+     * element and leaves objects open.
+     */
     infer: (value: any) => Base<any>;
 };
 type TinySchema = typeof methods & {
@@ -173,13 +192,6 @@ type TinySchema = typeof methods & {
     any: Base<any>;
 };
 export declare const s: TinySchema;
-/**
- * The `format` values `validate` actually enforces. Any other format string
- * passes through unchecked (per JSON Schema, `format` is an annotation by
- * default) — `agentContract` refuses out-of-set formats at construction so a
- * gate can't advertise a constraint it doesn't enforce.
- */
-export declare const ENFORCED_FORMATS: ReadonlySet<string>;
 /**
  * Every keyword `validate`'s walk actually reads. Lives beside the walk so
  * the two cannot drift silently — `agentContract` refuses any schema key
@@ -207,4 +219,3 @@ export interface FilterOptions {
 }
 export declare function filter(data: any, builderOrSchema: Base<any> | Record<string, any> | boolean, opts?: FilterOptions | ErrorHandler): any;
 export declare function diff(a: any, b: any): any;
-export {};

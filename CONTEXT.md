@@ -9,7 +9,7 @@
 **Core Philosophy:**
 * **Schema-First:** The source of truth is a standard JSON Schema object.
 * **Validation-Only:** Unlike Zod, it does *not* transform or coerce data. It checks structure in-place.
-* **Strict by Default:** Objects are non-extensible (`additionalProperties: false`) and all keys are required by default.
+* **Strict by Default:** Objects are non-extensible (`additionalProperties: false`) and all keys are required by default — `.open` / `s.object(props, { additionalProperties: true })` opts a single object into admitting unknown keys (for protocols you don't control).
 
 ## 2. Key Architecture
 
@@ -36,7 +36,18 @@ Adapters for capability-gated write paths (tosijs's agent surface, or anything w
 * **`checkExamples(schemaOrBuilder)`:** Definition-time lint. Recursively verifies every `examples` entry passes its own node and every `$counterexamples` entry fails. Counterexamples that pass structurally under a `$predicate` with no registered evaluator report `unverifiable`, not `accepted`.
 * **Guarantee:** `validate` ignores and never mutates unknown `$`-prefixed and `x-*` keys — extension conventions ride along safely.
 
-### D. Monadic Pipelines (`src/monad.ts`)
+### D. Schema Inference (`src/infer.ts`)
+
+* **`inferSchema(sample, opts?)` → JSONSchema:** derive a schema from example data (runtime inverse of `Infer<S>`). Unifies across every array element, presence decides `required`, `null` joins the type union, structure only (no range constraints), objects open (`additionalProperties: true`). `formats`/`enums` opt-in and conservative; `sampleSize`/`onTruncate` surface capping.
+* **Invariant:** `validate(sample, inferSchema(sample))` is always true.
+* **`$inferred` marker:** roots are stamped `$inferred: true` (observed vs authored); opt out with `{ marker: false }`. A pure annotation — validate ignores it, agentContract allows it.
+* **Tree-shakeable:** its only runtime dep is the tiny shared `src/formats.ts`; published as the `tosijs-schema/infer` subpath (~1.3kB). The legacy `s.infer` builder method is deprecated (first-element, closed) in favor of this.
+
+### E. Shared Format Predicates (`src/formats.ts`)
+
+The single source of truth for string `format` validation (`email`/`uri`/`date-time`/…) and `ENFORCED_FORMATS`, imported by both the validator (`schema.ts`) and the inference sniffer (`infer.ts`). Sharing them guarantees a sniffed format is a subset of the enforced one — an inferred schema can't reject its own sample. Dependency-free (keeps the infer subpath tiny).
+
+### F. Monadic Pipelines (`src/monad.ts`)
 
 The `M` module implements "Railway Oriented Programming" for building safe tool chains (Agents).
 * **`M.func(Input, Output, Impl, TimeoutMs?)`:** Wraps a function with strict input/output schema validation (Async) and timeout enforcement (default 5000ms).
@@ -90,6 +101,7 @@ const result = chain.step1("hello").result() // Returns number | SchemaError
 * `src/monad.test.ts`: Tests the `M` class execution and error flow.
 * `src/contract.test.ts`: Tests `agentContract`, `checkExamples`, and the `$`-key passthrough guarantee.
 * `src/predicate.test.ts`: Tests the `$predicate` keyword and evaluator registration.
+* `src/infer.test.ts`: Tests `inferSchema` (incl. the accept-your-own-sample invariant and the `$inferred` marker).
 
 
 * **Type Tests (`src/inference.types.ts`):** Run with `tsc --noEmit`.

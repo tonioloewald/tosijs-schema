@@ -1,8 +1,7 @@
-# tosijs-schema v1.5.0
+# tosijs-schema v1.6.0
 
 Schema-first validation for TypeScript/JavaScript — plain JSON Schema is the
-source of truth; types are inferred from it, not the other way around. ~6kB
-gzipped, zero dependencies, no eval/new Function.
+source of truth; types are inferred from it, not the other way around. ~7kB gzipped (or ~1.3kB via the `tosijs-schema/infer` subpath), zero dependencies, no eval/new Function.
 
 - Source: https://github.com/tonioloewald/tosijs-schema
 - npm: https://www.npmjs.com/package/tosijs-schema
@@ -22,6 +21,7 @@ gzipped, zero dependencies, no eval/new Function.
   `patternProperties`, `unevaluatedProperties` (see README "JSON Schema
   Coverage").
 - Validation-only: no coercion, no transforms.
+- Open objects: `s.object(props).open` (or `{ additionalProperties: true }`) keeps named fields and admits unknown ones — for protocols you don't control. Strict is the default.
 - Objects are strict by default: `additionalProperties: false`, all keys
   required (`.optional` opts a field out).
 - `Infer<typeof Schema>` derives the TypeScript type from a builder.
@@ -30,8 +30,14 @@ gzipped, zero dependencies, no eval/new Function.
 - `agentContract(schemas)`: fail-closed contract gate for agent write
   surfaces (tosijs). `checkExamples(schema)`: lints `examples` (must pass)
   and `$counterexamples` (must fail).
+- `inferSchema(sample, opts?)`: derive a JSON Schema from example data
+  (runtime inverse of `Infer<S>`). Structure only, objects open, unifies
+  across every element. Tree-shakeable via the `tosijs-schema/infer` subpath
+  (~1.3kB). Roots carry `$inferred: true` (observed vs authored; opt out `{ marker: false }`). Prefer over the deprecated `s.infer`.
 - `M` / `M.func`: railway-oriented pipelines with schema-validated I/O and
   timeouts.
+- Tree-shakeable: `sideEffects: false`, per-concern modules. Named imports
+  shake to ~1–4.6kB; `tosijs-schema/infer` is a self-contained ~1.3kB subpath.
 
 ## Files
 

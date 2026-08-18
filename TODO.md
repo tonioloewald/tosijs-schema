@@ -154,3 +154,45 @@ checkout is AHEAD OF ORIGIN and needs a human push (see release checklist).
 Remaining there post-publish: strike tosijs-schema from development.md's
 baseline-artifacts gap list when issue #1 closes; releasing.md post-publish
 ownership note.
+
+## v1.6.0 pre-release review follow-ups (non-blocking; majors M1–M4 fixed pre-tag)
+
+Fixed before the 1.6.0 tag: M1 (mixed array/non-array → anyOf), M2/M3 (shared
+`formats.ts` so a sniffed format is a subset of the enforced one),
+M4 (llms.txt version stamped by `make-context.ts`, drift gate now covers it).
+
+Remaining (unverified reviewer leads — sanity-check first):
+
+- [ ] *(efficiency)* `walk()` allocates a `typeMatches` closure per node even
+  on the single-type fast path (`src/schema.ts`). Hoist a two-arg
+  `typeMatches(v, ty)` or gate on `listed.length`. Profile first.
+- [ ] *(efficiency)* `inferSchema` `flat()`s array elements before applying
+  `sampleSize`; slice per source array before flattening so truncation bounds
+  the O(n) copy.
+- [ ] *(dryness)* `s.infer` re-implements the classification `inferSchema` now
+  owns; consider delegating or scheduling removal (JSDoc `@deprecated` only is
+  the current house convention — confirm).
+- [ ] *(coverage pin, from the v1.5.0-review practice)* validate a >97-item
+  array under a multi-type union with `{ strict: true }` to prove option
+  propagation survives the new inline union dispatch (impl looks correct — no
+  `validate()` re-entry — but the practice mandates a fails-if-dropped pin on
+  every new dispatch path).
+- [ ] *(coverage)* a multi-type schema carrying a scalar constraint
+  (`{ type: ['string','number'], minLength: 3 }`) to lock constraints-on-the-
+  matched-branch.
+
+### Shared practices KB (commit to `../tosijs-coding-practices`)
+
+- [ ] `releasing.md`: a drift gate built on "regenerate + `git diff`" protects
+  only GENERATED artifacts; a hand-maintained field it *names* (e.g. an
+  llms.txt version string) is false assurance — generate it or drop it from
+  the gate's claimed coverage. Seen in: tosijs-schema (llms.txt stayed v1.5.0
+  through two releases while the gate "covered" it).
+- [ ] `releasing.md`: when a release tightens a default that fails consumers on
+  install, the sanctioned escape hatch must ship in the SAME release
+  (tighten-and-relief atomically). Seen in: tosijs-schema 1.5.0 (tighten
+  `additionalProperties`) → 1.6.0 (`.open` relief) — one release of pain.
+- [ ] `state-and-schema.md`: add `inferSchema` / the `tosijs-schema/infer`
+  subpath (unifies across all elements, objects open, structure-only, roundtrip
+  guarantee, `$inferred` provenance) and steer away from the deprecated
+  `s.infer`, so agents in other repos don't grep and reuse the footgun.

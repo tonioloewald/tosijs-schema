@@ -227,3 +227,56 @@ console.log(
 )
 console.log(`checkExamples findings: ${JSON.stringify(checkExamples(Order))}`)
 console.log('```\n')
+
+// ------------------------------------------------------------------
+// EXAMPLE 7: Inferring a schema from data
+// ------------------------------------------------------------------
+import { inferSchema } from './src/infer'
+
+const rows = [
+  { id: 1, tag: 'a', at: '2020-01-01T00:00:00Z' },
+  { id: 2, at: '2020-02-01T00:00:00Z' }, // no `tag`
+]
+
+print(
+  '7. Inferring a Schema from Data',
+  '`inferSchema(sample, opts?)` derives a schema from example data — the ' +
+    'runtime inverse of `Infer<S>`. It unifies across EVERY element (a key ' +
+    "missing from the first row keeps its column), presence decides `required`, " +
+    'and objects stay OPEN (`additionalProperties: true`) because an inferred ' +
+    'schema describes a sample, not a contract. Structure only — it never ' +
+    'invents `minimum`/`maxLength` constraints from a sample. Guarantee: ' +
+    '`validate(sample, inferSchema(sample))` is always true.',
+  `const rows = [
+  { id: 1, tag: 'a', at: '2020-01-01T00:00:00Z' },
+  { id: 2, at: '2020-02-01T00:00:00Z' },   // no 'tag'
+]
+
+inferSchema(rows)                          // tag → optional
+inferSchema(rows, { formats: true })       // sniff 'at' as date-time`,
+  inferSchema(rows, { formats: true })
+)
+
+// ------------------------------------------------------------------
+// EXAMPLE 8: Open objects — protocols you don't control
+// ------------------------------------------------------------------
+const ChatMessage = s
+  .object({
+    role: s.enum(['system', 'user', 'assistant']),
+    content: s.string.optional,
+  })
+  .open
+
+print(
+  '8. Open Objects',
+  'Objects are strict by default (`additionalProperties: false`). `.open` ' +
+    'keeps the declared fields and admits unknown ones — for a shape that ' +
+    "belongs to a protocol you don't control, like an LLM chat message whose " +
+    'provider adds `reasoning_content`/`refusal`/`audio` over time. It rejects ' +
+    'what is WRONG (a bad `role`) without rejecting what is merely NEWER.',
+  `const ChatMessage = s.object({
+  role: s.enum(['system', 'user', 'assistant']),
+  content: s.string.optional,
+}).open   // or s.object({...}, { additionalProperties: true })`,
+  ChatMessage.schema
+)

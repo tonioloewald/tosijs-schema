@@ -23,6 +23,25 @@ describe('Builder Output', () => {
     expect(schema.schema.additionalProperties).toBe(false)
   })
 
+  test('open objects: named fields + additionalProperties: true (#5)', () => {
+    // the tjs-lang protocol case: a chat message whose provider adds fields
+    const Message = s
+      .object({ role: s.string.optional, content: s.string.optional })
+      .open
+    expect(Message.schema.additionalProperties).toBe(true)
+    // keeps properties/required — not the s.record(s.any) "it's an object" loss
+    expect(Message.schema.properties).toHaveProperty('role')
+    const msg = { role: 'assistant', content: 'hi', reasoning_content: 'x' }
+    expect(validate(msg, Message)).toBeTrue() // unknown field admitted
+    expect(validate({ role: 42 }, Message)).toBeFalse() // declared type still enforced
+    // the options form is equivalent
+    const viaOpts = s.object({ role: s.string }, { additionalProperties: true })
+    expect(viaOpts.schema.additionalProperties).toBe(true)
+    expect(validate({ role: 'x', extra: 1 }, viaOpts)).toBeTrue()
+    // default is still closed
+    expect(validate({ role: 'x', extra: 1 }, s.object({ role: s.string }))).toBeFalse()
+  })
+
   test('handles nested array schemas', () => {
     const schema = s.array(s.string)
     expect(schema.schema.type).toBe('array')
@@ -586,11 +605,37 @@ describe('Algebra', () => {
     ).toBeInstanceOf(Error)
   })
 
-  test('multi-type arrays enforce the first non-null entry, whatever the order', () => {
+  test('multi-type arrays validate with union semantics (any listed type)', () => {
+    // T | null (order-independent)
     expect(validate('hi', { type: ['null', 'string'] })).toBeTrue()
     expect(validate('hi', { type: ['string', 'null'] })).toBeTrue()
     expect(validate(null, { type: ['null', 'string'] })).toBeTrue()
     expect(validate(1, { type: ['null', 'string'] })).toBeFalse()
+    // genuine multi-type union: a value matching ANY listed type passes
+    expect(validate(5, { type: ['string', 'number'] })).toBeTrue()
+    expect(validate('x', { type: ['string', 'number'] })).toBeTrue()
+    expect(validate(true, { type: ['string', 'number'] })).toBeFalse()
+    // integer vs number distinction is honored within a union
+    expect(validate(5, { type: ['integer', 'string'] })).toBeTrue()
+    expect(validate(5.5, { type: ['integer', 'string'] })).toBeFalse()
+    // the matching branch's applicators/constraints apply
+    expect(
+      validate({ a: 1 }, {
+        type: ['object', 'string'],
+        properties: { a: { type: 'number' } },
+        additionalProperties: false,
+      })
+    ).toBeTrue()
+    expect(
+      validate({ a: 1, extra: 2 }, {
+        type: ['object', 'string'],
+        properties: { a: { type: 'number' } },
+        additionalProperties: false,
+      })
+    ).toBeFalse()
+    // null-only still means null-only
+    expect(validate('hi', { type: ['null'] })).toBeFalse()
+    expect(validate(null, { type: ['null'] })).toBeTrue()
   })
 
   test('prototype-named keys are treated as data, not exempted via the prototype chain', () => {

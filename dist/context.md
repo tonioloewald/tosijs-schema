@@ -9,7 +9,7 @@
 **Core Philosophy:**
 * **Schema-First:** The source of truth is a standard JSON Schema object.
 * **Validation-Only:** Unlike Zod, it does *not* transform or coerce data. It checks structure in-place.
-* **Strict by Default:** Objects are non-extensible (`additionalProperties: false`) and all keys are required by default.
+* **Strict by Default:** Objects are non-extensible (`additionalProperties: false`) and all keys are required by default — `.open` / `s.object(props, { additionalProperties: true })` opts a single object into admitting unknown keys (for protocols you don't control).
 
 ## 2. Key Architecture
 
@@ -36,7 +36,18 @@ Adapters for capability-gated write paths (tosijs's agent surface, or anything w
 * **`checkExamples(schemaOrBuilder)`:** Definition-time lint. Recursively verifies every `examples` entry passes its own node and every `$counterexamples` entry fails. Counterexamples that pass structurally under a `$predicate` with no registered evaluator report `unverifiable`, not `accepted`.
 * **Guarantee:** `validate` ignores and never mutates unknown `$`-prefixed and `x-*` keys — extension conventions ride along safely.
 
-### D. Monadic Pipelines (`src/monad.ts`)
+### D. Schema Inference (`src/infer.ts`)
+
+* **`inferSchema(sample, opts?)` → JSONSchema:** derive a schema from example data (runtime inverse of `Infer<S>`). Unifies across every array element, presence decides `required`, `null` joins the type union, structure only (no range constraints), objects open (`additionalProperties: true`). `formats`/`enums` opt-in and conservative; `sampleSize`/`onTruncate` surface capping.
+* **Invariant:** `validate(sample, inferSchema(sample))` is always true.
+* **`$inferred` marker:** roots are stamped `$inferred: true` (observed vs authored); opt out with `{ marker: false }`. A pure annotation — validate ignores it, agentContract allows it.
+* **Tree-shakeable:** its only runtime dep is the tiny shared `src/formats.ts`; published as the `tosijs-schema/infer` subpath (~1.3kB). The legacy `s.infer` builder method is deprecated (first-element, closed) in favor of this.
+
+### E. Shared Format Predicates (`src/formats.ts`)
+
+The single source of truth for string `format` validation (`email`/`uri`/`date-time`/…) and `ENFORCED_FORMATS`, imported by both the validator (`schema.ts`) and the inference sniffer (`infer.ts`). Sharing them guarantees a sniffed format is a subset of the enforced one — an inferred schema can't reject its own sample. Dependency-free (keeps the infer subpath tiny).
+
+### F. Monadic Pipelines (`src/monad.ts`)
 
 The `M` module implements "Railway Oriented Programming" for building safe tool chains (Agents).
 * **`M.func(Input, Output, Impl, TimeoutMs?)`:** Wraps a function with strict input/output schema validation (Async) and timeout enforcement (default 5000ms).
@@ -90,6 +101,7 @@ const result = chain.step1("hello").result() // Returns number | SchemaError
 * `src/monad.test.ts`: Tests the `M` class execution and error flow.
 * `src/contract.test.ts`: Tests `agentContract`, `checkExamples`, and the `$`-key passthrough guarantee.
 * `src/predicate.test.ts`: Tests the `$predicate` keyword and evaluator registration.
+* `src/infer.test.ts`: Tests `inferSchema` (incl. the accept-your-own-sample invariant and the `$inferred` marker).
 
 
 * **Type Tests (`src/inference.types.ts`):** Run with `tsc --noEmit`.
@@ -442,4 +454,86 @@ checkExamples(Order) // [] — the spec doesn't lie
 ```
 Error: contract violation at app.order.qty — qty: Expected number
 checkExamples findings: []
+```
+
+## 7. Inferring a Schema from Data
+
+`inferSchema(sample, opts?)` derives a schema from example data — the runtime inverse of `Infer<S>`. It unifies across EVERY element (a key missing from the first row keeps its column), presence decides `required`, and objects stay OPEN (`additionalProperties: true`) because an inferred schema describes a sample, not a contract. Structure only — it never invents `minimum`/`maxLength` constraints from a sample. Guarantee: `validate(sample, inferSchema(sample))` is always true.
+
+### Definition
+```typescript
+const rows = [
+  { id: 1, tag: 'a', at: '2020-01-01T00:00:00Z' },
+  { id: 2, at: '2020-02-01T00:00:00Z' },   // no 'tag'
+]
+
+inferSchema(rows)                          // tag → optional
+inferSchema(rows, { formats: true })       // sniff 'at' as date-time
+```
+
+### JSON Schema Output
+```json
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "id": {
+        "type": "integer"
+      },
+      "tag": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "at",
+      "id"
+    ],
+    "additionalProperties": true
+  },
+  "$inferred": true
+}
+```
+
+## 8. Open Objects
+
+Objects are strict by default (`additionalProperties: false`). `.open` keeps the declared fields and admits unknown ones — for a shape that belongs to a protocol you don't control, like an LLM chat message whose provider adds `reasoning_content`/`refusal`/`audio` over time. It rejects what is WRONG (a bad `role`) without rejecting what is merely NEWER.
+
+### Definition
+```typescript
+const ChatMessage = s.object({
+  role: s.enum(['system', 'user', 'assistant']),
+  content: s.string.optional,
+}).open   // or s.object({...}, { additionalProperties: true })
+```
+
+### JSON Schema Output
+```json
+{
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "system",
+        "user",
+        "assistant"
+      ]
+    },
+    "content": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "role"
+  ],
+  "additionalProperties": true
+}
 ```

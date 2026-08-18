@@ -5,6 +5,58 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] — 2026-08-19
+
+**Not breaking.** Everything here is new API or a *loosening* — nothing that
+validated before is rejected now. (Contrast 1.5.0, whose tightening broke
+consumers on install; this release adds the escape hatch that was missing,
+see [#4](https://github.com/tonioloewald/tosijs-schema/issues/4) /
+[#5](https://github.com/tonioloewald/tosijs-schema/issues/5) and the new
+"Versioning & stability" section in the README.)
+
+### Added
+
+- **`inferSchema(sample, opts?)` → JSONSchema** — derive a schema from example
+  data (the runtime inverse of `Infer<S>`) ([#6](https://github.com/tonioloewald/tosijs-schema/issues/6)).
+  Unifies across every array element (not just `sample[0]`), presence decides
+  `required`, `null` joins the type union, structure only (never infers
+  `minimum`/`maxLength`/… from a sample's range), objects open by default
+  (`additionalProperties: true`). `formats` and `enums` are opt-in and
+  conservative; `sampleSize`/`onTruncate` cap and surface sampling.
+  Deterministic, total on degenerate input, and guaranteed to accept its own
+  sample: `validate(sample, inferSchema(sample))` is always `true`. Roots are
+  stamped `$inferred: true` so a consumer can tell an *observed* schema from an
+  *authored* one (pass `{ marker: false }` to omit) — requested from the tosijs
+  side for `describe().contract` and drift-warning use.
+- **Open objects** ([#5](https://github.com/tonioloewald/tosijs-schema/issues/5)):
+  `s.object(props).open` (or `s.object(props, { additionalProperties: true })`)
+  keeps the declared `properties`/`required` and admits unknown keys — the
+  spelling for a shape that belongs to a protocol you don't control (an
+  LLM chat message a provider keeps adding fields to). Previously the only
+  open spelling was `s.record(s.any)`, which throws away properties, required,
+  and field docs. Strict (`additionalProperties: false`) remains the default.
+- **`tosijs-schema/infer` subpath export** — a self-contained ~1.3 kB module,
+  so inference-only consumers don't pay for the validator/builder/contract
+  code even where the pre-bundled main entry can't be tree-shaken.
+- **`$inferred`** typed on the `JSONSchema` interface; allowed through
+  `agentContract` (a pure annotation, like `$counterexamples`).
+
+### Changed
+
+- **Multi-type `type` arrays now validate with union semantics.** `{ type:
+  ['string', 'number'] }` accepts a value matching *any* listed type (integer
+  vs number distinction honored); the matching branch's applicators and
+  constraints apply. Previously only the first listed type was enforced — a
+  strict loosening (more data passes, none that passed now fails). This is
+  what lets `inferSchema`'s union output validate its own sample, and
+  `agentContract` no longer refuses multi-type arrays at construction (it now
+  genuinely enforces them).
+
+### Deprecated
+
+- `s.infer(value)` — the builder's inference samples only the first array
+  element and closes objects. Prefer `inferSchema`, the corrected version.
+
 ## [1.5.1] — 2026-08-09
 
 ### Fixed
@@ -185,6 +237,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Assorted validation bugs.
 
+[1.6.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.6.0
 [1.5.1]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.1
 [1.5.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.0
 [1.4.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.4.0

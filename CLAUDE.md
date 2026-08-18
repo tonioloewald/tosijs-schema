@@ -25,9 +25,9 @@ bun run pack                    # full pipeline: tests + typecheck + bench + exa
 
 ## What this library is
 
-A ~6kB (gzipped) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required.
+A ~7kB-gzipped (tree-shakeable) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required (`.open` / `s.object(props, { additionalProperties: true })` opts a single object into admitting unknown keys, for protocols you don't control).
 
-Public API is just `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, and `src/contract.ts`.
+Public API is `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, `src/contract.ts`, and `src/infer.ts`. `sideEffects: false` + per-concern modules make named imports tree-shakeable; `inferSchema` is also a self-contained `tosijs-schema/infer` subpath (~1.3kB), built separately in `pack`. Its only runtime dependency is the tiny `src/formats.ts` (shared format predicates); keep it that way — pulling in `schema.ts` would blow up the subpath.
 
 ## Architecture
 
@@ -39,6 +39,14 @@ Public API is just `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, and 
 - **`$predicate`** (v1.4.0): pluggable computational validation. The keyword is inert until a consumer calls `setPredicateEvaluator()` to install an evaluator; then it runs against type-valid values.
 - **Gotcha**: `s.any` produces the empty schema `{}`; the validator has special-case logic allowing `null`/`undefined` when no `type` is present. `validate` is defined after `create` but attached via closure — refactoring declaration order needs care.
 
+### `src/infer.ts` — data → schema
+
+`inferSchema(sample, opts?)` derives a JSON Schema from example data (runtime inverse of `Infer<S>`). Structure only (never invents range constraints), unifies across every array element, presence decides `required`, objects open (`additionalProperties: true`), heterogeneous same-position data becomes `anyOf`. Its only runtime import is the tiny `src/formats.ts` (below), so it still ships as the ~1.3kB `tosijs-schema/infer` subpath — don't import anything from `schema.ts` here. Invariant: `validate(sample, inferSchema(sample))` is always true — any change must preserve it (the suite asserts it over every fixture, incl. mixed kinds and `formats:true`). The old `s.infer` builder method is the deprecated first-element/closed version; leave it, steer to `inferSchema`.
+
+### `src/formats.ts` — the one format-predicate source
+
+String `format` validators (`email`/`uri`/`date-time`/…) plus `ENFORCED_FORMATS`, imported by **both** `schema.ts` (the enforcer) and `infer.ts` (the sniffer). This shared origin is load-bearing: it guarantees a sniffed format is a subset of the enforced one, so an inferred schema can never reject its own sample. Keep it dependency-free (it's the reason the infer subpath stays tiny).
+
 ### `src/contract.ts` — agent-surface contracts
 
 `agentContract(schemas)` adapts root-path → schema maps into the contract seam tosijs's agent surface consumes (`check` returns `true | Error`-with-reason on a whole-root proposal; `describe` returns the plain-JSON contract). Strict validation by default — a gate that samples isn't a gate. `checkExamples()` lints `examples` (must pass) and `$counterexamples` (must fail) across the schema tree; predicate-dependent counterexamples with no evaluator registered report `unverifiable`. `validate` guarantees unknown `$`-prefixed and `x-*` keys pass through untouched — that guarantee is documented and test-pinned; don't break it.
@@ -49,13 +57,15 @@ Public API is just `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, and 
 
 ### Tests
 
-- `src/schema.test.ts`, `src/coverage.test.ts` — validator behavior; `src/any.test.ts` — `s.any`; `src/monad.test.ts` — pipelines; `src/predicate.test.ts` — `$predicate`; `src/contract.test.ts` — `agentContract`, `checkExamples`, `$`-key passthrough.
+- `src/schema.test.ts`, `src/coverage.test.ts` — validator behavior; `src/any.test.ts` — `s.any`; `src/monad.test.ts` — pipelines; `src/predicate.test.ts` — `$predicate`; `src/contract.test.ts` — `agentContract`, `checkExamples`, `$`-key passthrough; `src/infer.test.ts` — `inferSchema` (incl. the accept-your-own-sample property).
 - `src/inference.types.ts` — compile-time-only type inference tests (tsc, not bun).
 - High coverage is a marketed feature (schemas are data flowing through tested code) — keep it that way.
 
 ## Releasing
 
-`bun run pack` is the prepublish gate (runs everything, regenerates `examples.md` and `dist/context.md`, builds ESM + CJS + declarations into `dist/`). Before a minor/major bump, run the `pre-release-review` skill (part of the shared practices process). Update `CHANGELOG.md` and `llms.txt` with every release.
+`bun run pack` is the prepublish gate (runs everything, regenerates `examples.md` and `dist/context.md`, builds ESM + CJS + declarations into `dist/`, incl. the `tosijs-schema/infer` subpath). Before a minor/major bump, run the `pre-release-review` skill (part of the shared practices process). Update `CHANGELOG.md` and `llms.txt` with every release.
+
+**Versioning threshold (this repo):** a validator getting *stricter* is treated as **breaking** even though semver's letter calls it additive — it fails a consumer's next install. This project carries breaking changes in **minor** bumps, but every one must be CHANGELOG'd as BREAKING with a before→after migration note (the CHANGELOG ships in the tarball, so it's reachable from what a consumer installed). Loosening / new API is an ordinary minor. Deprecate before removing. See README "Versioning & stability".
 
 **Drift gate:** after the final `bun run pack`, `git status --porcelain` must be empty before tagging — if it isn't, a generated artifact (examples.md, dist/, COVERAGE numbers, llms.txt version) is stale in the commit.
 

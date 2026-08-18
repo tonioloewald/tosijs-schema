@@ -1,5 +1,12 @@
 // THE TRUTH
-const RX_EMOJI_ATOM = '\\p{Extended_Pictographic}'
+import {
+  RX_EMOJI_ATOM,
+  FORMAT_VALIDATORS as FMT,
+  ENFORCED_FORMATS,
+} from './formats'
+
+// re-export so existing consumers of `ENFORCED_FORMATS` from 'tosijs-schema' keep working
+export { ENFORCED_FORMATS }
 
 // `optional` rides on the BUILDER, never inside the schema JSON — so it never
 // leaks into serialized/published output. It carries forward through every
@@ -49,6 +56,13 @@ const create = (s: any, optional = false): any => ({
       out.anyOf = [...out.anyOf, { type: 'null' }]
     }
     return create(out, true)
+  },
+
+  // keep the named fields, admit unknown ones (for protocols you don't own).
+  // Object-only in meaning; harmless elsewhere. Removing a key is filter()'s
+  // job — .open is about what validate() ACCEPTS, not what it strips.
+  get open() {
+    return create({ ...s, additionalProperties: true }, optional)
   },
 
   // --- Metadata ---
@@ -176,6 +190,13 @@ export interface JSONSchema {
    * {@link validate}.
    */
   $counterexamples?: unknown[]
+  /**
+   * Marks a schema as OBSERVED (derived by {@link inferSchema} from a sample)
+   * rather than AUTHORED — so a reader can tell "a sample looked like this"
+   * from "someone promised this". A pure annotation: ignored by
+   * {@link validate}, allowed through `agentContract`.
+   */
+  $inferred?: boolean
   // Extension keywords pass through validation untouched — guaranteed for
   // x-* (OpenAPI convention) and unrecognized $-prefixed keys alike
   [key: `x-${string}`]: unknown
@@ -283,6 +304,8 @@ interface Obj<T> extends Base<T> {
 
   min(count: number): Obj<T>
   max(count: number): Obj<T>
+  /** keep the declared fields, admit unknown ones (`additionalProperties: true`) */
+  get open(): Obj<T>
 }
 
 // PROXY
@@ -349,7 +372,10 @@ const methods = {
     }) as Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never }>,
 
   // FIX: Wrapped return type in SmartObject<>
-  object: <P extends Record<string, Base<any>>>(props: P) => {
+  object: <P extends Record<string, Base<any>>>(
+    props: P,
+    options?: { additionalProperties?: boolean }
+  ) => {
     const properties: any = {}
     const required: string[] = []
     for (const k in props) {
@@ -369,7 +395,10 @@ const methods = {
       type: 'object',
       properties,
       required,
-      additionalProperties: false,
+      // strict by default; { additionalProperties: true } (or `.open`) keeps
+      // the named fields AND admits unknown ones — for shapes that belong to
+      // a protocol you don't control
+      additionalProperties: options?.additionalProperties === true,
     }) as Obj<SmartObject<{ [K in keyof P]: Infer<P[K]> }>>
   },
 
@@ -385,6 +414,12 @@ const methods = {
     }) as Obj<Record<string, T>>
   },
 
+  /**
+   * @deprecated Legacy: samples only the first array element and closes
+   * objects (`additionalProperties: false`). Use `inferSchema` (from
+   * `tosijs-schema` / `tosijs-schema/infer`), which unifies across every
+   * element and leaves objects open.
+   */
   infer: (value: any): Base<any> => {
     if (value === null) return create({ type: 'null' }) as Base<null>
     if (value === undefined) return create({ type: 'null', 'x-tjs-undefined': true }) as Base<undefined>
@@ -458,33 +493,6 @@ const setKey = (o: any, k: string, v: any) => {
 }
 
 const STRIDE = 97
-const FMT: Record<string, (v: string) => boolean> = {
-  email: (v) => /^\S+@\S+\.\S+$/.test(v),
-  uuid: (v) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
-  uri: (v) => {
-    try {
-      new URL(v)
-      return true
-    } catch {
-      return false
-    }
-  },
-  ipv4: (v) =>
-    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(
-      v
-    ),
-  'date-time': (v) => !isNaN(Date.parse(v)),
-  emoji: (v) => new RegExp(RX_EMOJI_ATOM, 'u').test(v),
-}
-
-/**
- * The `format` values `validate` actually enforces. Any other format string
- * passes through unchecked (per JSON Schema, `format` is an annotation by
- * default) — `agentContract` refuses out-of-set formats at construction so a
- * gate can't advertise a constraint it doesn't enforce.
- */
-export const ENFORCED_FORMATS: ReadonlySet<string> = new Set(Object.keys(FMT))
 
 /**
  * Every keyword `validate`'s walk actually reads. Lives beside the walk so
@@ -602,23 +610,38 @@ export function validate(
       return expectsUndefined || typeIncludesNull || !s.type || err('Expected value, got undefined')
     }
 
-    // multi-type arrays: enforce the first NON-null STRING entry (null itself
-    // is handled above), so ['null','string'] and ['string','null'] agree.
-    // Junk entries are ignored rather than misread as "expect null".
-    const t = Array.isArray(s.type)
-      ? s.type.find(
-          (entry: any) => typeof entry === 'string' && entry !== 'null'
-        ) ?? (s.type.includes('null') ? 'null' : undefined)
-      : s.type
-    if (t === 'integer') {
-      if (typeof v !== 'number' || !Number.isInteger(v))
-        return err('Expected integer')
-    } else if (t === 'array') {
-      if (!Array.isArray(v)) return err('Expected array')
-    } else if (t === 'object') {
-      if (typeof v !== 'object' || Array.isArray(v))
-        return err('Expected object')
-    } else if (t && typeof v !== t) return err(`Expected ${t}`)
+    // Resolve the type against JSON Schema UNION semantics: a multi-type
+    // array (`['string','number']`) accepts a value matching ANY listed type
+    // (null is handled above). `t` becomes whichever listed type the value
+    // matches, so the object/array applicators and scalar constraints below
+    // apply to the branch that actually matched. Junk / non-string entries
+    // are ignored, never misread as "expect null".
+    const typeMatches = (ty: string): boolean =>
+      ty === 'integer'
+        ? typeof v === 'number' && Number.isInteger(v)
+        : ty === 'array'
+        ? Array.isArray(v)
+        : ty === 'object'
+        ? typeof v === 'object' && !Array.isArray(v)
+        : ty === 'number'
+        ? typeof v === 'number'
+        : typeof v === ty
+    const listed: string[] = Array.isArray(s.type)
+      ? s.type.filter((e: any) => typeof e === 'string' && e !== 'null')
+      : typeof s.type === 'string'
+      ? [s.type]
+      : []
+    let t: string | undefined
+    if (listed.length > 0) {
+      t = listed.find(typeMatches)
+      if (t === undefined) return err(`Expected ${listed.join(' | ')}`)
+    } else if (
+      Array.isArray(s.type) ? s.type.includes('null') : s.type === 'null'
+    ) {
+      // the type constrains to null only (v is non-null here) — reject
+      return err('Expected null')
+    }
+    // else: no enforceable type (absent, or all-junk) → accept
 
     // $predicate: computational validation on the (type-valid) value. Runs only
     // when an evaluator is registered — a naive validator ignores the keyword

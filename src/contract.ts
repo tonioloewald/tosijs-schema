@@ -56,6 +56,7 @@ const ANNOTATION_KEYWORDS: ReadonlySet<string> = new Set([
   'default',
   'examples',
   '$counterexamples',
+  '$inferred',
   '$schema',
   '$id',
   '$comment',
@@ -251,13 +252,9 @@ const unenforced = (s: any, at = 'root'): string[] => {
   if (Array.isArray(s.enum) && s.enum.some(isNonPrimitive)) {
     found.push(`${at}.enum (non-primitive member never matches)`)
   }
-  // multi-type arrays: only the first non-null entry is enforced
-  if (
-    Array.isArray(s.type) &&
-    s.type.filter((entry: any) => entry !== 'null').length > 1
-  ) {
-    found.push(`${at}.type (multi-type array; use anyOf)`)
-  }
+  // multi-type arrays (`['string','number']`) are enforced with union
+  // semantics since 1.6.0 — a value matching any listed type passes — so
+  // they no longer fail open and are legal in a gate schema.
   for (const [segment, kid] of enforcedChildren(s)) {
     found.push(...unenforced(kid, `${at}.${segment}`))
   }

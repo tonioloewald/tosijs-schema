@@ -1,6 +1,6 @@
 {
   "name": "tosijs-schema",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -19,6 +19,12 @@
       "require": "./dist/index.cjs",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./infer": {
+      "types": "./dist/src/infer.d.ts",
+      "require": "./dist/infer.cjs",
+      "import": "./dist/infer.js",
+      "default": "./dist/infer.js"
     }
   },
   "license": "MIT",
@@ -39,8 +45,8 @@
     "zod": "^4.1.12"
   },
   "scripts": {
-    "pack": "bun test && bun tsc --noEmit && bun bench.ts && bun examples.ts > examples.md && bun make-context.ts && bun build index.ts --target=node --format=cjs --outfile=dist/index.cjs && bun build index.ts --sourcemap=linked --minify --outdir=dist && bunx tsc index.ts --declaration --emitDeclarationOnly --outDir dist --skipLibCheck && bun run show-size",
-    "show-size": "gzip -9 -k dist/index.js && ls -lh dist/index.js.gz && rm dist/index.js.gz",
+    "pack": "bun test && bun tsc --noEmit && bun bench.ts && bun examples.ts > examples.md && bun make-context.ts && bun build index.ts --target=node --format=cjs --outfile=dist/index.cjs && bun build src/infer.ts --target=node --format=cjs --outfile=dist/infer.cjs && bun build index.ts --sourcemap=linked --minify --outdir=dist && bun build src/infer.ts --sourcemap=linked --minify --outdir=dist && bunx tsc index.ts --declaration --emitDeclarationOnly --outDir dist --skipLibCheck && bun run show-size",
+    "show-size": "gzip -9 -k dist/index.js && gzip -9 -k dist/infer.js && ls -lh dist/index.js.gz dist/infer.js.gz && rm dist/index.js.gz dist/infer.js.gz",
     "prepublishOnly": "bun run pack",
     "latest": "rm -rf node_modules && bun install"
   }
