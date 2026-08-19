@@ -196,3 +196,21 @@ Remaining (unverified reviewer leads — sanity-check first):
   subpath (unifies across all elements, objects open, structure-only, roundtrip
   guarantee, `$inferred` provenance) and steer away from the deprecated
   `s.infer`, so agents in other repos don't grep and reuse the footgun.
+
+## Decided: no `oneOf` support (unless a real need)
+
+`oneOf` (matches *exactly one* subschema) is deliberately omitted — `anyOf`
+(via `s.union`) covers real unions, `oneOf`'s mutual-exclusion is a footgun
+(overlapping branches reject valid data, e.g. `oneOf:[number,integer]` rejects
+`5`), and it can't short-circuit (must evaluate every branch — wrong for the
+stride-sampling hot path). Current posture is consistent: README documents it
+unsupported, and `agentContract` refuses it at construction so no gate can
+advertise-but-not-enforce it. Standalone `validate` silently ignores it (the
+documented "unknown keywords pass through" behavior), which is a benign
+under-enforcement rather than a hidden hole.
+
+**Only reconsider if** a consumer needs to validate EXTERNAL JSON Schema off
+the wire (OpenAPI docs etc. do use `oneOf`) — there the silent-ignore in
+`validate` becomes a real gap. Then it's ~10 lines (evaluate all branches,
+require exactly one match); pair with keeping the "prefer `anyOf`" guidance.
+Decided 2026-08-19.
