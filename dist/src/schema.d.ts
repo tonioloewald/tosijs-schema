@@ -124,6 +124,7 @@ interface Str<T = string> extends Base<T> {
     get ipv4(): Str<T>;
     get url(): Str<T>;
     get datetime(): Str<T>;
+    get date(): Str<T>;
     get emoji(): Str<T>;
 }
 interface Num<T = number> extends Base<T> {
@@ -160,6 +161,7 @@ declare const methods: {
     readonly ipv4: Str;
     readonly url: Str;
     readonly datetime: Str;
+    readonly date: Str;
     readonly emoji: Str;
     readonly null: Base<null>;
     readonly undefined: Base<undefined>;

@@ -5,6 +5,35 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] — 2026-08-19
+
+**Contains a BREAKING validation change** (`date-time` tightening) — see below
+and the README "Upgrading to 1.7.0". Per this project's policy (README
+"Versioning & stability"), validation getting stricter is treated as breaking
+even though it lands in a minor.
+
+### Fixed / Changed — BREAKING
+
+- **`format: 'date-time'` now enforces RFC 3339** ([#7](https://github.com/tonioloewald/tosijs-schema/issues/7)).
+  It was `!isNaN(Date.parse(v))`, which accepted non-RFC-3339 strings — a
+  date-only `2020-01-01`, a space-separated `2020-01-01 10:00:00`, even
+  `Jan 1 2020`. Those now **fail** `date-time`; a conforming validator (Ajv,
+  etc.) rejected them all along, so schemas carrying them didn't travel. A
+  date-time now requires the `T`, seconds, and a `Z`/offset.
+  - **Migration:** validate calendar dates with the new `s.date` / `format: 'date'`;
+    normalise timestamps to RFC 3339 (`2020-01-01T10:00:00Z`); or drop the
+    `format` annotation if you only need `type: 'string'`.
+
+### Added
+
+- **`format: 'date'`** — RFC 3339 full-date (`YYYY-MM-DD`, day-in-month
+  enforced, leap-year aware), now in `ENFORCED_FORMATS`, with a fluent `s.date` builder. `inferSchema(sample,
+  { formats: true })` sniffs it **before** `date-time`, so a date-only column
+  is labelled `date` (not the invalid `date-time` 1.6.x emitted) and the
+  emitted schema validates against its own sample *in other tools too*, not
+  just here. `format: 'date'` was previously ignored by `validate` (an
+  annotation); it is now enforced.
+
 ## [1.6.1] — 2026-08-19
 
 Patch — internal performance and test hardening from the v1.6.0 pre-release
@@ -260,6 +289,7 @@ see [#4](https://github.com/tonioloewald/tosijs-schema/issues/4) /
 
 - Assorted validation bugs.
 
+[1.7.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.7.0
 [1.6.1]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.6.1
 [1.6.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.6.0
 [1.5.1]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.1

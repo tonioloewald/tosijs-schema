@@ -157,6 +157,16 @@ describe('inferSchema — structure and requirements', () => {
     }
   })
 
+  test('date-only sniffs as `date`, timestamps as `date-time` — schemas that travel (#7)', () => {
+    const fmt = (sample: unknown) =>
+      (inferSchema(sample, { formats: true }).items as any).properties.d.format
+    expect(fmt([{ d: '2020-01-01' }, { d: '2021-05-05' }])).toBe('date')
+    expect(fmt([{ d: '2020-01-01T10:00:00Z' }])).toBe('date-time')
+    // a non-RFC-3339 string gets NO format rather than a wrong one another
+    // validator would reject
+    expect(fmt([{ d: '2020-01-01 10:00:00' }])).toBeUndefined()
+  })
+
   test('a sniffed format is a subset of the enforcer — never rejects its own sample (M3)', () => {
     // uri near-misses the loose regex used to accept but new URL() rejects
     for (const bad of ['http://', 'http:// x', 'http://[', 'http://%zz']) {

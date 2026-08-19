@@ -53,7 +53,8 @@ const ENUM_DEFAULTS = { maxDistinct: 12, minCoverage: 0.5 }
 // (from ./formats) — never a looser copy. That guarantees a sniffed format is
 // a subset of the enforced one, so an inferred schema can't reject its own
 // sample, and every emitted format is one agentContract will accept.
-const SNIFF_FORMATS = ['date-time', 'email', 'uri'] as const
+// `date` before `date-time` so a date-only string wins the more specific match
+const SNIFF_FORMATS = ['date', 'date-time', 'email', 'uri'] as const
 
 const scalarType = (v: unknown): string => {
   if (v === null) return 'null'

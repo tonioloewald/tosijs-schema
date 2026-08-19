@@ -115,6 +115,9 @@ const create = (s: any, optional = false): any => ({
   get datetime() {
     return create({ ...s, format: 'date-time' }, optional)
   },
+  get date() {
+    return create({ ...s, format: 'date' }, optional)
+  },
   get emoji() {
     return create({ ...s, pattern: `^${RX_EMOJI_ATOM}+$`, format: 'emoji' }, optional)
   },
@@ -272,6 +275,7 @@ interface Str<T = string> extends Base<T> {
   get ipv4(): Str<T>
   get url(): Str<T>
   get datetime(): Str<T>
+  get date(): Str<T>
   get emoji(): Str<T>
 }
 
@@ -327,6 +331,9 @@ const methods = {
   },
   get datetime() {
     return create({ type: 'string', format: 'date-time' }) as Str
+  },
+  get date() {
+    return create({ type: 'string', format: 'date' }) as Str
   },
   get emoji() {
     return create({

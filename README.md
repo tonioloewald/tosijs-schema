@@ -19,6 +19,19 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ## Upgrading
 
+### To 1.7.0 (from 1.6.x) — one BREAKING validation change
+
+`format: 'date-time'` now enforces **RFC 3339** instead of `Date.parse`. Strings that aren't valid RFC 3339 date-times now fail — they were accepted before but a conforming validator (Ajv, etc.) always rejected them, so schemas carrying them never travelled.
+
+| Value under `format: 'date-time'` | ≤ 1.6.1 | 1.7.0 | Fix |
+| --- | --- | --- | --- |
+| `2020-01-01T10:00:00Z` | pass | pass | — |
+| `2020-01-01` (date only) | pass | **fail** | use the new `s.date` (`format: 'date'`) |
+| `2020-01-01 10:00:00` (space) | pass | **fail** | make it a `T`: `2020-01-01T10:00:00Z` |
+| `Jan 1 2020` | pass | **fail** | normalise to RFC 3339, or drop `format` |
+
+Also new: **`format: 'date'`** (RFC 3339 full-date) is now enforced — previously it was an ignored annotation, so a non-date string with `format: 'date'` now fails. And `inferSchema(…, { formats: true })` labels date-only columns `date` (not the invalid `date-time` 1.6.x emitted). Everything else is additive.
+
 ### To 1.6.0 (from 1.5.x)
 
 Additive — nothing that validated before is rejected now. New: [`inferSchema`](#infer-a-schema-from-data), open objects (`.open`), and multi-type `type` arrays now validate as unions. Optional-but-recommended: if you `inferSchema`, note its output now carries `$inferred: true` at the root (pass `{ marker: false }` to omit).
@@ -174,7 +187,7 @@ This matters for:
 
 tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~7kB bundle (tree-shakeable — see below) vs spec compliance.
 
-**Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (common formats), boolean schemas (`true`/`false`), `$predicate` (with a registered evaluator), `default`, `title`, `description`
+**Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (`email`, `uuid`, `uri`, `ipv4`, `date`, `date-time` — RFC 3339, `emoji`), boolean schemas (`true`/`false`), `$predicate` (with a registered evaluator), `default`, `title`, `description`
 
 **Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `oneOf`, `not`, `exclusiveMinimum` / `exclusiveMaximum`, `uniqueItems`, `contains`, `prefixItems`, `propertyNames`, and other advanced keywords. Unsupported keywords are silently ignored by `validate` (they pass through untouched, like any unknown key) — except in `agentContract`, which refuses them at construction so a gate can't fail open.
 
@@ -250,8 +263,10 @@ s.null            s.undefined       s.any
 
 ```typescript
 s.email           s.uuid            s.url             s.ipv4
-s.datetime        s.emoji           s.pattern(/.../)
+s.date            s.datetime        s.emoji           s.pattern(/.../)
 ```
+
+`s.date` (RFC 3339 full-date) and `s.datetime` (RFC 3339 date-time) validate against the same predicates a conforming validator (Ajv) uses, so the schemas travel.
 
 ### Complex Types
 
@@ -510,7 +525,7 @@ All files        |   98.22 |   97.44
   src/schema.ts   |   96.92 |   95.02
 ```
 
-266 tests, 770 assertions.
+269 tests, 792 assertions.
 
 ## License
 

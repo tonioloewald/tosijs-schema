@@ -183,19 +183,22 @@ Remaining (unverified reviewer leads — sanity-check first):
 
 ### Shared practices KB (commit to `../tosijs-coding-practices`)
 
-- [ ] `releasing.md`: a drift gate built on "regenerate + `git diff`" protects
-  only GENERATED artifacts; a hand-maintained field it *names* (e.g. an
-  llms.txt version string) is false assurance — generate it or drop it from
-  the gate's claimed coverage. Seen in: tosijs-schema (llms.txt stayed v1.5.0
-  through two releases while the gate "covered" it).
-- [ ] `releasing.md`: when a release tightens a default that fails consumers on
-  install, the sanctioned escape hatch must ship in the SAME release
-  (tighten-and-relief atomically). Seen in: tosijs-schema 1.5.0 (tighten
-  `additionalProperties`) → 1.6.0 (`.open` relief) — one release of pain.
-- [ ] `state-and-schema.md`: add `inferSchema` / the `tosijs-schema/infer`
-  subpath (unifies across all elements, objects open, structure-only, roundtrip
-  guarantee, `$inferred` provenance) and steer away from the deprecated
-  `s.infer`, so agents in other repos don't grep and reuse the footgun.
+Landed in the KB during the v1.6.0 review (KB commit `50580f9`) and the v1.7.0
+review (KB commits `50580f9`, `f8e3cac`); all three ticked:
+
+- [x] `releasing.md`: a drift gate built on "regenerate + `git diff`" protects
+  only GENERATED artifacts; a hand-maintained field it *names* is false
+  assurance (llms.txt version stale through two releases).
+- [x] `releasing.md`: ship the escape hatch in the SAME release as the
+  tightening — with 1.7.0 added as the positive counterpart (`format:'date'`
+  shipped atomically with the `date-time` tightening).
+- [x] `state-and-schema.md`: `inferSchema` / the `/infer` subpath added; steer
+  away from the deprecated `s.infer`.
+
+**KB write-back log** (base..sha, this repo):
+- v1.6.0 review → KB `50580f9`.
+- v1.7.0 review (`v1.6.1..HEAD`) → KB `f8e3cac` (1.7.0 positive citation, infer
+  subpath size fix).
 
 ## Decided: no `oneOf` support (unless a real need)
 

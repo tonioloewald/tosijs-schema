@@ -2,8 +2,8 @@
 
 > **Generated:** 2026-08-19
 > **Test Framework:** Bun Test
-> **Total Tests:** 266
-> **Total Assertions:** 770
+> **Total Tests:** 269
+> **Total Assertions:** 792
 > **Pass Rate:** 100%
 
 ---
@@ -13,12 +13,12 @@
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   98.88 |   98.47 |
+All files        |   98.90 |   98.48 |
  src/contract.ts |   97.67 |   97.28 | 85,436,438,441,450-452,483-484
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   96.72 |   95.07 | 119-123,329-335,470,933-934,948,968-969,992-1001,1004-1005
+ src/schema.ts   |   96.83 |   95.11 | 122-126,336-342,477,940-941,955,975-976,999-1008,1011-1012
 ```
 
 ## Summary
@@ -27,11 +27,11 @@ All files        |   98.88 |   98.47 |
 |--------|-------|-------|---------------|
 | `schema.ts` | 1030 | 163 | 95.07% |
 | `infer.ts` | 243 | 40 | 100% |
-| `formats.ts` | 53 | (shared) | 100% |
+| `formats.ts` | 80 | (shared) | 100% |
 | `monad.ts` | 179 | 10 | 100% |
 | `contract.ts` | 532 | 42 | 97.27% |
 | Type Inference | 251 | 17 | (compile-time) |
-| **Total** | **2,288** | **266** | **98.47%** |
+| **Total** | **2,329** | **269** | **98.48%** |
 
 ### contract.ts Coverage
 
@@ -76,7 +76,8 @@ All files        |   98.88 |   98.47 |
 | `s.uuid` | ✅ Covered | 3 | RFC 4122 pattern |
 | `s.ipv4` | ✅ Covered | 5 | Octet range validation |
 | `s.url` | ✅ Covered | 5 | `new URL()` parsing |
-| `s.datetime` | ✅ Covered | 4 | `Date.parse()` |
+| `s.datetime` | ✅ Covered | 5 | RFC 3339 (T, seconds, Z/offset) |
+| `s.date` | ✅ Covered | 2 | RFC 3339 full-date (day-in-month) |
 | `s.emoji` | ✅ Covered | 4 | Unicode property escape |
 | `s.pattern()` | ✅ Covered | 4 | Custom regex |
 

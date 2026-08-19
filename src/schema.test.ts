@@ -110,6 +110,12 @@ describe('Validation: String Formats', () => {
     expect(validate('192.168.1.1', s.string.ipv4.schema)).toBeTrue()
     expect(validate('999.999.999.999', s.string.ipv4.schema)).toBeFalse()
 
+    // s.date / s.string.date — the fluent form of the 1.7.0 migration remedy
+    expect(s.date.schema).toEqual({ type: 'string', format: 'date' })
+    expect(s.string.date.schema).toEqual({ type: 'string', format: 'date' })
+    expect(validate('2020-01-01', s.date.schema)).toBeTrue()
+    expect(validate('2020-13-01', s.date.schema)).toBeFalse()
+
     expect(validate('https://google.com', s.string.url.schema)).toBeTrue()
     expect(validate('google.com', s.string.url.schema)).toBeFalse()
 

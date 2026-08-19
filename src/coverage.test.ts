@@ -346,14 +346,38 @@ describe('Format validator edge cases', () => {
       expect(validate('2023-11-21T10:00:00.123Z', s.datetime)).toBeTrue()
     })
 
-    test('date only', () => {
-      // Date.parse accepts date-only strings
-      expect(validate('2023-11-21', s.datetime)).toBeTrue()
+    test('date-time is RFC 3339: a date-only string is NOT a date-time (#7)', () => {
+      // (1.7.0) previously accepted via Date.parse — but `2023-11-21` is not a
+      // valid RFC 3339 date-time, so conforming validators reject it. Use `date`.
+      expect(validate('2023-11-21', s.datetime)).toBeFalse()
+      expect(validate('2023-11-21', { type: 'string', format: 'date' })).toBeTrue()
     })
 
-    test('rejects invalid dates', () => {
+    test('date-time rejects non-RFC-3339 strings Date.parse used to accept', () => {
       expect(validate('not-a-date', s.datetime)).toBeFalse()
-      expect(validate('2023-13-01', s.datetime)).toBeFalse() // Invalid month
+      expect(validate('2023-13-01', s.datetime)).toBeFalse() // invalid month
+      expect(validate('2023-11-21 10:00:00', s.datetime)).toBeFalse() // space, not T
+      expect(validate('Jan 1 2020', s.datetime)).toBeFalse()
+    })
+
+    test('date-time enforces RFC 3339 time components', () => {
+      const dt = s.datetime
+      expect(validate('2020-01-01T10:00:00-05:00', dt)).toBeTrue() // negative offset
+      expect(validate('2020-01-01T25:00:00Z', dt)).toBeFalse() // hour > 23
+      expect(validate('2020-01-01T10:99:00Z', dt)).toBeFalse() // minute > 59
+      expect(validate('2020-01-01T10:00:61Z', dt)).toBeFalse() // second > 60
+      expect(validate('2020-01-01T10:00Z', dt)).toBeFalse() // seconds required
+      // a leap second (`:60`) is legal only at 23:59, per ajv-formats
+      expect(validate('2016-12-31T23:59:60Z', dt)).toBeTrue()
+      expect(validate('2020-01-01T10:00:60Z', dt)).toBeFalse()
+    })
+
+    test('format: date is RFC 3339 full-date (day-in-month enforced)', () => {
+      expect(validate('2024-02-29', { type: 'string', format: 'date' })).toBeTrue() // leap
+      expect(validate('2023-02-29', { type: 'string', format: 'date' })).toBeFalse() // not leap
+      expect(validate('2020-02-30', { type: 'string', format: 'date' })).toBeFalse()
+      expect(validate('2020-13-01', { type: 'string', format: 'date' })).toBeFalse()
+      expect(validate('2020-1-1', { type: 'string', format: 'date' })).toBeFalse() // not zero-padded
     })
   })
 })

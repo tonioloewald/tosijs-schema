@@ -45,6 +45,19 @@ module.exports = __toCommonJS(exports_infer);
 
 // src/formats.ts
 var RX_EMOJI_ATOM = "\\p{Extended_Pictographic}";
+var RX_FULL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+var DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+var isFullDate = (v) => {
+  const m = RX_FULL_DATE.exec(v);
+  if (!m)
+    return false;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1)
+    return false;
+  const max = mo === 2 && y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : DAYS_IN_MONTH[mo - 1];
+  return d <= max;
+};
+var RX_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 var FORMAT_VALIDATORS = {
   email: (v) => /^\S+@\S+\.\S+$/.test(v),
   uuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
@@ -57,7 +70,16 @@ var FORMAT_VALIDATORS = {
     }
   },
   ipv4: (v) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(v),
-  "date-time": (v) => !isNaN(Date.parse(v)),
+  date: isFullDate,
+  "date-time": (v) => {
+    const m = RX_DATE_TIME.exec(v);
+    if (!m || !isFullDate(m[1]))
+      return false;
+    const hh = +m[2], mm = +m[3], ss = +m[4];
+    if (hh > 23 || mm > 59)
+      return false;
+    return ss <= 59 || ss === 60 && hh === 23 && mm === 59;
+  },
   emoji: (v) => new RegExp(RX_EMOJI_ATOM, "u").test(v)
 };
 var ENFORCED_FORMATS = new Set(Object.keys(FORMAT_VALIDATORS));
@@ -65,7 +87,7 @@ var PATTERN_CACHE = new Map;
 
 // src/infer.ts
 var ENUM_DEFAULTS = { maxDistinct: 12, minCoverage: 0.5 };
-var SNIFF_FORMATS = ["date-time", "email", "uri"];
+var SNIFF_FORMATS = ["date", "date-time", "email", "uri"];
 var scalarType = (v) => {
   if (v === null)
     return "null";
