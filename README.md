@@ -15,6 +15,8 @@ A **schema-first** validation library. Define schemas, infer TypeScript types, v
 - **Loosening** (accepting more, a new opt-in) and **new API** are ordinary minors.
 - We **deprecate before we remove**, and keep a migration table in the CHANGELOG — which ships in the npm tarball, so it's reachable from what you installed.
 
+**Why we break toward correctness rather than hold compatibility:** a schema validator that accepts data the spec rejects — or that leaves a declared constraint unenforced — is wrong in a way that quietly corrupts everything downstream (schemas that don't travel, gates that don't gate). We'd rather refuse that data loudly, in a documented release, than carry the incorrectness forward. The one distinction we hold: a **fail-open** fix (the old behavior was a hole) is never softened with a "legacy-loose" option — that would just be an opt-in to the bug; a **spec-conformance** tightening is the kind we'd consider a flag for if there were ever demand.
+
 Pin an exact version (or use a lockfile) if you cannot absorb a validation change on install. Each breaking release has an "Upgrading" section below and a changelog entry naming exactly what changed.
 
 ## Upgrading
