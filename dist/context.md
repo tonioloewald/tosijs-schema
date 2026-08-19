@@ -41,7 +41,7 @@ Adapters for capability-gated write paths (tosijs's agent surface, or anything w
 * **`inferSchema(sample, opts?)` → JSONSchema:** derive a schema from example data (runtime inverse of `Infer<S>`). Unifies across every array element, presence decides `required`, `null` joins the type union, structure only (no range constraints), objects open (`additionalProperties: true`). `formats`/`enums` opt-in and conservative; `sampleSize`/`onTruncate` surface capping.
 * **Invariant:** `validate(sample, inferSchema(sample))` is always true.
 * **`$inferred` marker:** roots are stamped `$inferred: true` (observed vs authored); opt out with `{ marker: false }`. A pure annotation — validate ignores it, agentContract allows it.
-* **Tree-shakeable:** its only runtime dep is the tiny shared `src/formats.ts`; published as the `tosijs-schema/infer` subpath (~1.3kB). The legacy `s.infer` builder method is deprecated (first-element, closed) in favor of this.
+* **Tree-shakeable:** its only runtime dep is the tiny shared `src/formats.ts`; published as the `tosijs-schema/infer` subpath (~1.4kB). The legacy `s.infer` builder method is deprecated (first-element, closed) in favor of this.
 
 ### E. Shared Format Predicates (`src/formats.ts`)
 

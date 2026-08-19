@@ -10,3 +10,4 @@ export declare const RX_EMOJI_ATOM = "\\p{Extended_Pictographic}";
 export declare const FORMAT_VALIDATORS: Record<string, (v: string) => boolean>;
 /** the formats `validate` actually enforces (and thus that inference may emit) */
 export declare const ENFORCED_FORMATS: ReadonlySet<string>;
+export declare const compilePattern: (pattern: string, emoji: boolean) => RegExp;

@@ -128,7 +128,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Output | Native JSON Schema | Proprietary | Native JSON Schema |
 | JSON Schema spec | Practical subset | N/A (not JSON Schema) | Draft 2020-12 compliant |
 | Syntax | `s.email` | `z.string().email()` | `Type.String({ format: 'email' })` |
-| Bundle | ~7kB (or ~1.3kB, `/infer` only) | ~14kB | ~64kB |
+| Bundle | ~7kB (or ~1.4kB, `/infer` only) | ~14kB | ~64kB |
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
@@ -353,7 +353,7 @@ diff(schemaV1.schema, schemaV2.schema)
 
 ```typescript
 import { inferSchema } from 'tosijs-schema'
-// tree-shakers can import the ~1.3kB module directly:
+// tree-shakers can import the ~1.4kB module directly:
 // import { inferSchema } from 'tosijs-schema/infer'
 
 inferSchema([{ id: 1, tag: 'a' }, { id: 2 }])
@@ -383,14 +383,14 @@ Import only what you use. The package is `sideEffects: false` and each concern i
 
 | You import | Pulls in | gzipped |
 | --- | --- | --- |
-| `inferSchema` (from `tosijs-schema/infer`) | just inference | **~1.3 kB** |
+| `inferSchema` (from `tosijs-schema/infer`) | just inference | **~1.4 kB** |
 | `validate` | the validator | ~2.7 kB |
 | `s` (builder) | builder + validator | ~2.7 kB |
 | `filter` | validator + filter | ~3.1 kB |
 | `agentContract` | validator + contract layer | ~4.6 kB |
 | everything | the whole library | ~7.1 kB |
 
-`inferSchema` is also published as a self-contained subpath, `tosijs-schema/infer`, so it stays ~1.3 kB even where a bundler can't tree-shake the pre-bundled main entry. The other pieces share the validator core (one module), so importing `validate`, `s`, `filter`, or `diff` lands around 2.7–3.1 kB regardless.
+`inferSchema` is also published as a self-contained subpath, `tosijs-schema/infer`, so it stays ~1.4 kB even where a bundler can't tree-shake the pre-bundled main entry. The other pieces share the validator core (one module), so importing `validate`, `s`, `filter`, or `diff` lands around 2.7–3.1 kB regardless.
 
 ## Agent Contracts
 
@@ -510,7 +510,7 @@ All files        |   98.22 |   97.44
   src/schema.ts   |   96.92 |   95.02
 ```
 
-263 tests, 755 assertions.
+266 tests, 770 assertions.
 
 ## License
 

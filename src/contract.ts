@@ -14,6 +14,7 @@ import {
   type JSONSchema,
   type Base,
 } from './schema'
+import { compilePattern } from './formats'
 
 /**
  * Supplied by the surface when a write lands at or under a contracted root:
@@ -234,7 +235,7 @@ const unenforced = (s: any, at = 'root'): string[] => {
   // on it, which would refuse every string — surface it at construction)
   if (typeof s.pattern === 'string') {
     try {
-      new RegExp(s.pattern, s.format === 'emoji' ? 'u' : '')
+      compilePattern(s.pattern, s.format === 'emoji')
     } catch {
       found.push(`${at}.pattern (invalid regex)`)
     }

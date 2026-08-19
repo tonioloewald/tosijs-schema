@@ -27,7 +27,7 @@ bun run pack                    # full pipeline: tests + typecheck + bench + exa
 
 A ~7kB-gzipped (tree-shakeable) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required (`.open` / `s.object(props, { additionalProperties: true })` opts a single object into admitting unknown keys, for protocols you don't control).
 
-Public API is `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, `src/contract.ts`, and `src/infer.ts`. `sideEffects: false` + per-concern modules make named imports tree-shakeable; `inferSchema` is also a self-contained `tosijs-schema/infer` subpath (~1.3kB), built separately in `pack`. Its only runtime dependency is the tiny `src/formats.ts` (shared format predicates); keep it that way — pulling in `schema.ts` would blow up the subpath.
+Public API is `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, `src/contract.ts`, and `src/infer.ts`. `sideEffects: false` + per-concern modules make named imports tree-shakeable; `inferSchema` is also a self-contained `tosijs-schema/infer` subpath (~1.4kB), built separately in `pack`. Its only runtime dependency is the tiny `src/formats.ts` (shared format predicates); keep it that way — pulling in `schema.ts` would blow up the subpath.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ Public API is `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, `src/cont
 
 ### `src/infer.ts` — data → schema
 
-`inferSchema(sample, opts?)` derives a JSON Schema from example data (runtime inverse of `Infer<S>`). Structure only (never invents range constraints), unifies across every array element, presence decides `required`, objects open (`additionalProperties: true`), heterogeneous same-position data becomes `anyOf`. Its only runtime import is the tiny `src/formats.ts` (below), so it still ships as the ~1.3kB `tosijs-schema/infer` subpath — don't import anything from `schema.ts` here. Invariant: `validate(sample, inferSchema(sample))` is always true — any change must preserve it (the suite asserts it over every fixture, incl. mixed kinds and `formats:true`). The old `s.infer` builder method is the deprecated first-element/closed version; leave it, steer to `inferSchema`.
+`inferSchema(sample, opts?)` derives a JSON Schema from example data (runtime inverse of `Infer<S>`). Structure only (never invents range constraints), unifies across every array element, presence decides `required`, objects open (`additionalProperties: true`), heterogeneous same-position data becomes `anyOf`. Its only runtime import is the tiny `src/formats.ts` (below), so it still ships as the ~1.4kB `tosijs-schema/infer` subpath — don't import anything from `schema.ts` here. Invariant: `validate(sample, inferSchema(sample))` is always true — any change must preserve it (the suite asserts it over every fixture, incl. mixed kinds and `formats:true`). The old `s.infer` builder method is the deprecated first-element/closed version; leave it, steer to `inferSchema`.
 
 ### `src/formats.ts` — the one format-predicate source
 

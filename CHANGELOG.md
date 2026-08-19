@@ -5,6 +5,29 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] — 2026-08-19
+
+Patch — internal performance and test hardening from the v1.6.0 pre-release
+review follow-ups. No behavior or API change.
+
+### Changed (internal)
+
+- **Validator hot path:** the multi-type resolution no longer allocates a
+  `typeMatches` closure per visited node, and the common single-type path
+  skips building a `type` array entirely. `pattern` regexes are compiled once
+  and reused via a bounded cache (shared through `formats.ts`) instead of
+  recompiled per value — previously a large array under a `pattern` schema
+  recompiled the same regex per element. Behavior is identical (an invalid
+  pattern still fails closed; the emoji `u`-flag variant stays a distinct key).
+- **`inferSchema` sampling:** when `sampleSize` truncates, elements are copied
+  up to the cap instead of flattening the whole input first.
+
+### Tests
+
+- Pinned strict-option propagation through the multi-type union dispatch
+  (>97-item array), scalar constraints on a matched union branch, and
+  pattern-cache semantics. `infer.ts` and `formats.ts` at 100% coverage.
+
 ## [1.6.0] — 2026-08-19
 
 **Not breaking.** Everything here is new API or a *loosening* — nothing that
@@ -237,6 +260,7 @@ see [#4](https://github.com/tonioloewald/tosijs-schema/issues/4) /
 
 - Assorted validation bugs.
 
+[1.6.1]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.6.1
 [1.6.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.6.0
 [1.5.1]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.1
 [1.5.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.5.0

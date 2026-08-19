@@ -162,11 +162,22 @@ function unifyArrayValues(
   opts: InferOptions,
   path: string
 ): JSONSchema {
-  let items = arrays.flat()
-  const total = items.length
+  const total = arrays.reduce((n, a) => n + a.length, 0)
+  let items: unknown[]
   if (opts.sampleSize !== undefined && total > opts.sampleSize) {
-    items = items.slice(0, opts.sampleSize)
+    // bound the copy to sampleSize — don't flatten a huge array just to
+    // slice it away (total is counted from lengths, no copy)
+    items = []
+    for (const a of arrays) {
+      for (const el of a) {
+        items.push(el)
+        if (items.length >= opts.sampleSize) break
+      }
+      if (items.length >= opts.sampleSize) break
+    }
     opts.onTruncate?.({ path: path || '(root)', sampled: items.length, total })
+  } else {
+    items = arrays.flat()
   }
   if (items.length === 0) return { type: 'array' }
   return { type: 'array', items: unify(items, opts, `${path}[]`) }

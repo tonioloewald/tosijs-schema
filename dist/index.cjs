@@ -77,6 +77,20 @@ var FORMAT_VALIDATORS = {
   emoji: (v) => new RegExp(RX_EMOJI_ATOM, "u").test(v)
 };
 var ENFORCED_FORMATS = new Set(Object.keys(FORMAT_VALIDATORS));
+var PATTERN_CACHE = new Map;
+var PATTERN_CACHE_MAX = 500;
+var compilePattern = (pattern, emoji) => {
+  const flags = emoji ? "u" : "";
+  const key = flags + "\x00" + pattern;
+  let re = PATTERN_CACHE.get(key);
+  if (re === undefined) {
+    re = new RegExp(pattern, flags);
+    if (PATTERN_CACHE.size >= PATTERN_CACHE_MAX)
+      PATTERN_CACHE.clear();
+    PATTERN_CACHE.set(key, re);
+  }
+  return re;
+};
 
 // src/schema.ts
 var create = (s, optional = false) => ({
@@ -268,6 +282,7 @@ var s = new Proxy(methods, {
   }
 });
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+var matchesType = (v, ty) => ty === "integer" ? typeof v === "number" && Number.isInteger(v) : ty === "array" ? Array.isArray(v) : ty === "object" ? typeof v === "object" && !Array.isArray(v) : ty === "number" ? typeof v === "number" : typeof v === ty;
 var setKey = (o, k, v) => {
   if (k === "__proto__") {
     Object.defineProperty(o, k, {
@@ -349,15 +364,29 @@ function validate(val, builderOrSchema, opts) {
       const typeIncludesNull = Array.isArray(s2.type) && s2.type.includes("null");
       return expectsUndefined || typeIncludesNull || !s2.type || err("Expected value, got undefined");
     }
-    const typeMatches = (ty) => ty === "integer" ? typeof v === "number" && Number.isInteger(v) : ty === "array" ? Array.isArray(v) : ty === "object" ? typeof v === "object" && !Array.isArray(v) : ty === "number" ? typeof v === "number" : typeof v === ty;
-    const listed = Array.isArray(s2.type) ? s2.type.filter((e) => typeof e === "string" && e !== "null") : typeof s2.type === "string" ? [s2.type] : [];
     let t;
-    if (listed.length > 0) {
-      t = listed.find(typeMatches);
-      if (t === undefined)
-        return err(`Expected ${listed.join(" | ")}`);
-    } else if (Array.isArray(s2.type) ? s2.type.includes("null") : s2.type === "null") {
-      return err("Expected null");
+    if (typeof s2.type === "string") {
+      if (s2.type === "null")
+        return err("Expected null");
+      if (!matchesType(v, s2.type))
+        return err(`Expected ${s2.type}`);
+      t = s2.type;
+    } else if (Array.isArray(s2.type)) {
+      let hasNonNull = false;
+      for (const ty of s2.type) {
+        if (typeof ty !== "string" || ty === "null")
+          continue;
+        hasNonNull = true;
+        if (matchesType(v, ty)) {
+          t = ty;
+          break;
+        }
+      }
+      if (hasNonNull && t === undefined) {
+        return err(`Expected ${s2.type.filter((e) => typeof e === "string" && e !== "null").join(" | ")}`);
+      }
+      if (!hasNonNull && s2.type.includes("null"))
+        return err("Expected null");
     }
     if (s2.$predicate && predicateEvaluator) {
       if (!predicateEvaluator(s2.$predicate, v))
@@ -384,7 +413,7 @@ function validate(val, builderOrSchema, opts) {
         return err("Len > max");
       if (s2.pattern) {
         try {
-          if (!new RegExp(s2.pattern, s2.format === "emoji" ? "u" : "").test(v))
+          if (!compilePattern(s2.pattern, s2.format === "emoji").test(v))
             return err("Pattern mismatch");
         } catch {
           return err("Invalid pattern");
@@ -923,7 +952,7 @@ var unenforced = (s2, at = "root") => {
   }
   if (typeof s2.pattern === "string") {
     try {
-      new RegExp(s2.pattern, s2.format === "emoji" ? "u" : "");
+      compilePattern(s2.pattern, s2.format === "emoji");
     } catch {
       found.push(`${at}.pattern (invalid regex)`);
     }
@@ -1182,11 +1211,22 @@ function unifyObjects(objs, opts, path) {
   return { type: "object", properties, required, additionalProperties: true };
 }
 function unifyArrayValues(arrays, opts, path) {
-  let items = arrays.flat();
-  const total = items.length;
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  let items;
   if (opts.sampleSize !== undefined && total > opts.sampleSize) {
-    items = items.slice(0, opts.sampleSize);
+    items = [];
+    for (const a of arrays) {
+      for (const el of a) {
+        items.push(el);
+        if (items.length >= opts.sampleSize)
+          break;
+      }
+      if (items.length >= opts.sampleSize)
+        break;
+    }
     opts.onTruncate?.({ path: path || "(root)", sampled: items.length, total });
+  } else {
+    items = arrays.flat();
   }
   if (items.length === 0)
     return { type: "array" };

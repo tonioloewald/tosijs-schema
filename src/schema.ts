@@ -3,6 +3,7 @@ import {
   RX_EMOJI_ATOM,
   FORMAT_VALIDATORS as FMT,
   ENFORCED_FORMATS,
+  compilePattern,
 } from './formats'
 
 // re-export so existing consumers of `ENFORCED_FORMATS` from 'tosijs-schema' keep working
@@ -475,6 +476,19 @@ export const s = new Proxy(methods, {
 
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
+// does a value match a single JSON Schema type name? (module-level so the
+// validator's hot loop doesn't allocate a closure per node)
+const matchesType = (v: any, ty: string): boolean =>
+  ty === 'integer'
+    ? typeof v === 'number' && Number.isInteger(v)
+    : ty === 'array'
+    ? Array.isArray(v)
+    : ty === 'object'
+    ? typeof v === 'object' && !Array.isArray(v)
+    : ty === 'number'
+    ? typeof v === 'number'
+    : typeof v === ty
+
 // plain assignment would let a key named '__proto__' REPLACE the target's
 // prototype with attacker data — define that one as an own data property
 // instead (plain assignment for everything else; defineProperty on every
@@ -616,32 +630,32 @@ export function validate(
     // matches, so the object/array applicators and scalar constraints below
     // apply to the branch that actually matched. Junk / non-string entries
     // are ignored, never misread as "expect null".
-    const typeMatches = (ty: string): boolean =>
-      ty === 'integer'
-        ? typeof v === 'number' && Number.isInteger(v)
-        : ty === 'array'
-        ? Array.isArray(v)
-        : ty === 'object'
-        ? typeof v === 'object' && !Array.isArray(v)
-        : ty === 'number'
-        ? typeof v === 'number'
-        : typeof v === ty
-    const listed: string[] = Array.isArray(s.type)
-      ? s.type.filter((e: any) => typeof e === 'string' && e !== 'null')
-      : typeof s.type === 'string'
-      ? [s.type]
-      : []
     let t: string | undefined
-    if (listed.length > 0) {
-      t = listed.find(typeMatches)
-      if (t === undefined) return err(`Expected ${listed.join(' | ')}`)
-    } else if (
-      Array.isArray(s.type) ? s.type.includes('null') : s.type === 'null'
-    ) {
-      // the type constrains to null only (v is non-null here) — reject
-      return err('Expected null')
+    if (typeof s.type === 'string') {
+      // fast path: a single named type (no array allocation)
+      if (s.type === 'null') return err('Expected null') // v is non-null here
+      if (!matchesType(v, s.type)) return err(`Expected ${s.type}`)
+      t = s.type
+    } else if (Array.isArray(s.type)) {
+      // union: accept a value matching ANY listed non-null type; junk / 'null'
+      // entries are skipped (null itself was handled by the early-outs above)
+      let hasNonNull = false
+      for (const ty of s.type) {
+        if (typeof ty !== 'string' || ty === 'null') continue
+        hasNonNull = true
+        if (matchesType(v, ty)) {
+          t = ty
+          break
+        }
+      }
+      if (hasNonNull && t === undefined) {
+        return err(
+          `Expected ${s.type.filter((e: any) => typeof e === 'string' && e !== 'null').join(' | ')}`
+        )
+      }
+      if (!hasNonNull && s.type.includes('null')) return err('Expected null')
     }
-    // else: no enforceable type (absent, or all-junk) → accept
+    // else: no enforceable type (absent, or all-junk array) → accept
 
     // $predicate: computational validation on the (type-valid) value. Runs only
     // when an evaluator is registered — a naive validator ignores the keyword
@@ -670,7 +684,7 @@ export function validate(
         // an invalid regex cannot prove the value valid — fail closed,
         // never throw (agentContract also refuses it at construction)
         try {
-          if (!new RegExp(s.pattern, s.format === 'emoji' ? 'u' : '').test(v))
+          if (!compilePattern(s.pattern, s.format === 'emoji').test(v))
             return err('Pattern mismatch')
         } catch {
           return err('Invalid pattern')

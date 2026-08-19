@@ -61,6 +61,7 @@ var FORMAT_VALIDATORS = {
   emoji: (v) => new RegExp(RX_EMOJI_ATOM, "u").test(v)
 };
 var ENFORCED_FORMATS = new Set(Object.keys(FORMAT_VALIDATORS));
+var PATTERN_CACHE = new Map;
 
 // src/infer.ts
 var ENUM_DEFAULTS = { maxDistinct: 12, minCoverage: 0.5 };
@@ -134,11 +135,22 @@ function unifyObjects(objs, opts, path) {
   return { type: "object", properties, required, additionalProperties: true };
 }
 function unifyArrayValues(arrays, opts, path) {
-  let items = arrays.flat();
-  const total = items.length;
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  let items;
   if (opts.sampleSize !== undefined && total > opts.sampleSize) {
-    items = items.slice(0, opts.sampleSize);
+    items = [];
+    for (const a of arrays) {
+      for (const el of a) {
+        items.push(el);
+        if (items.length >= opts.sampleSize)
+          break;
+      }
+      if (items.length >= opts.sampleSize)
+        break;
+    }
     opts.onTruncate?.({ path: path || "(root)", sampled: items.length, total });
+  } else {
+    items = arrays.flat();
   }
   if (items.length === 0)
     return { type: "array" };

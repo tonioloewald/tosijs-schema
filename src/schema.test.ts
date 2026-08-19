@@ -79,6 +79,22 @@ describe('Validation: Primitives', () => {
     expect(validate('user_123', schema.schema)).toBeTrue()
     expect(validate('user_abc', schema.schema)).toBeFalse()
   })
+
+  test('pattern compilation is cached without changing semantics', () => {
+    const schema = { type: 'string', pattern: '^\\d+$' }
+    // repeated validations (would each hit the cache) stay correct
+    for (let i = 0; i < 3; i++) {
+      expect(validate('123', schema)).toBeTrue()
+      expect(validate('12a', schema)).toBeFalse()
+    }
+    // the emoji `u`-flag variant is a distinct cache key, not a collision
+    const emoji = { type: 'string', pattern: '^\\p{Extended_Pictographic}+$', format: 'emoji' }
+    expect(validate('😀', emoji)).toBeTrue()
+    expect(validate('x', emoji)).toBeFalse()
+    // an invalid pattern still fails closed (never cached, never throws)
+    expect(validate('anything', { type: 'string', pattern: '[' })).toBeFalse()
+    expect(validate('anything', { type: 'string', pattern: '[' })).toBeFalse()
+  })
 })
 
 describe('Validation: String Formats', () => {
@@ -603,6 +619,23 @@ describe('Algebra', () => {
     expect(
       filter({ k: 1 }, { type: 'object', properties: { k: false } })
     ).toBeInstanceOf(Error)
+  })
+
+  test('strict propagates through the multi-type union dispatch (>97-item array)', () => {
+    // a bad element at an unsampled index inside a union-typed array must be
+    // caught under strict — pins option propagation across the inline union
+    const schema = { type: 'array', items: { type: ['string', 'number'] } }
+    const big: any[] = Array.from({ length: 500 }, (_, i) => i)
+    big[3] = { not: 'a scalar' } // neither string nor number, at a sampled-past index
+    expect(validate(big, schema)).toBeTrue() // sampled: legitimately missed
+    expect(validate(big, schema, { strict: true })).toBeFalse()
+  })
+
+  test('a scalar constraint applies to the matched branch of a multi-type union', () => {
+    const schema = { type: ['string', 'number'], minLength: 3 }
+    expect(validate('abc', schema)).toBeTrue()
+    expect(validate('ab', schema)).toBeFalse() // minLength applies to the string branch
+    expect(validate(5, schema)).toBeTrue() // number branch: minLength doesn't apply
   })
 
   test('multi-type arrays validate with union semantics (any listed type)', () => {

@@ -1,7 +1,7 @@
-# tosijs-schema v1.6.0
+# tosijs-schema v1.6.1
 
 Schema-first validation for TypeScript/JavaScript — plain JSON Schema is the
-source of truth; types are inferred from it, not the other way around. ~7kB gzipped (or ~1.3kB via the `tosijs-schema/infer` subpath), zero dependencies, no eval/new Function.
+source of truth; types are inferred from it, not the other way around. ~7kB gzipped (or ~1.4kB via the `tosijs-schema/infer` subpath), zero dependencies, no eval/new Function.
 
 - Source: https://github.com/tonioloewald/tosijs-schema
 - npm: https://www.npmjs.com/package/tosijs-schema
@@ -33,11 +33,11 @@ source of truth; types are inferred from it, not the other way around. ~7kB gzip
 - `inferSchema(sample, opts?)`: derive a JSON Schema from example data
   (runtime inverse of `Infer<S>`). Structure only, objects open, unifies
   across every element. Tree-shakeable via the `tosijs-schema/infer` subpath
-  (~1.3kB). Roots carry `$inferred: true` (observed vs authored; opt out `{ marker: false }`). Prefer over the deprecated `s.infer`.
+  (~1.4kB). Roots carry `$inferred: true` (observed vs authored; opt out `{ marker: false }`). Prefer over the deprecated `s.infer`.
 - `M` / `M.func`: railway-oriented pipelines with schema-validated I/O and
   timeouts.
 - Tree-shakeable: `sideEffects: false`, per-concern modules. Named imports
-  shake to ~1–4.6kB; `tosijs-schema/infer` is a self-contained ~1.3kB subpath.
+  shake to ~1–4.6kB; `tosijs-schema/infer` is a self-contained ~1.4kB subpath.
 
 ## Files
 
