@@ -217,3 +217,12 @@ the wire (OpenAPI docs etc. do use `oneOf`) — there the silent-ignore in
 `validate` becomes a real gap. Then it's ~10 lines (evaluate all branches,
 require exactly one match); pair with keeping the "prefer `anyOf`" guidance.
 Decided 2026-08-19.
+
+## Build / tooling (future)
+
+- [ ] Simplify `pack`: the infer-subpath build uses `--outdir=dist` (not
+  `--outfile=dist/infer.js`) to dodge a bun bug where `--outfile` +
+  `--sourcemap=linked` left a stray `src/infer.js`. **Fixed in bun 1.4.** Once
+  we drop support for bun ≤ 1.3.x, revert to `--outfile=dist/infer.js` for
+  clarity. Keep the workaround while older bun is supported. (Verified fixed on
+  bun 1.4.0, 2026-08-21.)
