@@ -1,5 +1,10 @@
-import { describe, test, expect } from 'bun:test'
-import { s, validate, diff, filter } from './schema'
+import { describe, test, expect, afterAll } from 'bun:test'
+import { s, validate, diff, filter, setWarnings } from './schema'
+
+// oneOf validation emits a once-per-process cost warning; silence it so the
+// suite's output stays clean (restored after the file runs).
+setWarnings(false)
+afterAll(() => setWarnings(true))
 
 // =============================================================================
 // CRITICAL GAPS - Untested Features
@@ -613,6 +618,48 @@ describe('Filter function - additional coverage', () => {
       additionalProperties: true,
     }
     expect(filter({ a: 1, b: 2 }, schema)).toEqual({ a: 1, b: 2 })
+  })
+
+  test('filter strips through oneOf like anyOf (1.8.0 — filterData learned oneOf)', () => {
+    const circle = { type: 'object', properties: { kind: { const: 'circle' }, r: { type: 'number' } }, required: ['kind', 'r'], additionalProperties: false }
+    const square = { type: 'object', properties: { kind: { const: 'square' }, s: { type: 'number' } }, required: ['kind', 's'], additionalProperties: false }
+    const out = filter({ kind: 'circle', r: 2, junk: 99 }, { oneOf: [circle, square] })
+    expect(out).not.toBeInstanceOf(Error) // regression: filterData used to error on oneOf
+    expect(out).toEqual({ kind: 'circle', r: 2 })
+  })
+
+  test('filter over overlapping oneOf branches keeps fields the matching branch requires (no silent data loss)', () => {
+    // Subset branches: {a} and {a,b}, both closed. {a:1,b:2} matches ONLY
+    // branch 2 (branch 1 rejects the extra b), so filter must strip against
+    // branch 2 and preserve b — not shed b to force a match on branch 1.
+    const narrow = { type: 'object', properties: { a: { type: 'number' } }, required: ['a'], additionalProperties: false }
+    const wide = { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'], additionalProperties: false }
+    const schema = { oneOf: [narrow, wide] }
+    // sanity: the input is genuinely oneOf-valid (matches exactly one branch)
+    expect(validate({ a: 1, b: 2 }, schema)).toBe(true)
+    // the regression was filter returning { a: 1 } (b silently dropped)
+    expect(filter({ a: 1, b: 2 }, schema)).toEqual({ a: 1, b: 2 })
+    // and it still sheds genuine extras that the matching branch rejects
+    expect(filter({ a: 1, b: 2, junk: 9 }, schema)).toEqual({ a: 1, b: 2 })
+    // no branch matches as-is, but exactly one fits after shedding junk →
+    // strip junk and land on that branch ({a} only); b is genuinely absent
+    expect(filter({ a: 1, junk: 9 }, schema)).toEqual({ a: 1 })
+  })
+
+  test('filter over a genuinely-ambiguous oneOf tie refuses rather than arbitrarily dropping data', () => {
+    // Disjoint single-required branches: {a} and {b}, both closed. {a:1,b:2}
+    // matches NEITHER as-is (each rejects the other's key), and stripping fits
+    // BOTH equally ({a:1} for branch 1, {b:2} for branch 2) — a real tie. The
+    // anti-data-loss rule: never arbitrarily pick one and silently drop the
+    // other's field. filterData returns the data UNSTRIPPED, so the outer
+    // filter() surfaces a loud Error instead of an arbitrary lossy strip.
+    const onlyA = { type: 'object', properties: { a: { type: 'number' } }, required: ['a'], additionalProperties: false }
+    const onlyB = { type: 'object', properties: { b: { type: 'number' } }, required: ['b'], additionalProperties: false }
+    const schema = { oneOf: [onlyA, onlyB] }
+    // loud Error — filter cannot resolve the ambiguity without dropping a field
+    expect(filter({ a: 1, b: 2 }, schema)).toBeInstanceOf(Error)
+    // and the raw strip is the UNSTRIPPED input (no field silently shed)
+    expect(filter({ a: 1, b: 2 }, schema, { skipValidation: true })).toEqual({ a: 1, b: 2 })
   })
 
   test('filter strips typeless applicator schemas (zero-preprocessing runtime schemas)', () => {

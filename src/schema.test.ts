@@ -1,13 +1,19 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, afterAll } from 'bun:test'
 import {
   s,
   validate,
   diff,
   filter,
   setPredicateEvaluator,
+  setWarnings,
   ENFORCED_KEYWORDS,
   type Infer,
 } from './schema'
+
+// oneOf emits a one-time cost warning; keep it out of test output except where
+// a test explicitly asserts it.
+setWarnings(false)
+afterAll(() => setWarnings(true))
 
 // --- 1. BUILDER STRUCTURE CHECKS ---
 describe('Builder Output', () => {
@@ -470,8 +476,11 @@ describe('Algebra', () => {
         enum: [{ enum: ['a', 'b'] }, 'a', 'c'],
         const: [{ const: 5 }, 5, 6],
         anyOf: [{ anyOf: [{ type: 'string' }] }, 'x', 1],
+        oneOf: [{ oneOf: [{ type: 'string' }, { type: 'number' }] }, 'x', true],
         minimum: [{ type: 'number', minimum: 1 }, 1, 0],
         maximum: [{ type: 'number', maximum: 1 }, 1, 2],
+        exclusiveMinimum: [{ type: 'number', exclusiveMinimum: 0 }, 1, 0],
+        exclusiveMaximum: [{ type: 'number', exclusiveMaximum: 10 }, 9, 10],
         multipleOf: [{ type: 'number', multipleOf: 2 }, 4, 3],
         minLength: [{ type: 'string', minLength: 2 }, 'ab', 'a'],
         maxLength: [{ type: 'string', maxLength: 1 }, 'a', 'ab'],
@@ -583,6 +592,18 @@ describe('Algebra', () => {
     expect(validate({ a: 1 }, { anyOf: [{ type: 'object' }], required: ['a'] })).toBeTrue()
   })
 
+  test('oneOf propagates { strict } into branch re-entry (bad elem at an unsampled index)', () => {
+    // mirror of the anyOf strict-sampling guard: oneOf re-enters validate()
+    // per branch, so the strict flag must reach the branch that walks a huge
+    // array. A single non-number at an unsampled index (stride 97) is skipped
+    // sampled, caught under strict.
+    const schema = { oneOf: [{ type: 'array', items: { type: 'number' } }, { type: 'string' }] }
+    const arr = new Array(200).fill(1)
+    arr[1] = 'bad' // index 1 falls between stride-97 probes
+    expect(validate(arr, schema)).toBeTrue() // sampled: the bad elem is skipped
+    expect(validate(arr, schema, { strict: true })).toBeFalse() // strict: caught
+  })
+
   test('filter cannot be prototype-polluted via an own __proto__ key', () => {
     const dirty = JSON.parse('{"p":"q","__proto__":{"a":"hi"}}')
     const out = filter(dirty, {
@@ -625,6 +646,60 @@ describe('Algebra', () => {
     expect(
       filter({ k: 1 }, { type: 'object', properties: { k: false } })
     ).toBeInstanceOf(Error)
+  })
+
+  test('oneOf: exactly one branch must match (#8)', () => {
+    const shape = {
+      oneOf: [
+        { type: 'object', properties: { kind: { const: 'circle' }, r: { type: 'number' } }, required: ['kind', 'r'] },
+        { type: 'object', properties: { kind: { const: 'square' }, s: { type: 'number' } }, required: ['kind', 's'] },
+      ],
+    }
+    expect(validate({ kind: 'circle', r: 2 }, shape)).toBeTrue()
+    expect(validate({ kind: 'circle', r: 'big' }, shape)).toBeFalse() // no branch matches
+    // matching MORE than one branch fails (the oneOf footgun, enforced)
+    expect(validate(5, { oneOf: [{ type: 'number' }, { type: 'integer' }] })).toBeFalse()
+    expect(validate(5.5, { oneOf: [{ type: 'number' }, { type: 'integer' }] })).toBeTrue()
+    // oneOf is a constraint; siblings still apply
+    expect(validate('abcd', { oneOf: [{ type: 'string' }], maxLength: 2 })).toBeFalse()
+  })
+
+  test('exclusiveMinimum / exclusiveMaximum enforced (#8)', () => {
+    expect(validate(0, { type: 'number', exclusiveMinimum: 0 })).toBeFalse()
+    expect(validate(1, { type: 'number', exclusiveMinimum: 0 })).toBeTrue()
+    expect(validate(10, { type: 'number', exclusiveMaximum: 10 })).toBeFalse()
+    expect(validate(9, { type: 'number', exclusiveMaximum: 10 })).toBeTrue()
+  })
+
+  test('oneOf warns once per process about cost, silenceable and re-armable', () => {
+    const warns: string[] = []
+    const orig = console.warn
+    console.warn = (m: string) => void warns.push(String(m))
+    try {
+      setWarnings(true) // re-arms the once-per-process latch
+      const schema = { oneOf: [{ type: 'string' }, { type: 'number' }] }
+      validate('a', schema)
+      validate('b', schema) // same node → no second warning
+      expect(warns.length).toBe(1)
+      expect(warns[0]).toContain('oneOf')
+      expect(warns[0]).toContain('anyOf')
+      // a DISTINCT schema node does NOT warn again — the nudge is generic and
+      // fires once per process (this is what keeps wire-parsed-per-request
+      // schemas from re-spamming, since dedup is not keyed on object identity)
+      validate('c', { oneOf: [{ type: 'string' }] })
+      expect(warns.length).toBe(1)
+      // silenced
+      setWarnings(false)
+      validate('d', { oneOf: [{ type: 'number' }] })
+      expect(warns.length).toBe(1)
+      // re-enabling re-arms the latch → warns once more
+      setWarnings(true)
+      validate('e', { oneOf: [{ type: 'number' }] })
+      expect(warns.length).toBe(2)
+    } finally {
+      console.warn = orig
+      setWarnings(false)
+    }
   })
 
   test('strict propagates through the multi-type union dispatch (>97-item array)', () => {

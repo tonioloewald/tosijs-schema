@@ -5,6 +5,48 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] — 2026-08-23
+
+**Contains a BREAKING validation change** (`oneOf` + `exclusive*` now enforced,
+closing a fail-open). Same defect class as [GHSA-3qw7-pvr3-2gpq](https://github.com/tonioloewald/tosijs-schema/security/advisories/GHSA-3qw7-pvr3-2gpq)
+(fail-open validation), narrowed by 1.5.0, further narrowed here. See README
+"Upgrading to 1.8.0".
+
+This **unblocks schema-driven forms** ([#8](https://github.com/tonioloewald/tosijs-schema/issues/8),
+filed from tosijs-ui's `<tosi-schema-form>`): `oneOf` is how discriminated
+unions are written in practice, and per-field validation of them was silently
+a no-op until now.
+
+### Fixed — BREAKING
+
+- **`oneOf` is now enforced** ([#8](https://github.com/tonioloewald/tosijs-schema/issues/8)).
+  `validate` ignored it entirely, so `validate(42, { oneOf: [{ type: 'string' }] })`
+  returned `true`. It now requires **exactly one** branch to match (a value
+  matching zero *or more than one* fails). `oneOf` can't short-circuit like
+  `anyOf`, so it emits a **once-per-process** `console.warn` nudging toward
+  `anyOf` for discriminated unions (generic nudge — not re-fired per node or per
+  wire-parsed request); silence with `setWarnings(false)`.
+  - `filter()`/`filterData` also learned `oneOf`: it strips against the branch
+    the input actually matches and never sheds a field a valid interpretation
+    keeps, so filtering a `oneOf`-valid value is lossless (it previously errored
+    on `oneOf` outright).
+- **`exclusiveMinimum` / `exclusiveMaximum` are now enforced** (#8). Previously
+  ignored, so `{ exclusiveMinimum: 0 }` accepted `0`.
+- Both are now in `ENFORCED_KEYWORDS`, so `agentContract` **accepts** schemas
+  using them (it refused them before, as unenforced keywords).
+
+### Added
+
+- **`unenforcedKeywords(schema): string[]`** — lists the tree-paths where a
+  schema uses something `validate` doesn't enforce (`allOf`, `not`, `$ref`,
+  `if`/`then`, `patternProperties`, an unenforced `format`, …). The honest
+  counterpart to `validate`'s boolean: it never throws (unlike `agentContract`,
+  which refuses such schemas), so a consumer can **warn** that a keyword went
+  unchecked instead of implying it was. Requested by tosijs-ui's
+  `<tosi-schema-form>`.
+- **`setWarnings(on: boolean)`** — enable/disable the runtime cost warning
+  (process-global; re-enabling re-arms the once-per-process `oneOf` nudge).
+
 ## [1.7.0] — 2026-08-19
 
 **Contains a BREAKING validation change** (`date-time` tightening) — see below
@@ -289,6 +331,7 @@ see [#4](https://github.com/tonioloewald/tosijs-schema/issues/4) /
 
 - Assorted validation bugs.
 
+[1.8.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.8.0
 [1.7.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.7.0
 [1.6.1]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.6.1
 [1.6.0]: https://github.com/tonioloewald/tosijs-schema/releases/tag/v1.6.0

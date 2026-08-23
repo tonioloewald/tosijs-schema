@@ -39,23 +39,25 @@ var __export = (target, all) => {
 // index.ts
 var exports_tosijs_schema = {};
 __export(exports_tosijs_schema, {
-  validate: () => validate,
-  setPredicateEvaluator: () => setPredicateEvaluator,
-  s: () => s,
-  inferSchema: () => inferSchema,
-  getPredicateEvaluator: () => getPredicateEvaluator,
-  filter: () => filter,
-  diff: () => diff,
-  createM: () => createM,
-  checkExamples: () => checkExamples,
-  agentContract: () => agentContract,
-  TimeoutError: () => TimeoutError,
-  SchemaError: () => SchemaError,
-  M: () => M,
-  KEYWORD_SHAPES: () => KEYWORD_SHAPES,
-  ENFORCED_KEYWORDS: () => ENFORCED_KEYWORDS,
+  CONSTRAINT_DOMAINS: () => CONSTRAINT_DOMAINS,
   ENFORCED_FORMATS: () => ENFORCED_FORMATS,
-  CONSTRAINT_DOMAINS: () => CONSTRAINT_DOMAINS
+  ENFORCED_KEYWORDS: () => ENFORCED_KEYWORDS,
+  KEYWORD_SHAPES: () => KEYWORD_SHAPES,
+  M: () => M,
+  SchemaError: () => SchemaError,
+  TimeoutError: () => TimeoutError,
+  agentContract: () => agentContract,
+  checkExamples: () => checkExamples,
+  createM: () => createM,
+  diff: () => diff,
+  filter: () => filter,
+  getPredicateEvaluator: () => getPredicateEvaluator,
+  inferSchema: () => inferSchema,
+  s: () => s,
+  setPredicateEvaluator: () => setPredicateEvaluator,
+  setWarnings: () => setWarnings,
+  unenforcedKeywords: () => unenforcedKeywords,
+  validate: () => validate
 });
 module.exports = __toCommonJS(exports_tosijs_schema);
 
@@ -310,6 +312,19 @@ var s = new Proxy(methods, {
   }
 });
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+var warningsEnabled = true;
+var warnedOneOfCost = false;
+function setWarnings(on) {
+  warningsEnabled = on;
+  if (on)
+    warnedOneOfCost = false;
+}
+var warnExpensive = () => {
+  if (!warningsEnabled || warnedOneOfCost)
+    return;
+  warnedOneOfCost = true;
+  console.warn("[tosijs-schema] `oneOf` is validated by trying every branch (no short-circuit, unlike `anyOf`) — for a discriminated union, `anyOf` is cheaper. Silence with setWarnings(false). This warns once per process.");
+};
 var matchesType = (v, ty) => ty === "integer" ? typeof v === "number" && Number.isInteger(v) : ty === "array" ? Array.isArray(v) : ty === "object" ? typeof v === "object" && !Array.isArray(v) : ty === "number" ? typeof v === "number" : typeof v === ty;
 var setKey = (o, k, v) => {
   if (k === "__proto__") {
@@ -332,8 +347,11 @@ var ENFORCED_KEYWORDS = new Set([
   "enum",
   "const",
   "anyOf",
+  "oneOf",
   "minimum",
   "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
   "multipleOf",
   "minLength",
   "maxLength",
@@ -374,6 +392,19 @@ function validate(val, builderOrSchema, opts) {
       }
       if (!matched)
         return err("Union mismatch");
+    }
+    if (Array.isArray(s2.oneOf)) {
+      warnExpensive();
+      let matches = 0;
+      for (const sub of s2.oneOf) {
+        if (validate(v, sub, { strict: fullScan })) {
+          matches++;
+          if (matches > 1)
+            break;
+        }
+      }
+      if (matches !== 1)
+        return err(`oneOf: matched ${matches} branches, need exactly 1`);
     }
     if (s2.const !== undefined) {
       if (v !== s2.const)
@@ -427,6 +458,10 @@ function validate(val, builderOrSchema, opts) {
         return err("Value < min");
       if (s2.maximum !== undefined && v > s2.maximum)
         return err("Value > max");
+      if (s2.exclusiveMinimum !== undefined && v <= s2.exclusiveMinimum)
+        return err("Value <= exclusive min");
+      if (s2.exclusiveMaximum !== undefined && v >= s2.exclusiveMaximum)
+        return err("Value >= exclusive max");
       if (s2.multipleOf !== undefined) {
         const remainder = Math.abs(v % s2.multipleOf);
         const tolerance = 0.0000000001;
@@ -591,6 +626,43 @@ function filterData(data, schema, fullScan = false) {
       } catch {}
     }
     return data;
+  }
+  if (Array.isArray(schema.oneOf)) {
+    const origMatches = [];
+    for (const sub of schema.oneOf) {
+      try {
+        if (validate(data, sub, { strict: fullScan }))
+          origMatches.push(sub);
+      } catch {}
+      if (origMatches.length > 1)
+        break;
+    }
+    if (origMatches.length === 1)
+      return filterData(data, origMatches[0], fullScan);
+    if (origMatches.length > 1)
+      return data;
+    const size = (x) => x && typeof x === "object" ? Array.isArray(x) ? x.length : Object.keys(x).length : 0;
+    let best = null;
+    let bestScore = -1;
+    let tie = false;
+    for (const sub of schema.oneOf) {
+      const candidate = filterData(data, sub, fullScan);
+      let ok = false;
+      try {
+        ok = validate(candidate, sub, { strict: fullScan });
+      } catch {}
+      if (!ok)
+        continue;
+      const score = size(candidate);
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+        tie = false;
+      } else if (score === bestScore) {
+        tie = true;
+      }
+    }
+    return best !== null && !tie ? best : data;
   }
   const t = schema.type;
   const asObject = (t === "object" || !t && objectKeywordsPresent(schema)) && typeof data === "object" && !Array.isArray(data);
@@ -873,8 +945,10 @@ var enforcedChildren = (s2) => {
   if (s2.additionalProperties !== undefined && typeof s2.additionalProperties === "object") {
     kids.push(["additionalProperties", s2.additionalProperties]);
   }
-  if (Array.isArray(s2.anyOf)) {
-    s2.anyOf.forEach((sub, i) => kids.push([`anyOf.${i}`, sub]));
+  for (const key of ["anyOf", "oneOf"]) {
+    if (Array.isArray(s2[key])) {
+      s2[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
+    }
   }
   return kids;
 };
@@ -886,6 +960,7 @@ var KEYWORD_SHAPES = [
     "a string or array of strings"
   ],
   ["anyOf", Array.isArray, "an array"],
+  ["oneOf", Array.isArray, "an array"],
   [
     "required",
     (v) => Array.isArray(v) && v.every((x) => typeof x === "string"),
@@ -909,6 +984,8 @@ var KEYWORD_SHAPES = [
   ...[
     "minimum",
     "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
     "multipleOf",
     "minLength",
     "maxLength",
@@ -929,6 +1006,8 @@ var CONSTRAINT_DOMAINS = [
   ["format", ["string"]],
   ["minimum", ["number", "integer"]],
   ["maximum", ["number", "integer"]],
+  ["exclusiveMinimum", ["number", "integer"]],
+  ["exclusiveMaximum", ["number", "integer"]],
   ["multipleOf", ["number", "integer"]],
   ["items", ["array"]],
   ["minItems", ["array"]],
@@ -961,7 +1040,7 @@ var unenforced = (s2, at = "root") => {
       found.push(`${at}.${key} (must be ${expected})`);
     }
   }
-  if (s2.type === undefined && s2.const === undefined && s2.anyOf === undefined) {
+  if (s2.type === undefined && s2.const === undefined && s2.anyOf === undefined && s2.oneOf === undefined) {
     const dark = TYPE_DEPENDENT_KEYWORDS.filter((key) => s2[key] !== undefined);
     if (dark.length > 0) {
       found.push(`${at} (constraints without a type — null/undefined and mismatched ` + `primitives bypass ${dark.join("/")}; add an explicit type)`);
@@ -999,6 +1078,12 @@ var unenforced = (s2, at = "root") => {
   }
   return found;
 };
+function unenforcedKeywords(schema) {
+  const s2 = toPlain(schema);
+  if (s2 === true || s2 === false)
+    return [];
+  return unenforced(s2);
+}
 var agentContract = (schemas, options) => {
   const strict = options?.strict ?? true;
   const plain = Object.create(null);

@@ -21,6 +21,18 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ## Upgrading
 
+### To 1.8.0 (from 1.7.x) — closes a fail-open; two keywords newly enforced
+
+`validate` now enforces **`oneOf`** and **`exclusiveMinimum`/`exclusiveMaximum`**, which it previously *ignored* (returning `true` for values they forbid — [#8](https://github.com/tonioloewald/tosijs-schema/issues/8)). This is a validation tightening, so it's breaking:
+
+| Schema | ≤ 1.7.0 | 1.8.0 |
+| --- | --- | --- |
+| `{ oneOf: [{type:'string'}] }` on `42` | pass (ignored) | **fail** (matches no branch) |
+| `{ exclusiveMinimum: 0 }` on `0` | pass (ignored) | **fail** |
+| a value matching **two** `oneOf` branches | pass | **fail** (oneOf = exactly one) |
+
+If you were relying on `oneOf` being a no-op, note it now has real exactly-one-match semantics (a value matching two branches is rejected — prefer `anyOf` for discriminated unions). New in this release: `unenforcedKeywords(schema)` to detect keywords still outside the enforced set, and `setWarnings(false)` to silence the `oneOf` cost warning. Everything else is additive.
+
 ### To 1.7.0 (from 1.6.x) — one BREAKING validation change
 
 `format: 'date-time'` now enforces **RFC 3339** instead of `Date.parse`. Strings that aren't valid RFC 3339 date-times now fail — they were accepted before but a conforming validator (Ajv, etc.) always rejected them, so schemas carrying them never travelled.
@@ -143,7 +155,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Output | Native JSON Schema | Proprietary | Native JSON Schema |
 | JSON Schema spec | Practical subset | N/A (not JSON Schema) | Draft 2020-12 compliant |
 | Syntax | `s.email` | `z.string().email()` | `Type.String({ format: 'email' })` |
-| Bundle | ~7kB (or ~1.4kB, `/infer` only) | ~14kB | ~64kB |
+| Bundle | ~8kB (or ~1.5kB, `/infer` only) | ~14kB | ~64kB |
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
@@ -187,11 +199,24 @@ This matters for:
 
 ### JSON Schema Coverage
 
-tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~7kB bundle (tree-shakeable — see below) vs spec compliance.
+tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~8kB bundle (tree-shakeable — see below) vs spec compliance.
 
-**Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (`email`, `uuid`, `uri`, `ipv4`, `date`, `date-time` — RFC 3339, `emoji`), boolean schemas (`true`/`false`), `$predicate` (with a registered evaluator), `default`, `title`, `description`
+**Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `oneOf` (exactly-one), `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (`email`, `uuid`, `uri`, `ipv4`, `date`, `date-time` — RFC 3339, `emoji`), boolean schemas (`true`/`false`), `$predicate` (with a registered evaluator), `default`, `title`, `description`
 
-**Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `oneOf`, `not`, `exclusiveMinimum` / `exclusiveMaximum`, `uniqueItems`, `contains`, `prefixItems`, `propertyNames`, and other advanced keywords. Unsupported keywords are silently ignored by `validate` (they pass through untouched, like any unknown key) — except in `agentContract`, which refuses them at construction so a gate can't fail open.
+**Not supported:** `$ref` / `$defs`, `if` / `then` / `else`, `dependentRequired`, `patternProperties`, `unevaluatedProperties`, `allOf`, `not`, `uniqueItems`, `contains`, `prefixItems`, `propertyNames`, and other advanced keywords.
+
+**Stepping outside the subset is detectable — that's the point.** `validate` silently ignores unsupported keywords (they pass through untouched, like any unknown key), which means a schema using `allOf` or `not` gets a `true` that didn't actually check them. So the enforced set is exported (`ENFORCED_KEYWORDS`), `agentContract` **refuses** a schema outside it at construction (a gate must not fail open), and `unenforcedKeywords(schema)` returns the tree-paths a schema uses that `validate` won't enforce — so a consumer can *warn* ("this schema uses `allOf`, which isn't validated") rather than imply a check that never happened. A documented subset is fine; a subset you can't tell you've left is not.
+
+```typescript
+import { unenforcedKeywords } from 'tosijs-schema'
+
+unenforcedKeywords({ type: 'object', allOf: [{ type: 'object' }] })
+// ['root.allOf']   — validate() ignores it; render a warning next to the field
+unenforcedKeywords({ oneOf: [{ type: 'string' }] })
+// []               — oneOf IS enforced
+```
+
+> **`oneOf` is enforced but expensive.** Unlike `anyOf` (which stops at the first matching branch), `oneOf` must try *every* branch to confirm exactly one matches. It emits a console warning (once per process — the nudge is generic, so it doesn't re-fire per node or per request even when schemas are parsed fresh over the wire) nudging you toward `anyOf` for discriminated unions; silence it with `setWarnings(false)` — note that toggle is process-global (and re-enabling re-arms the one-time warning).
 
 If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable in your environment, TypeBox or Ajv are options. If you need the 80% of features that cover 99% of real-world schemas in a tiny, eval-free package, use tosijs-schema.
 
@@ -370,7 +395,7 @@ diff(schemaV1.schema, schemaV2.schema)
 
 ```typescript
 import { inferSchema } from 'tosijs-schema'
-// tree-shakers can import the ~1.4kB module directly:
+// tree-shakers can import the ~1.5kB module directly:
 // import { inferSchema } from 'tosijs-schema/infer'
 
 inferSchema([{ id: 1, tag: 'a' }, { id: 2 }])
@@ -400,14 +425,14 @@ Import only what you use. The package is `sideEffects: false` and each concern i
 
 | You import | Pulls in | gzipped |
 | --- | --- | --- |
-| `inferSchema` (from `tosijs-schema/infer`) | just inference | **~1.4 kB** |
+| `inferSchema` (from `tosijs-schema/infer`) | just inference | **~1.5 kB** |
 | `validate` | the validator | ~2.7 kB |
 | `s` (builder) | builder + validator | ~2.7 kB |
 | `filter` | validator + filter | ~3.1 kB |
 | `agentContract` | validator + contract layer | ~4.6 kB |
-| everything | the whole library | ~7.1 kB |
+| everything | the whole library | ~7.8 kB |
 
-`inferSchema` is also published as a self-contained subpath, `tosijs-schema/infer`, so it stays ~1.4 kB even where a bundler can't tree-shake the pre-bundled main entry. The other pieces share the validator core (one module), so importing `validate`, `s`, `filter`, or `diff` lands around 2.7–3.1 kB regardless.
+`inferSchema` is also published as a self-contained subpath, `tosijs-schema/infer`, so it stays ~1.5 kB even where a bundler can't tree-shake the pre-bundled main entry. The other pieces share the validator core (one module), so importing `validate`, `s`, `filter`, or `diff` lands around 2.7–3.1 kB regardless.
 
 ## Agent Contracts
 
@@ -431,7 +456,7 @@ contract.describe() // plain JSON Schemas — "what's legal", shippable over the
 
 Deep writes are judged as the whole root they would produce, so `required` on siblings, cross-field constraints, and root-level `$predicate`s all participate. Validation is strict by default (a gate that samples isn't a gate); pass `{ strict: false }` to opt into sampled validation for huge roots.
 
-**The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Construction validates every schema key against an **allowlist** — the `ENFORCED_KEYWORDS` set `validate` actually implements, plus annotations (`title`, `description`, `default`, `examples`, `$counterexamples`, …) and `x-*` extensions. Anything else — `allOf`/`oneOf`/`not`/`$ref`, unimplemented spec keywords, even typos like `minumum` — is refused with an `Error`: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Value-level holes are refused too: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, tuple `items` without an exact `maxItems` cap, non-primitive `const`/`enum` members, and multi-type arrays. Boolean schemas are legal and enforced (`properties: { key: false }` forbids the key). Protocol breaches fail closed as well: any write touching a contracted root — at it, under it, or above it — without a proposal for that exact root, a mismatched `proposal.root`, and ancestor writes spanning several contracted roots are all refused with an `Error` naming the breach.
+**The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Construction validates every schema key against an **allowlist** — the `ENFORCED_KEYWORDS` set `validate` actually implements, plus annotations (`title`, `description`, `default`, `examples`, `$counterexamples`, …) and `x-*` extensions. Anything else — `allOf`/`not`/`$ref`, unimplemented spec keywords, even typos like `minumum` — is refused with an `Error`: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Value-level holes are refused too: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, tuple `items` without an exact `maxItems` cap, non-primitive `const`/`enum` members, and multi-type arrays. Boolean schemas are legal and enforced (`properties: { key: false }` forbids the key). Protocol breaches fail closed as well: any write touching a contracted root — at it, under it, or above it — without a proposal for that exact root, a mismatched `proposal.root`, and ancestor writes spanning several contracted roots are all refused with an `Error` naming the breach.
 
 ### Examples as tests
 
@@ -521,13 +546,13 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines
 -----------------|---------|--------
-All files        |   98.22 |   97.44
- src/contract.ts |   97.73 |   97.30
+All files        |   98.94 |   98.53
+ src/contract.ts |   97.73 |   97.39
  src/monad.ts    |  100.00 |  100.00
-  src/schema.ts   |   96.92 |   95.02
+ src/schema.ts   |   96.97 |   95.25
 ```
 
-269 tests, 792 assertions.
+280 tests, 848 assertions.
 
 ## License
 

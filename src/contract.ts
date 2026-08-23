@@ -84,8 +84,10 @@ const enforcedChildren = (s: any): [string, any][] => {
   if (s.additionalProperties !== undefined && typeof s.additionalProperties === 'object') {
     kids.push(['additionalProperties', s.additionalProperties])
   }
-  if (Array.isArray(s.anyOf)) {
-    s.anyOf.forEach((sub: any, i: number) => kids.push([`anyOf.${i}`, sub]))
+  for (const key of ['anyOf', 'oneOf'] as const) {
+    if (Array.isArray(s[key])) {
+      s[key].forEach((sub: any, i: number) => kids.push([`${key}.${i}`, sub]))
+    }
   }
   return kids
 }
@@ -102,6 +104,7 @@ export const KEYWORD_SHAPES: [string, (v: any) => boolean, string][] = [
     'a string or array of strings',
   ],
   ['anyOf', Array.isArray, 'an array'],
+  ['oneOf', Array.isArray, 'an array'],
   [
     'required',
     (v) => Array.isArray(v) && v.every((x) => typeof x === 'string'),
@@ -126,6 +129,8 @@ export const KEYWORD_SHAPES: [string, (v: any) => boolean, string][] = [
     [
       'minimum',
       'maximum',
+      'exclusiveMinimum',
+      'exclusiveMaximum',
       'multipleOf',
       'minLength',
       'maxLength',
@@ -151,6 +156,8 @@ export const CONSTRAINT_DOMAINS: [string, string[]][] = [
   ['format', ['string']],
   ['minimum', ['number', 'integer']],
   ['maximum', ['number', 'integer']],
+  ['exclusiveMinimum', ['number', 'integer']],
+  ['exclusiveMaximum', ['number', 'integer']],
   ['multipleOf', ['number', 'integer']],
   ['items', ['array']],
   ['minItems', ['array']],
@@ -196,8 +203,13 @@ const unenforced = (s: any, at = 'root'): string[] => {
   // typeless constraints: per JSON Schema, applicators/constraints only apply
   // when the value matches their type — so null/undefined and mismatched
   // primitives BYPASS them entirely. A gate node must pin the type (or be
-  // const/anyOf, which constrain before the null early-out).
-  if (s.type === undefined && s.const === undefined && s.anyOf === undefined) {
+  // const/anyOf/oneOf, which constrain before the null early-out).
+  if (
+    s.type === undefined &&
+    s.const === undefined &&
+    s.anyOf === undefined &&
+    s.oneOf === undefined
+  ) {
     const dark = TYPE_DEPENDENT_KEYWORDS.filter((key) => s[key] !== undefined)
     if (dark.length > 0) {
       found.push(
@@ -263,6 +275,27 @@ const unenforced = (s: any, at = 'root'): string[] => {
 }
 
 /**
+ * List the schema-tree locations where the schema uses something `validate`
+ * does **not** enforce — a keyword outside `ENFORCED_KEYWORDS` (`allOf`, `not`,
+ * `$ref`, `if`/`then`, `patternProperties`, …), a `format` outside
+ * `ENFORCED_FORMATS`, an invalid `pattern`, a non-primitive `const`/`enum`, a
+ * multi-type array, and so on — each as a `root.path.keyword` string. Empty
+ * means the schema is fully within the enforced subset.
+ *
+ * This is the honest counterpart to `validate` returning a boolean: `validate`
+ * silently ignores what it can't check, so a consumer (a schema-driven form, a
+ * VM metering cost) uses this to WARN — "this schema uses `allOf`, which is not
+ * validated" — instead of implying a check that didn't happen. It never throws
+ * (unlike `agentContract`, which refuses such schemas); it just reports. Same
+ * walker the gate uses, so the two never drift.
+ */
+export function unenforcedKeywords(schema: SchemaLike): string[] {
+  const s = toPlain(schema)
+  if (s === true || s === false) return []
+  return unenforced(s)
+}
+
+/**
  * Build an {@link AgentContract} over a map of root path → schema (builders
  * or plain JSON Schema). Judges every proposal against the whole-root schema,
  * so `required` on siblings, cross-field constraints, and root-level
@@ -271,8 +304,8 @@ const unenforced = (s: any, at = 'root'): string[] => {
  * Fail-closed by construction:
  * - schemas are deep-copied in (and out via `describe()`), so no caller-side
  *   mutation can rewrite the gate after the fact;
- * - schemas using keywords `validate` does not enforce (`allOf`, `oneOf`,
- *   `not`, `$ref`, `exclusiveMinimum`/`Maximum`, …), formats outside
+ * - schemas using keywords `validate` does not enforce (`allOf`, `not`,
+ *   `$ref`, `if`/`then`, `patternProperties`, …), formats outside
  *   `ENFORCED_FORMATS`, or uncapped tuple `items` are refused with an Error
  *   at construction rather than silently un-enforced; nested contracted
  *   roots are refused too (which root judges a deep write would be ambiguous);

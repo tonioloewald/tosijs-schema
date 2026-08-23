@@ -194,6 +194,8 @@ type TinySchema = typeof methods & {
     any: Base<any>;
 };
 export declare const s: TinySchema;
+/** Enable/disable tosijs-schema's runtime cost warnings (default on). Process-global. */
+export declare function setWarnings(on: boolean): void;
 /**
  * Every keyword `validate`'s walk actually reads. Lives beside the walk so
  * the two cannot drift silently — `agentContract` refuses any schema key

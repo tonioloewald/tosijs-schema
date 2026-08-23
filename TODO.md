@@ -40,10 +40,11 @@ reviewer leads — sanity-check before acting).
 
 ## Efficiency
 
-- [ ] *(unverified)* anyOf branch trials allocate a fresh `{ strict }` options
-  object + full `validate()` closure environment per branch per element.
-  Hoist one shared options object; longer-term let `walk()` handle anyOf
-  internally instead of re-entering `validate()`.
+- [ ] *(unverified)* anyOf **and now oneOf** branch trials allocate a fresh
+  `{ strict }` options object + full `validate()` closure environment per branch
+  per element (oneOf re-enters public `validate()` once per branch, same
+  pattern, added in 1.8.0). Hoist one shared options object; longer-term let
+  `walk()` handle both unions internally instead of re-entering `validate()`.
 - [ ] *(unverified)* Contract/lint tooling ships in the runtime entry
   (+~18% gzipped). `sideEffects: false` landed in 1.5.0; consider a
   `tosijs-schema/contract` subpath export split.
@@ -200,23 +201,114 @@ review (KB commits `50580f9`, `f8e3cac`); all three ticked:
 - v1.7.0 review (`v1.6.1..HEAD`) → KB `f8e3cac` (1.7.0 positive citation, infer
   subpath size fix).
 
-## Decided: no `oneOf` support (unless a real need)
+## ~~Decided: no `oneOf` support~~ — SUPERSEDED by v1.8.0 (2026-08-23)
 
-`oneOf` (matches *exactly one* subschema) is deliberately omitted — `anyOf`
-(via `s.union`) covers real unions, `oneOf`'s mutual-exclusion is a footgun
-(overlapping branches reject valid data, e.g. `oneOf:[number,integer]` rejects
-`5`), and it can't short-circuit (must evaluate every branch — wrong for the
-stride-sampling hot path). Current posture is consistent: README documents it
-unsupported, and `agentContract` refuses it at construction so no gate can
-advertise-but-not-enforce it. Standalone `validate` silently ignores it (the
-documented "unknown keywords pass through" behavior), which is a benign
-under-enforcement rather than a hidden hole.
+The 2026-08-19 decision below was reversed four days later by issue #8: a real
+consumer (tosijs-ui's `<tosi-schema-form>`) was silently under-served because
+`validate` fail-open-ignored `oneOf`. v1.8.0 implemented it (evaluate all
+branches, require exactly one match) rather than continue to silently ignore —
+the "hidden hole" the note below called benign turned out to be the #8 bug. The
+"prefer `anyOf`" guidance was kept as a *suppressible cost warning* (`oneOf`
+can't short-circuit), and `agentContract` now ACCEPTS `oneOf` instead of
+refusing it. Left here (struck, not deleted) as a worked example for the
+practices lens: a "decided against" note is only as good as the assumption it
+rests on — here, that no consumer needed off-the-wire `oneOf`.
 
-**Only reconsider if** a consumer needs to validate EXTERNAL JSON Schema off
-the wire (OpenAPI docs etc. do use `oneOf`) — there the silent-ignore in
-`validate` becomes a real gap. Then it's ~10 lines (evaluate all branches,
-require exactly one match); pair with keeping the "prefer `anyOf`" guidance.
-Decided 2026-08-19.
+Original note (2026-08-19), now historical: `oneOf` deliberately omitted —
+`anyOf` covers real unions, mutual-exclusion is a footgun
+(`oneOf:[number,integer]` rejects `5`), can't short-circuit. Posture was "README
+unsupported + `agentContract` refuses + `validate` silently ignores." The
+reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
+Schema off the wire") is essentially what #8 turned out to be.
+
+## v1.8.0 pre-release review follow-ups (non-blocking; blocker fixed pre-tag)
+
+The `depth: fast` review (base `v1.7.0`) found ONE blocker — `filter()` silently
+dropped a required field on valid overlapping-`oneOf` input (a data-loss
+regression from wiring `filterData` to `oneOf`). Fixed pre-tag: `filterData`
+now strips `oneOf` against the branch the ORIGINAL data matches and, when only
+stripped candidates fit, keeps the one retaining the most data — never sheds a
+field a valid interpretation keeps (`src/schema.ts`, regression test in
+`coverage.test.ts`). Also fixed pre-tag from the same review: the two verified
+coverage gaps (nested-in-`oneOf` honesty-walk test + `oneOf` strict-propagation
+test), the `oneOf` warning leaking into `bun test` output, the warning re-spam
+on wire-parsed schemas (now **once-per-process**, not per-node), and the stale
+doc counts / bundle-size row.
+
+Fixed pre-tag in the Run-2 pass too: the dead `s` param on `warnExpensive`
+(dropped), the break-at-2 short-circuit in `filterData`'s `origMatches` loop,
+the stale `oneOf` in CONTEXT.md's "complex corners" list, and — the confirmed
+practices-major — the review record is now persisted under `reviews/`
+(`reviews/1.8.0-oneof-exclusive-enforcement.md`; `reviews/` is excluded from the
+npm tarball by the `package.json` "files" allowlist).
+
+Remaining (unverified reviewer leads unless noted — sanity-check first):
+
+- [ ] *(correctness lead)* `filterData`'s `oneOf` retention score `size()`
+  (`src/schema.ts`) counts only TOP-LEVEL keys, so `filter()` over-rejects
+  `oneOf` inputs whose unique valid stripping differs only in NESTED structure
+  (e.g. `oneOf:[{a:{x}},{a:{x,y}}]`, input `{a:{x,y,z}}` → tie at size 1 → Error).
+  Fails SAFE (Error, never a wrong value — no data corruption). Verify, then
+  either make the score a recursive node count or document that `filter()` can't
+  resolve nested-only `oneOf` differences and returns an Error. Add a
+  nested-difference fixture either way.
+- [ ] *(dryness nit — LEAN NO)* `anyOf` and `oneOf` branch-trial loops in
+  `validate()` are near-duplicate. Reviewer recommends leaving them as two
+  explicit loops (merging obscures the short-circuit-vs-full-count distinction);
+  extract a shared `countMatches(v, branches, cap)` only if a third union
+  keyword lands.
+- [ ] *(practices minor)* Add a reverse-lens-8 disposition block covering every
+  `../tosijs-coding-practices` commit since 2026-08-19 (fe03680 reviews/ path —
+  now adopted; 787c551 land-current-release-first; abdcf14 npm-deprecate bar —
+  feeds the GHSA decision), each marked adopted/compliant/diverging, with the
+  break-frequency "ship-now-cannot-batch" rationale recorded as a stated
+  divergence from releasing.md.
+- [ ] *(tooling — recurring)* COVERAGE.md test/assertion counts and the README
+  bundle-size / coverage block are hand-maintained and drifted again (275/831 →
+  279/846 this release). The drift gate doesn't cover them. Wire a
+  coverage-report + size regen into `bun run pack` (like `make-context.ts` does
+  for llms.txt) so they can't go stale, or add an `<!-- as-of: DATE -->` stamp +
+  age check. See the practices write-back below.
+- [ ] *(nit)* KB write-back ledger (below): backfill the v1.6.0 entry's missing
+  `base..sha` range and add the v1.8.0 entry once the KB commit lands, so every
+  ledger claim is range-checkable.
+
+### At publish time (human)
+
+- [ ] Close **#8** naming v1.8.0 (notifies the tosijs-ui filer). State: `oneOf`
+  + `exclusive*` now ENFORCED and `unenforcedKeywords()` shipped; the ~10 other
+  keywords remain unenforced but detectable. Mirror the closure in `UPSTREAM.md`.
+- [ ] Decide whether ≤1.7.0's `oneOf`/`exclusive*` fail-open warrants its own
+  GHSA (narrower continuation of GHSA-3qw7-pvr3-2gpq) or is CHANGELOG-only —
+  depends on whether any downstream treats `validate().ok` as an auth/sanitize
+  boundary.
+
+### Shared practices KB (commit to `../tosijs-coding-practices`; human pushes)
+
+- [ ] **Disposition the break-FREQUENCY trigger for the record.** Three
+  breaking-in-a-minor releases (1.5.0 / 1.7.0 / 1.8.0; last two 4 days apart)
+  trip releasing.md's "batch into a major" trigger. Record the decision:
+  fail-open fixes (1.5.0, 1.8.0) can't carry a loose opt-in, so they must ship
+  promptly and can't be batched — "ship now, cannot batch." Note 1.7.0 was a
+  spec-conformance tightening (not fail-open), so the three aren't one defect
+  class. Refresh releasing.md's stale citation ("1.5.0, 1.7.0" → include 1.8.0)
+  and the practices scoreboard row.
+- [ ] **Disposition "stamp-or-generate perishable-and-yours facts"**
+  (documentation-surface.md, landed 2026-08-21 inside this window). This release
+  hand-edited its own bundle sizes across CLAUDE/CONTEXT/README — exactly the
+  class the practice says to generate. Wire `show-size`/`make-context.ts` to
+  emit measured sizes, add the as-of stamp, or record a deliberate divergence.
+- [ ] **Capture the "decided-against note" lesson** (development.md/review.md):
+  a decided-against note is only as strong as its reconsider-if trigger (the
+  load-bearing part); the tell of a weak one is that it rests on an unvalidated
+  "no consumer needs this." Cite the `oneOf` reversal (1.8.0, #8) — the
+  2026-08-19 "no oneOf support" note reversed 4 days later. Already flagged in
+  the SUPERSEDED section above.
+- [ ] **Record the fail-open ENUMERATOR pattern** (review.md): the three-tier
+  honesty move — allowlist (`ENFORCED_KEYWORDS`) → refuse (`agentContract`) →
+  enumerate (`unenforcedKeywords`, a runtime lister of tree-paths the validator
+  can't enforce, so a consumer WARNS rather than assumes checked). Cite 1.8.0;
+  cross-link state-and-schema.md.
 
 ## Build / tooling (future)
 

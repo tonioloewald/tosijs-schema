@@ -483,6 +483,27 @@ export const s = new Proxy(methods, {
 
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
+// One-time cost nudge for the expensive union (`oneOf` can't short-circuit).
+// The message is generic advice, not node-specific, so it fires at most ONCE
+// PER PROCESS — repeating it per schema node adds nothing and, crucially, a
+// server that JSON.parses a fresh schema object per request would re-warn on
+// every request if we keyed the dedup on object identity. Silence entirely
+// with setWarnings(false). Never per-value spam.
+let warningsEnabled = true
+let warnedOneOfCost = false
+/** Enable/disable tosijs-schema's runtime cost warnings (default on). Process-global. */
+export function setWarnings(on: boolean): void {
+  warningsEnabled = on
+  if (on) warnedOneOfCost = false // re-arm so a re-enabled process warns again
+}
+const warnExpensive = (): void => {
+  if (!warningsEnabled || warnedOneOfCost) return
+  warnedOneOfCost = true
+  console.warn(
+    '[tosijs-schema] `oneOf` is validated by trying every branch (no short-circuit, unlike `anyOf`) — for a discriminated union, `anyOf` is cheaper. Silence with setWarnings(false). This warns once per process.'
+  )
+}
+
 // does a value match a single JSON Schema type name? (module-level so the
 // validator's hot loop doesn't allocate a closure per node)
 const matchesType = (v: any, ty: string): boolean =>
@@ -530,8 +551,11 @@ export const ENFORCED_KEYWORDS: ReadonlySet<string> = new Set([
   'enum',
   'const',
   'anyOf',
+  'oneOf',
   'minimum',
   'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
   'multipleOf',
   'minLength',
   'maxLength',
@@ -605,6 +629,23 @@ export function validate(
       // (const, min/max, properties, $predicate, …) still apply below
     }
 
+    if (Array.isArray(s.oneOf)) {
+      // oneOf = EXACTLY one branch matches. Unlike anyOf it cannot
+      // short-circuit — every branch must be tried to confirm the count — so
+      // it's the expensive union. Warn once (nudge toward anyOf for
+      // discriminated unions) unless warnings are silenced.
+      warnExpensive()
+      let matches = 0
+      for (const sub of s.oneOf) {
+        if (validate(v, sub, { strict: fullScan })) {
+          matches++
+          if (matches > 1) break // already too many
+        }
+      }
+      if (matches !== 1) return err(`oneOf: matched ${matches} branches, need exactly 1`)
+      // like anyOf, a constraint not the whole schema — siblings still apply
+    }
+
     if (s.const !== undefined) {
       if (v !== s.const) return err('Const mismatch')
       // fall through: const pins the value, siblings still apply
@@ -675,6 +716,10 @@ export function validate(
       if (!Number.isFinite(v)) return err('Expected finite number')
       if (s.minimum !== undefined && v < s.minimum) return err('Value < min')
       if (s.maximum !== undefined && v > s.maximum) return err('Value > max')
+      if (s.exclusiveMinimum !== undefined && v <= s.exclusiveMinimum)
+        return err('Value <= exclusive min')
+      if (s.exclusiveMaximum !== undefined && v >= s.exclusiveMaximum)
+        return err('Value >= exclusive max')
       if (s.multipleOf !== undefined) {
         const remainder = Math.abs(v % s.multipleOf)
         const tolerance = 1e-10
@@ -866,7 +911,8 @@ function filterData(data: any, schema: any, fullScan = false): any {
     return data
   }
 
-  // Unions: strip against the first branch the stripped data satisfies
+  // anyOf (at-least-one): strip against the first branch whose stripped
+  // candidate validates — fitting the data to any one branch is correct.
   if (Array.isArray(schema.anyOf)) {
     for (const sub of schema.anyOf) {
       const candidate = filterData(data, sub, fullScan)
@@ -877,6 +923,60 @@ function filterData(data: any, schema: any, fullScan = false): any {
       }
     }
     return data
+  }
+
+  // oneOf (exactly-one): prefer the branch the ORIGINAL (unstripped) data
+  // already matches — stripping against it is lossless (a branch the data
+  // satisfies rejects no field it required). Only when NO branch matches
+  // as-is (there are genuine extras to shed) do we strip, and then we accept
+  // the result only if exactly one branch's stripped candidate validates.
+  // This never silently migrates data onto a different, narrower branch —
+  // the bug where oneOf:[{a},{a,b}] filtered {a:1,b:2} down to {a:1} by
+  // stripping b to satisfy branch 1, even though the data matched only
+  // branch 2. Anything ambiguous (0 or >1 fit) returns unstripped so the
+  // outer validate surfaces a loud Error rather than a lossy strip.
+  if (Array.isArray(schema.oneOf)) {
+    const origMatches: any[] = []
+    for (const sub of schema.oneOf) {
+      try {
+        if (validate(data, sub, { strict: fullScan })) origMatches.push(sub)
+      } catch {
+        // a malformed branch schema cannot match — skip it
+      }
+      if (origMatches.length > 1) break // >1 ⇒ not oneOf-valid; result is fixed
+    }
+    if (origMatches.length === 1) return filterData(data, origMatches[0], fullScan)
+    if (origMatches.length > 1) return data // matches >1 branch: not oneOf-valid
+    // no branch matches as-is (genuine extras to shed) → strip against each
+    // branch and, among the candidates that validate, keep the one that
+    // RETAINS THE MOST data. Never shed a field a valid interpretation keeps
+    // (that was the blocker: preferring a narrower branch dropped `b`). A tie
+    // at the top is genuinely ambiguous → return unstripped so the outer
+    // validate reports a loud Error instead of an arbitrary lossy strip.
+    const size = (x: any): number =>
+      x && typeof x === 'object' ? (Array.isArray(x) ? x.length : Object.keys(x).length) : 0
+    let best: any = null
+    let bestScore = -1
+    let tie = false
+    for (const sub of schema.oneOf) {
+      const candidate = filterData(data, sub, fullScan)
+      let ok = false
+      try {
+        ok = validate(candidate, sub, { strict: fullScan })
+      } catch {
+        // a malformed branch schema cannot match — skip it
+      }
+      if (!ok) continue
+      const score = size(candidate)
+      if (score > bestScore) {
+        best = candidate
+        bestScore = score
+        tie = false
+      } else if (score === bestScore) {
+        tie = true
+      }
+    }
+    return best !== null && !tie ? best : data
   }
 
   const t = schema.type

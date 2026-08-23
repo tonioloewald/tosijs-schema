@@ -31,3 +31,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# stray bun build output into src/ (see pack --outdir workaround)
+src/**/*.js
+src/**/*.js.map
+
+# macOS Spotlight
+.metadata_never_index

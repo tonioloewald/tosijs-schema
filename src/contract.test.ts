@@ -3,6 +3,7 @@ import { s, validate, setPredicateEvaluator, ENFORCED_KEYWORDS } from './schema'
 import {
   agentContract,
   checkExamples,
+  unenforcedKeywords,
   KEYWORD_SHAPES,
   CONSTRAINT_DOMAINS,
 } from './contract'
@@ -168,11 +169,11 @@ describe('agentContract — the blessed seam adapter', () => {
       agentContract({ 'app.x': { type: 'number', not: { const: 5 } } })
     ).toThrow('not')
     expect(() =>
-      agentContract({ 'app.x': { oneOf: [{ type: 'string' }] } })
-    ).toThrow('oneOf')
+      agentContract({ 'app.x': { type: 'object', allOf: [{ type: 'object' }] } })
+    ).toThrow('allOf')
     expect(() =>
-      agentContract({ 'app.x': { type: 'number', exclusiveMinimum: 0 } })
-    ).toThrow('exclusiveMinimum')
+      agentContract({ 'app.x': { type: 'string', patternProperties: {} } as any })
+    ).toThrow('patternProperties')
     // nested occurrences are found too, with their schema path named
     expect(() =>
       agentContract({
@@ -190,6 +191,14 @@ describe('agentContract — the blessed seam adapter', () => {
         },
       })
     ).not.toThrow()
+    // 1.8.0: oneOf and exclusive* are enforced now, so the gate ACCEPTS them
+    // (they used to be refused as unenforced keywords)
+    const g = agentContract({
+      'app.shape': { oneOf: [{ type: 'string' }, { type: 'number' }] },
+      'app.pos': { type: 'number', exclusiveMinimum: 0 },
+    })
+    expect(g.check('app.pos', 0, { root: 'app.pos', proposed: 0 })).toBeInstanceOf(Error)
+    expect(g.check('app.pos', 0, { root: 'app.pos', proposed: 5 })).toBe(true)
   })
 
   test('a contracted-root write without a proposal fails closed (protocol breach)', () => {
@@ -729,5 +738,55 @@ describe('checkExamples — the spec proves itself at definition time', () => {
     } finally {
       setPredicateEvaluator(prev)
     }
+  })
+})
+
+describe('unenforcedKeywords — the honesty lint (#8)', () => {
+  test('empty when the schema is fully within the enforced subset', () => {
+    expect(unenforcedKeywords({ type: 'object', properties: { a: { type: 'number' } } })).toEqual([])
+    // oneOf and exclusive bounds are enforced as of 1.8.0 → not listed
+    expect(unenforcedKeywords({ oneOf: [{ type: 'string' }] })).toEqual([])
+    expect(unenforcedKeywords({ type: 'number', exclusiveMinimum: 0 })).toEqual([])
+  })
+
+  test('lists unenforced keywords with their schema path, never throws', () => {
+    expect(unenforcedKeywords({ type: 'object', allOf: [{ type: 'object' }] })).toEqual(['root.allOf'])
+    expect(unenforcedKeywords({ not: { type: 'string' } })).toEqual(['root.not'])
+    const nested = unenforcedKeywords({
+      type: 'object',
+      properties: { a: { $ref: '#/$defs/s' } },
+      patternProperties: { '^x': { type: 'string' } },
+    })
+    expect(nested).toContain('root.patternProperties')
+    expect(nested).toContain('root.properties.a.$ref')
+    // it reports, it does not throw (unlike agentContract on the same schema)
+    expect(() => unenforcedKeywords({ if: {}, then: {} })).not.toThrow()
+    expect(unenforcedKeywords({ if: {}, then: {} }).sort()).toEqual(['root.if', 'root.then'])
+  })
+
+  test('a schema unenforcedKeywords flags is exactly one agentContract refuses', () => {
+    const schema = { type: 'object', allOf: [{ type: 'object' }] }
+    expect(unenforcedKeywords(schema).length).toBeGreaterThan(0)
+    expect(() => agentContract({ 'app.x': schema })).toThrow()
+  })
+
+  // guards the enforcedChildren union walk (contract.ts): it recurses into
+  // BOTH anyOf and oneOf branches. If that regressed to anyOf-only, an
+  // unenforced keyword hidden inside a oneOf branch would go unreported and
+  // the fail-closed gate would fail OPEN — with every other test still green.
+  test('an unenforced keyword nested inside a oneOf/anyOf branch is still found (fail-closed honesty walk)', () => {
+    expect(
+      unenforcedKeywords({ oneOf: [{ allOf: [{ type: 'object' }] }] })
+    ).toEqual(['root.oneOf.0.allOf'])
+    expect(
+      unenforcedKeywords({ anyOf: [{ type: 'string' }, { not: { const: 5 } }] })
+    ).toEqual(['root.anyOf.1.not'])
+    // and the gate refuses both, naming the branch path
+    expect(() =>
+      agentContract({ 'app.x': { oneOf: [{ allOf: [{ type: 'object' }] }] } })
+    ).toThrow('root.oneOf.0.allOf')
+    expect(() =>
+      agentContract({ 'app.x': { anyOf: [{ type: 'string' }, { not: { const: 5 } }] } })
+    ).toThrow('root.anyOf.1.not')
   })
 })

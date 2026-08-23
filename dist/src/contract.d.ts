@@ -33,6 +33,22 @@ export declare const KEYWORD_SHAPES: [string, (v: any) => boolean, string][];
 /** constraint keyword → the type(s) it applies to; anywhere else it is dead (exported for drift tests) */
 export declare const CONSTRAINT_DOMAINS: [string, string[]][];
 /**
+ * List the schema-tree locations where the schema uses something `validate`
+ * does **not** enforce — a keyword outside `ENFORCED_KEYWORDS` (`allOf`, `not`,
+ * `$ref`, `if`/`then`, `patternProperties`, …), a `format` outside
+ * `ENFORCED_FORMATS`, an invalid `pattern`, a non-primitive `const`/`enum`, a
+ * multi-type array, and so on — each as a `root.path.keyword` string. Empty
+ * means the schema is fully within the enforced subset.
+ *
+ * This is the honest counterpart to `validate` returning a boolean: `validate`
+ * silently ignores what it can't check, so a consumer (a schema-driven form, a
+ * VM metering cost) uses this to WARN — "this schema uses `allOf`, which is not
+ * validated" — instead of implying a check that didn't happen. It never throws
+ * (unlike `agentContract`, which refuses such schemas); it just reports. Same
+ * walker the gate uses, so the two never drift.
+ */
+export declare function unenforcedKeywords(schema: SchemaLike): string[];
+/**
  * Build an {@link AgentContract} over a map of root path → schema (builders
  * or plain JSON Schema). Judges every proposal against the whole-root schema,
  * so `required` on siblings, cross-field constraints, and root-level
@@ -41,8 +57,8 @@ export declare const CONSTRAINT_DOMAINS: [string, string[]][];
  * Fail-closed by construction:
  * - schemas are deep-copied in (and out via `describe()`), so no caller-side
  *   mutation can rewrite the gate after the fact;
- * - schemas using keywords `validate` does not enforce (`allOf`, `oneOf`,
- *   `not`, `$ref`, `exclusiveMinimum`/`Maximum`, …), formats outside
+ * - schemas using keywords `validate` does not enforce (`allOf`, `not`,
+ *   `$ref`, `if`/`then`, `patternProperties`, …), formats outside
  *   `ENFORCED_FORMATS`, or uncapped tuple `items` are refused with an Error
  *   at construction rather than silently un-enforced; nested contracted
  *   roots are refused too (which root judges a deep write would be ambiguous);

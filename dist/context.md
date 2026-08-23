@@ -26,22 +26,23 @@ The `validate` function is the core engine.
 * **Optimization:**
     * **Stochastic Sampling:** If an array or dictionary is large (>97 items) and `strict` is false (`fullScan` is the deprecated alias), it checks indices at prime intervals (stride 97) to statistically verify structure in O(1).
     * **Ghost Constraints:** `maxProperties` on objects is documented in the schema but **ignored** at runtime (unless `strict`) to prevent O(N) key counting overhead.
-* **Enforcement notes:** `additionalProperties: false` rejects unknown keys (and `s.object()` emits it by default); `minItems`/`maxItems` apply with or without an `items` schema; typeless schemas apply object/array keywords when the value matches (JSON Schema semantics); `format` values outside `ENFORCED_FORMATS` are ignored annotations (but refused by `agentContract`).
+* **Enforcement notes:** `additionalProperties: false` rejects unknown keys (and `s.object()` emits it by default); `minItems`/`maxItems` apply with or without an `items` schema; typeless schemas apply object/array keywords when the value matches (JSON Schema semantics); `format` values outside `ENFORCED_FORMATS` are ignored annotations (but refused by `agentContract`). `oneOf` (exactly-one) and `exclusiveMinimum`/`Maximum` enforced since 1.8.0 (`oneOf` is expensive — can't short-circuit — and warns once per process via `console.warn`, silenceable with `setWarnings(false)`).
 
 ### C. Agent Contracts (`src/contract.ts`)
 
 Adapters for capability-gated write paths (tosijs's agent surface, or anything with the same seam shape).
 * **`agentContract(schemas, options?)`:** Maps root path → schema into `{ check, describe }`. `check(path, value, proposal?)` judges the whole-root `proposal.proposed` (never walks paths itself) and returns `true | Error` (the Error message is the refusal reason). Strict validation by default — pass `{ strict: false }` to allow sampling.
-* **Fail-closed invariants (do not weaken):** schemas are deep-copied at construction AND out of `describe()` (mutation cannot disarm the gate); construction validates against an ALLOWLIST — any key outside `ENFORCED_KEYWORDS` (exported beside the walk in `schema.ts`) + annotations + `x-*` throws, which catches `allOf`/`oneOf`/`not`/`$ref`, typos, and future spec keywords alike — plus value-level holes: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, uncapped tuple `items`, non-primitive `const`/`enum` members, multi-type arrays, and nested contracted roots (ambiguous judge); protocol breaches return an Error — any write touching a contracted root (at, under, or ABOVE it, incl. the empty path) without a proposal for that exact root, `proposal.root` mismatch, ancestor writes spanning several contracted roots (one proposal can't cover them — decompose), and a contracted `$predicate` with no registered evaluator. Boolean schemas are legal and enforced (`false` = refuse all, `true` = accept all).
+* **Fail-closed invariants (do not weaken):** schemas are deep-copied at construction AND out of `describe()` (mutation cannot disarm the gate); construction validates against an ALLOWLIST — any key outside `ENFORCED_KEYWORDS` (exported beside the walk in `schema.ts`) + annotations + `x-*` throws, which catches `allOf`/`not`/`$ref`, typos, and future spec keywords alike — plus value-level holes: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, uncapped tuple `items`, non-primitive `const`/`enum` members, multi-type arrays, and nested contracted roots (ambiguous judge); protocol breaches return an Error — any write touching a contracted root (at, under, or ABOVE it, incl. the empty path) without a proposal for that exact root, `proposal.root` mismatch, ancestor writes spanning several contracted roots (one proposal can't cover them — decompose), and a contracted `$predicate` with no registered evaluator. Boolean schemas are legal and enforced (`false` = refuse all, `true` = accept all).
 * **`checkExamples(schemaOrBuilder)`:** Definition-time lint. Recursively verifies every `examples` entry passes its own node and every `$counterexamples` entry fails. Counterexamples that pass structurally under a `$predicate` with no registered evaluator report `unverifiable`, not `accepted`.
 * **Guarantee:** `validate` ignores and never mutates unknown `$`-prefixed and `x-*` keys — extension conventions ride along safely.
+* **`unenforcedKeywords(schema)`:** the honest counterpart to `validate`'s boolean — lists the tree-paths a schema uses that `validate` won't enforce (same walker the gate refuses on, but it reports instead of throwing), so a consumer can warn.
 
 ### D. Schema Inference (`src/infer.ts`)
 
 * **`inferSchema(sample, opts?)` → JSONSchema:** derive a schema from example data (runtime inverse of `Infer<S>`). Unifies across every array element, presence decides `required`, `null` joins the type union, structure only (no range constraints), objects open (`additionalProperties: true`). `formats`/`enums` opt-in and conservative; `sampleSize`/`onTruncate` surface capping.
 * **Invariant:** `validate(sample, inferSchema(sample))` is always true.
 * **`$inferred` marker:** roots are stamped `$inferred: true` (observed vs authored); opt out with `{ marker: false }`. A pure annotation — validate ignores it, agentContract allows it.
-* **Tree-shakeable:** its only runtime dep is the tiny shared `src/formats.ts`; published as the `tosijs-schema/infer` subpath (~1.4kB). The legacy `s.infer` builder method is deprecated (first-element, closed) in favor of this.
+* **Tree-shakeable:** its only runtime dep is the tiny shared `src/formats.ts`; published as the `tosijs-schema/infer` subpath (~1.5kB). The legacy `s.infer` builder method is deprecated (first-element, closed) in favor of this.
 
 ### E. Shared Format Predicates (`src/formats.ts`)
 
@@ -122,7 +123,7 @@ A potential future project: a **fully spec-compliant** JSON Schema Draft 2020-12
 **Motivation:** All existing spec-compliant validators (TypeBox, Ajv) use `new Function()` / eval for performance. This is architecturally ironic - using code generation to implement a safety specification. They can't run in CSP-restricted or sandboxed environments without workarounds.
 
 **Approach:**
-- Use agent-99's safe eval to handle the complex/recursive corners of JSON Schema (`$ref`, `if/then/else`, `allOf/oneOf/not`, `unevaluatedProperties`)
+- Use agent-99's safe eval to handle the complex/recursive corners of JSON Schema (`$ref`, `if/then/else`, `allOf/not`, `unevaluatedProperties`)
 - Gas-limited execution prevents pathological schemas from causing DoS
 - Capability-based security keeps it sandboxed
 - Zero `eval` / `new Function()`
