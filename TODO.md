@@ -196,10 +196,13 @@ review (KB commits `50580f9`, `f8e3cac`); all three ticked:
 - [x] `state-and-schema.md`: `inferSchema` / the `/infer` subpath added; steer
   away from the deprecated `s.infer`.
 
-**KB write-back log** (base..sha, this repo):
-- v1.6.0 review → KB `50580f9`.
-- v1.7.0 review (`v1.6.1..HEAD`) → KB `f8e3cac` (1.7.0 positive citation, infer
+**KB write-back log** (reviewed-repo `base..sha` → KB commit):
+- v1.6.0 review (`v1.5.1..142e007`) → KB `50580f9`.
+- v1.7.0 review (`v1.6.1..894b3ff`) → KB `f8e3cac` (1.7.0 positive citation, infer
   subpath size fix).
+- v1.8.0 review (`v1.7.0..0da18e9`) → KB `58ece17` (break-frequency
+  ship-now-cannot-batch; generate-your-own-numbers + make-coverage.ts;
+  decided-against-note lesson; fail-open enumerator pattern; scoreboard → 1.8.0).
 
 ## ~~Decided: no `oneOf` support~~ — SUPERSEDED by v1.8.0 (2026-08-23)
 
@@ -257,21 +260,17 @@ Remaining (unverified reviewer leads unless noted — sanity-check first):
   explicit loops (merging obscures the short-circuit-vs-full-count distinction);
   extract a shared `countMatches(v, branches, cap)` only if a third union
   keyword lands.
-- [ ] *(practices minor)* Add a reverse-lens-8 disposition block covering every
-  `../tosijs-coding-practices` commit since 2026-08-19 (fe03680 reviews/ path —
-  now adopted; 787c551 land-current-release-first; abdcf14 npm-deprecate bar —
-  feeds the GHSA decision), each marked adopted/compliant/diverging, with the
-  break-frequency "ship-now-cannot-batch" rationale recorded as a stated
-  divergence from releasing.md.
-- [ ] *(tooling — recurring)* COVERAGE.md test/assertion counts and the README
-  bundle-size / coverage block are hand-maintained and drifted again (275/831 →
-  279/846 this release). The drift gate doesn't cover them. Wire a
-  coverage-report + size regen into `bun run pack` (like `make-context.ts` does
-  for llms.txt) so they can't go stale, or add an `<!-- as-of: DATE -->` stamp +
-  age check. See the practices write-back below.
-- [ ] *(nit)* KB write-back ledger (below): backfill the v1.6.0 entry's missing
-  `base..sha` range and add the v1.8.0 entry once the KB commit lands, so every
-  ledger claim is range-checkable.
+- [x] *(practices minor)* Reverse-lens-8 disposition done — see the "Shared
+  practices KB … `58ece17`" section below: fe03680 ADOPTED, 787c551 COMPLIANT,
+  abdcf14 ADOPTED (deciding rule for GHSA→CHANGELOG-only), break-frequency
+  recorded as a stated "ship-now-cannot-batch" divergence in releasing.md.
+- [x] *(tooling — recurring)* Resolved: `make-coverage.ts` regenerates the
+  COVERAGE.md counts/table + README size row from measured output, wired into
+  `bun run pack`, so the drift gate now covers them. Stamps the VERSION (not a
+  date) to stay gate-clean day-to-day. Corrected two hand-rounding errors it
+  found (98.53→98.59%, 7.8→7.9 kB).
+- [x] *(nit)* KB write-back ledger (below): backfilled v1.6.0/v1.7.0 with pinned
+  `base..sha`, added the v1.8.0 → `58ece17` entry. All rows range-checkable now.
 
 ### At publish time (human)
 
@@ -287,32 +286,35 @@ Remaining (unverified reviewer leads unless noted — sanity-check first):
   CHANGELOG + README "Upgrading to 1.8.0"; same defect class as
   GHSA-3qw7-pvr3-2gpq, further narrowed.
 
-### Shared practices KB (commit to `../tosijs-coding-practices`; human pushes)
+### Shared practices KB (committed to `../tosijs-coding-practices` as `58ece17` — human pushes)
 
-- [ ] **Disposition the break-FREQUENCY trigger for the record.** Three
-  breaking-in-a-minor releases (1.5.0 / 1.7.0 / 1.8.0; last two 4 days apart)
-  trip releasing.md's "batch into a major" trigger. Record the decision:
-  fail-open fixes (1.5.0, 1.8.0) can't carry a loose opt-in, so they must ship
-  promptly and can't be batched — "ship now, cannot batch." Note 1.7.0 was a
-  spec-conformance tightening (not fail-open), so the three aren't one defect
-  class. Refresh releasing.md's stale citation ("1.5.0, 1.7.0" → include 1.8.0)
-  and the practices scoreboard row.
-- [ ] **Disposition "stamp-or-generate perishable-and-yours facts"**
-  (documentation-surface.md, landed 2026-08-21 inside this window). This release
-  hand-edited its own bundle sizes across CLAUDE/CONTEXT/README — exactly the
-  class the practice says to generate. Wire `show-size`/`make-context.ts` to
-  emit measured sizes, add the as-of stamp, or record a deliberate divergence.
-- [ ] **Capture the "decided-against note" lesson** (development.md/review.md):
-  a decided-against note is only as strong as its reconsider-if trigger (the
-  load-bearing part); the tell of a weak one is that it rests on an unvalidated
-  "no consumer needs this." Cite the `oneOf` reversal (1.8.0, #8) — the
-  2026-08-19 "no oneOf support" note reversed 4 days later. Already flagged in
-  the SUPERSEDED section above.
-- [ ] **Record the fail-open ENUMERATOR pattern** (review.md): the three-tier
-  honesty move — allowlist (`ENFORCED_KEYWORDS`) → refuse (`agentContract`) →
-  enumerate (`unenforcedKeywords`, a runtime lister of tree-paths the validator
-  can't enforce, so a consumer WARNS rather than assumes checked). Cite 1.8.0;
-  cross-link state-and-schema.md.
+All four write-backs + the scoreboard refresh landed in KB commit `58ece17`
+(ahead of origin; needs a human `git push`). The stamp-or-generate item was
+resolved by *building* the generator (make-coverage.ts) rather than just
+recording a divergence.
+
+- [x] **Disposition the break-FREQUENCY trigger.** releasing.md now records the
+  "ship-now-cannot-batch" rule: the batch-into-a-major trigger is subordinate to
+  the CLASS distinction — a fail-open fix can't be batched (its deprecation
+  window is the forbidden "keep the vulnerability" opt-in), so on a mixed-class
+  run you batch the conformance breaks and ship the fail-open ones now. Citation
+  updated to three breaking minors; scoreboard row refreshed to 1.8.0.
+- [x] **"Generate perishable-and-yours facts."** documentation-surface.md move 1
+  now covers your OWN measured numbers (bundle size, test/coverage counts) with
+  the version-not-date stamp caveat, citing make-coverage.ts. Resolved in-repo
+  by the generator (this repo's `build:` commit), not by a recorded divergence.
+- [x] **"Decided-against note" lesson.** development.md new section — a
+  decided-against note is only as strong as its reconsider-if trigger; a
+  triggerless one calcifies. Cites the `oneOf` reversal.
+- [x] **Fail-open ENUMERATOR pattern.** review.md now records the third form of
+  a fail-open fix (beyond enforce-or-refuse): make the gap enumerable —
+  allowlist → refuse → enumerate (`unenforcedKeywords`), "detectability > coverage."
+- [x] **Reverse lens-8 disposition** (see the review-follow-ups section above):
+  in-window practices commits dispositioned — fe03680 (reviews/ path) ADOPTED
+  (record now filed); 787c551 (land-current-release-first) COMPLIANT (human-only
+  push/publish gate already satisfies it); abdcf14 (npm-deprecate bar) ADOPTED as
+  the deciding rule for the GHSA→CHANGELOG-only call; break-frequency recorded as
+  a stated "ship-now-cannot-batch" divergence from releasing.md (above).
 
 ## Build / tooling (future)
 
