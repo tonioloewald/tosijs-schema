@@ -275,13 +275,17 @@ Remaining (unverified reviewer leads unless noted — sanity-check first):
 
 ### At publish time (human)
 
-- [ ] Close **#8** naming v1.8.0 (notifies the tosijs-ui filer). State: `oneOf`
-  + `exclusive*` now ENFORCED and `unenforcedKeywords()` shipped; the ~10 other
-  keywords remain unenforced but detectable. Mirror the closure in `UPSTREAM.md`.
-- [ ] Decide whether ≤1.7.0's `oneOf`/`exclusive*` fail-open warrants its own
-  GHSA (narrower continuation of GHSA-3qw7-pvr3-2gpq) or is CHANGELOG-only —
-  depends on whether any downstream treats `validate().ok` as an auth/sanitize
-  boundary.
+- [x] Closed **#8** naming v1.8.0 (2026-08-24) with honest scope: `oneOf` +
+  `exclusive*` now ENFORCED and `unenforcedKeywords()` shipped (all three
+  prioritized asks); the ~10 other keywords remain unenforced but detectable.
+  (Incoming issue on this repo — no UPSTREAM.md mirror needed.)
+- [x] GHSA vs CHANGELOG decision (2026-08-24): **CHANGELOG-only**, no second
+  advisory. Owner confirmed nothing downstream treats `validate()`'s boolean as
+  an auth/sanitize boundary; under `^1.x` every consumer floats to 1.8.0, so the
+  ≤1.7.0 versions fail practice abdcf14's deprecate/advisory bar (that bar is
+  only for consumers who *can't* reach the fix). Documented as BREAKING in
+  CHANGELOG + README "Upgrading to 1.8.0"; same defect class as
+  GHSA-3qw7-pvr3-2gpq, further narrowed.
 
 ### Shared practices KB (commit to `../tosijs-coding-practices`; human pushes)
 
