@@ -71,4 +71,6 @@ String `format` validators (`email`/`uri`/`date-time`/…) plus `ENFORCED_FORMAT
 
 **Drift gate:** after the final `bun run pack`, `git status --porcelain` must be empty before tagging — if it isn't, a generated artifact (examples.md, dist/, COVERAGE numbers, llms.txt version) is stale in the commit.
 
-**Publishing and pushing are human-only.** Stop after commit + tag and wait for an explicit go-ahead; never run `npm publish`/`bun publish` or `git push` yourself.
+**Pushing:** the owner's standing rule is **when in doubt, push** — `git push` (incl. tags) is fine to run once work is committed and green. The *only* reason to hold back is if a push could break a live **GitHub Pages demo** (a repo whose `main`/`gh-pages` auto-deploys a hosted site); check for that first (`.github/workflows`, `CNAME`, the Pages API) and flag it rather than pushing blind. Neither this repo nor `tosijs-coding-practices` has Pages, so pushes here are unconditionally safe.
+
+**Publishing stays human-only.** Never run `npm publish`/`bun publish` yourself — npm's 2FA/OTP flow needs the maintainer. Stop after commit + tag and hand off the publish.
