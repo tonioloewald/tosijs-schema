@@ -1,4 +1,4 @@
-# tosijs-schema v1.8.0
+# tosijs-schema v1.8.1
 
 Schema-first validation for TypeScript/JavaScript — plain JSON Schema is the
 source of truth; types are inferred from it, not the other way around. ~8kB gzipped (or ~1.5kB via the `tosijs-schema/infer` subpath), zero dependencies, no eval/new Function.
