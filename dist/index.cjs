@@ -641,7 +641,15 @@ function filterData(data, schema, fullScan = false) {
       return filterData(data, origMatches[0], fullScan);
     if (origMatches.length > 1)
       return data;
-    const size = (x) => x && typeof x === "object" ? Array.isArray(x) ? x.length : Object.keys(x).length : 0;
+    const size = (x) => {
+      if (x === null || typeof x !== "object")
+        return 0;
+      let n = 0;
+      for (const k in x)
+        if (hasOwn(x, k))
+          n += 1 + size(x[k]);
+      return n;
+    };
     let best = null;
     let bestScore = -1;
     let tie = false;

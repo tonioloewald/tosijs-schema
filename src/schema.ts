@@ -953,8 +953,18 @@ function filterData(data: any, schema: any, fullScan = false): any {
     // (that was the blocker: preferring a narrower branch dropped `b`). A tie
     // at the top is genuinely ambiguous → return unstripped so the outer
     // validate reports a loud Error instead of an arbitrary lossy strip.
-    const size = (x: any): number =>
-      x && typeof x === 'object' ? (Array.isArray(x) ? x.length : Object.keys(x).length) : 0
+    // recursive node count, not just top-level keys — a deeper strip that keeps
+    // a nested field must outscore a shallower one, or `filter` over-rejects
+    // oneOf inputs whose branches differ only in NESTED structure (two strips
+    // tie on top-level size, fall through to the ambiguous-Error arm, and a
+    // uniquely-less-lossy result is refused). Genuinely disjoint strips still
+    // tie here → Error, so the no-silent-data-loss guarantee is unchanged.
+    const size = (x: any): number => {
+      if (x === null || typeof x !== 'object') return 0
+      let n = 0
+      for (const k in x) if (hasOwn(x, k)) n += 1 + size((x as any)[k])
+      return n
+    }
     let best: any = null
     let bestScore = -1
     let tie = false

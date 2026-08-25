@@ -247,14 +247,15 @@ npm tarball by the `package.json` "files" allowlist).
 
 Remaining (unverified reviewer leads unless noted — sanity-check first):
 
-- [ ] *(correctness lead)* `filterData`'s `oneOf` retention score `size()`
-  (`src/schema.ts`) counts only TOP-LEVEL keys, so `filter()` over-rejects
-  `oneOf` inputs whose unique valid stripping differs only in NESTED structure
-  (e.g. `oneOf:[{a:{x}},{a:{x,y}}]`, input `{a:{x,y,z}}` → tie at size 1 → Error).
-  Fails SAFE (Error, never a wrong value — no data corruption). Verify, then
-  either make the score a recursive node count or document that `filter()` can't
-  resolve nested-only `oneOf` differences and returns an Error. Add a
-  nested-difference fixture either way.
+- [x] *(correctness — CONFIRMED 2026-08-24 by repro, FIXED same day)*
+  `filterData`'s `oneOf` retention score `size()` counted only TOP-LEVEL keys,
+  so `filter()` over-rejected `oneOf` inputs whose less-lossy strip differed only
+  in NESTED structure (`filter({a:{x:1,y:2,z:3}}, oneOf:[{a:{x}},{a:{x,y}}])` →
+  `Error`, while the top-level analog worked). Failed SAFE (Error, never wrong
+  value). Fixed: `size()` is now a recursive node count, so `{a:{x,y}}`=3 beats
+  `{a:{x}}`=2 and the less-lossy strip wins; genuine disjoint ties still tie →
+  Error (guarantee intact). Nested + top-level-control fixtures added. Ships in
+  the next release (a loosening — accepts what it wrongly refused — non-breaking).
 - [ ] *(dryness nit — LEAN NO)* `anyOf` and `oneOf` branch-trial loops in
   `validate()` are near-duplicate. Reviewer recommends leaving them as two
   explicit loops (merging obscures the short-circuit-vs-full-count distinction);

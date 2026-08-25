@@ -662,6 +662,23 @@ describe('Filter function - additional coverage', () => {
     expect(filter({ a: 1, b: 2 }, schema, { skipValidation: true })).toEqual({ a: 1, b: 2 })
   })
 
+  test('filter resolves oneOf branches that differ only in NESTED structure (retention score is deep, not top-level)', () => {
+    // Branches differ one level down: a.{x} vs a.{x,y}, all closed. Input has a
+    // nested junk z. The two candidate strips — {a:{x}} and {a:{x,y}} — both
+    // have ONE top-level key, so a shallow retention score ties them and the
+    // less-lossy {a:{x,y}} would be wrongly refused. A deep node count breaks
+    // the tie toward keeping y (only z, genuine junk, is shed).
+    const nx = { type: 'object', additionalProperties: false, required: ['a'], properties: { a: { type: 'object', additionalProperties: false, required: ['x'], properties: { x: { type: 'number' } } } } }
+    const nxy = { type: 'object', additionalProperties: false, required: ['a'], properties: { a: { type: 'object', additionalProperties: false, required: ['x', 'y'], properties: { x: { type: 'number' }, y: { type: 'number' } } } } }
+    const nested = { oneOf: [nx, nxy] }
+    expect(filter({ a: { x: 1, y: 2, z: 3 } }, nested)).toEqual({ a: { x: 1, y: 2 } })
+    // parity: the exact same shape one level UP has always worked — pin it so
+    // the nested and top-level paths can't diverge again
+    const tx = { type: 'object', additionalProperties: false, required: ['x'], properties: { x: { type: 'number' } } }
+    const txy = { type: 'object', additionalProperties: false, required: ['x', 'y'], properties: { x: { type: 'number' }, y: { type: 'number' } } }
+    expect(filter({ x: 1, y: 2, z: 3 }, { oneOf: [tx, txy] })).toEqual({ x: 1, y: 2 })
+  })
+
   test('filter strips typeless applicator schemas (zero-preprocessing runtime schemas)', () => {
     expect(
       filter({ a: 1, b: 2 }, {

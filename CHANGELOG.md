@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`filter()` over `oneOf` now resolves branches that differ only in NESTED
+  structure.** The retention score that picks the least-lossy strip counted only
+  top-level keys, so `filter({ a: { x: 1, y: 2, z: 3 } }, { oneOf: [{a:{x}},
+  {a:{x,y}}] })` returned an `Error` (both strips tied at one top-level key) even
+  though `{ a: { x: 1, y: 2 } }` uniquely loses only the junk `z`. The score is
+  now a recursive node count, so the less-lossy strip wins — matching how the
+  identical shape one level up already behaved. A loosening (it accepts input it
+  previously refused; genuinely ambiguous ties still return an `Error`), so
+  non-breaking.
+
 ## [1.8.0] — 2026-08-23
 
 **Contains a BREAKING validation change** (`oneOf` + `exclusive*` now enforced,
