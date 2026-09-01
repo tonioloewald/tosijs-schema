@@ -91,7 +91,7 @@ const create = (s: any, optional = false): any => ({
         : s.type === 'array'
         ? 'maxItems'
         : s.type === 'object'
-        ? 'maxProperties' // Generated for docs, ignored by validator (Ghost)
+        ? 'maxProperties' // enforced in every mode as of v1.9.0 (short-circuits at max+1)
         : 'maximum'
     return create({ ...s, [key]: v }, optional)
   },
@@ -586,7 +586,7 @@ export type ErrorHandler = (path: string, msg: string) => void
 
 export interface ValidateOptions {
   onError?: ErrorHandler
-  /** Enable strict validation: no stride sampling, enforces maxProperties. */
+  /** Enable strict validation: no stride sampling (full array/dict scan). maxProperties is enforced regardless (v1.9.0). */
   strict?: boolean
   /** @deprecated Use `strict` instead. */
   fullScan?: boolean
@@ -758,16 +758,24 @@ export function validate(
         !Array.isArray(v) &&
         objectKeywordsPresent(s))
     ) {
-      // Check property count constraints
-      // minProperties: always checked (required for empty object rejection)
-      // maxProperties: only checked in fullScan mode (counting is O(n))
-      const checkMin = s.minProperties !== undefined
-      const checkMax = fullScan && s.maxProperties !== undefined
-      if (checkMin || checkMax) {
+      // Property-count constraints. Both are enforced in every mode (v1.9.0):
+      // a `maxProperties` check SHORT-CIRCUITS at max+1 — it stops the moment it
+      // sees one key too many, so the cost is O(min(N, max+1)), not O(N), and
+      // only schemas that declare the keyword pay anything. This is why it no
+      // longer needs `fullScan`: counting a ceiling doesn't require the whole
+      // object. `minProperties` likewise stops once satisfied (unless a max is
+      // also present, which forces counting to the end or to max+1).
+      const min = s.minProperties
+      const max = s.maxProperties
+      if (min !== undefined || max !== undefined) {
         let c = 0
-        for (const k in v) if (hasOwn(v, k)) c++
-        if (checkMin && c < s.minProperties) return err('Too few props')
-        if (checkMax && c > s.maxProperties) return err('Too many props')
+        for (const k in v) {
+          if (!hasOwn(v, k)) continue
+          c++
+          if (max !== undefined && c > max) return err('Too many props')
+          if (max === undefined && min !== undefined && c >= min) break
+        }
+        if (min !== undefined && c < min) return err('Too few props')
       }
 
       if (s.required) {
@@ -859,7 +867,7 @@ export function validate(
 
 export interface FilterOptions {
   onError?: ErrorHandler
-  /** Enable strict validation: no stride sampling, enforces maxProperties. */
+  /** Enable strict validation: no stride sampling (full array/dict scan). maxProperties is enforced regardless (v1.9.0). */
   strict?: boolean
   /** @deprecated Use `strict` instead. */
   fullScan?: boolean

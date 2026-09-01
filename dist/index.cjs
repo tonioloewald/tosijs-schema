@@ -486,17 +486,21 @@ function validate(val, builderOrSchema, opts) {
         return err("Format invalid");
     }
     if (t === "object" || !t && typeof v === "object" && !Array.isArray(v) && objectKeywordsPresent(s2)) {
-      const checkMin = s2.minProperties !== undefined;
-      const checkMax = fullScan && s2.maxProperties !== undefined;
-      if (checkMin || checkMax) {
+      const min = s2.minProperties;
+      const max = s2.maxProperties;
+      if (min !== undefined || max !== undefined) {
         let c = 0;
-        for (const k in v)
-          if (hasOwn(v, k))
-            c++;
-        if (checkMin && c < s2.minProperties)
+        for (const k in v) {
+          if (!hasOwn(v, k))
+            continue;
+          c++;
+          if (max !== undefined && c > max)
+            return err("Too many props");
+          if (max === undefined && min !== undefined && c >= min)
+            break;
+        }
+        if (min !== undefined && c < min)
           return err("Too few props");
-        if (checkMax && c > s2.maxProperties)
-          return err("Too many props");
       }
       if (s2.required) {
         for (const k of s2.required)

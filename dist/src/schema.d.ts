@@ -207,7 +207,7 @@ export declare const ENFORCED_KEYWORDS: ReadonlySet<string>;
 export type ErrorHandler = (path: string, msg: string) => void;
 export interface ValidateOptions {
     onError?: ErrorHandler;
-    /** Enable strict validation: no stride sampling, enforces maxProperties. */
+    /** Enable strict validation: no stride sampling (full array/dict scan). maxProperties is enforced regardless (v1.9.0). */
     strict?: boolean;
     /** @deprecated Use `strict` instead. */
     fullScan?: boolean;
@@ -215,7 +215,7 @@ export interface ValidateOptions {
 export declare function validate(val: any, builderOrSchema: Base<any> | Record<string, any> | boolean, opts?: ValidateOptions | ErrorHandler): boolean;
 export interface FilterOptions {
     onError?: ErrorHandler;
-    /** Enable strict validation: no stride sampling, enforces maxProperties. */
+    /** Enable strict validation: no stride sampling (full array/dict scan). maxProperties is enforced regardless (v1.9.0). */
     strict?: boolean;
     /** @deprecated Use `strict` instead. */
     fullScan?: boolean;

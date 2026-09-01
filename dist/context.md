@@ -25,7 +25,7 @@ The `validate` function is the core engine.
 * **Behavior:** Returns `boolean`. **Never throws** (invalid `pattern` regexes fail closed rather than raising; only a throwing `onError` callback can escape). Allocation is minimal (one path array; anyOf branch trials allocate an options object).
 * **Optimization:**
     * **Stochastic Sampling:** If an array or dictionary is large (>97 items) and `strict` is false (`fullScan` is the deprecated alias), it checks indices at prime intervals (stride 97) to statistically verify structure in O(1).
-    * **Ghost Constraints:** `maxProperties` on objects is documented in the schema but **ignored** at runtime (unless `strict`) to prevent O(N) key counting overhead.
+    * **`maxProperties`** on objects is enforced in every mode (v1.9.0, closing #9 — formerly a strict-only "ghost constraint"). The count **short-circuits at `max+1`**, so it costs O(min(N, max+1)) and only schemas that declare it pay; it does not defeat value stride-sampling.
 * **Enforcement notes:** `additionalProperties: false` rejects unknown keys (and `s.object()` emits it by default); `minItems`/`maxItems` apply with or without an `items` schema; typeless schemas apply object/array keywords when the value matches (JSON Schema semantics); `format` values outside `ENFORCED_FORMATS` are ignored annotations (but refused by `agentContract`). `oneOf` (exactly-one) and `exclusiveMinimum`/`Maximum` enforced since 1.8.0 (`oneOf` is expensive — can't short-circuit — and warns once per process via `console.warn`, silenceable with `setWarnings(false)`).
 
 ### C. Agent Contracts (`src/contract.ts`)

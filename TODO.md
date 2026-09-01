@@ -224,6 +224,30 @@ unsupported + `agentContract` refuses + `validate` silently ignores." The
 reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
 Schema off the wire") is essentially what #8 turned out to be.
 
+## v1.9.0 pre-release review follow-ups (GO_WITH_FOLLOWUPS; 0 blockers)
+
+`depth: full` review (base `v1.8.1`) of the `maxProperties` enforcement fix (#9):
+GO, no blockers, 281 pass. Three findings; two fixed pre-tag, one deferred.
+
+- [x] **[blast-radius, VERIFIED] Hardened the "every ENFORCED_KEYWORD is
+  demonstrably enforced" drift guard to assert the DEFAULT path, not just
+  `{strict:true}`** (`src/schema.test.ts`). This guard was the recurrence engine
+  behind #8→#9: `maxProperties` sat in `ENFORCED_KEYWORDS` from 1.5.0 through
+  1.8.x and passed the strict-only guard while the default `validate` path fell
+  open. The added default-path assertions pass for every keyword (900 expect()
+  calls), proving no other enforced keyword is default-skipped, and will fail
+  loudly if a future keyword is only strict-enforced. Class closed + locked.
+- [x] **[docs] Added `filter()` to the README "Upgrading to 1.9.0" note** — it
+  re-validates its stripped result, so `maxProperties` now applies there too
+  (over-ceiling dict → `Error` where 1.8.x returned the data).
+- [ ] *(efficiency — confirmed, deferred)* Bounded dictionaries
+  (`additionalProperties` + `maxProperties`) now enumerate keys twice per
+  `validate`: once in the count loop (`src/schema.ts`) and again to build the
+  stride-sampling `keys` array. Asymptotically unchanged and cheap, but it's a
+  second full pass over exactly the large-dict structure sampling tries to keep
+  cheap. Fold the count into the pass that builds `keys`. Safe to defer — touches
+  the sampling hot path, so not worth the regression risk right at a tag.
+
 ## v1.8.0 pre-release review follow-ups (non-blocking; blocker fixed pre-tag)
 
 The `depth: fast` review (base `v1.7.0`) found ONE blocker — `filter()` silently

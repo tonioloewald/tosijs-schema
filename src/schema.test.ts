@@ -195,25 +195,32 @@ describe('Object Constraints & Optimization', () => {
     expect(validate({}, dict.schema)).toBeFalse()
   })
 
-  test('maxProperties: Skipped by default, enforced in strict mode', () => {
+  test('maxProperties: enforced in EVERY mode as of v1.9.0 (short-circuits, no full scan needed)', () => {
     const dict = s.record(s.number).max(1)
 
-    // 1. Verify it exists in the Schema (for documentation/OpenAPI)
+    // still emitted into the schema (docs/OpenAPI)
     expect(dict.schema.maxProperties).toBe(1)
 
-    // 2. Default mode IGNORES maxProperties
-    // This is intentional: counting properties is O(n) which would negate
-    // the performance benefits of stride sampling.
-    const hugePayload = { a: 1, b: 2, c: 3 }
-    expect(validate(hugePayload, dict.schema)).toBeTrue()
+    // default mode now ENFORCES it — this returned true (fail-open) through 1.8.x
+    expect(validate({ a: 1, b: 2, c: 3 }, dict.schema)).toBeFalse()
+    expect(validate({ a: 1 }, dict.schema)).toBeTrue() // exactly at ceiling (inclusive)
 
-    // 3. strict mode ENFORCES maxProperties
-    // When you opt into strict validation, all constraints are checked.
-    expect(validate(hugePayload, dict.schema, { strict: true })).toBeFalse()
-    expect(validate({ a: 1 }, dict.schema, { strict: true })).toBeTrue()
+    // strict / fullScan unchanged (still enforce)
+    expect(validate({ a: 1, b: 2 }, dict.schema, { strict: true })).toBeFalse()
+    expect(validate({ a: 1, b: 2 }, dict.schema, { fullScan: true })).toBeFalse()
 
-    // 4. fullScan still works (deprecated alias)
-    expect(validate(hugePayload, dict.schema, { fullScan: true })).toBeFalse()
+    // enforced WITHOUT a full scan: a 500-key object over a ceiling of 5 fails
+    // in default mode because the count short-circuits at max+1 (never counts all)
+    const huge: Record<string, number> = {}
+    for (let i = 0; i < 500; i++) huge[`k${i}`] = 1
+    expect(validate(huge, s.record(s.number).max(5).schema)).toBeFalse()
+
+    // property-count enforcement is independent of VALUE stride-sampling: a big
+    // dict UNDER its ceiling still validates values by stride (bad @ unsampled idx passes)
+    const data: Record<string, any> = {}
+    for (let i = 0; i < 200; i++) data[`k_${String(i).padStart(3, '0')}`] = 1
+    data['k_001'] = 'bad' // skipped by stride 97
+    expect(validate(data, s.record(s.number).max(1000).schema)).toBeTrue()
   })
 
   test('Optimization: Dictionary Stride Skips Validation for large objects', () => {
@@ -501,8 +508,17 @@ describe('Algebra', () => {
       for (const keyword of ENFORCED_KEYWORDS) {
         expect(table[keyword]).toBeDefined()
         const [schema, pass, fail] = table[keyword]!
+        // strict path
         expect(validate(pass, schema, { strict: true })).toBeTrue()
         expect(validate(fail, schema, { strict: true })).toBeFalse()
+        // DEFAULT path too — this is the guard that #8/#9 slipped past: a
+        // keyword can sit in ENFORCED_KEYWORDS yet be skipped by the lenient
+        // default path (maxProperties did, for three minor versions). Fixtures
+        // are tiny (no >97 stride sampling), so every enforced keyword MUST
+        // reject its fail case without strict. If a future keyword is only
+        // strict-enforced, this fails loudly instead of shipping fail-open.
+        expect(validate(pass, schema)).toBeTrue()
+        expect(validate(fail, schema)).toBeFalse()
       }
     } finally {
       setPredicateEvaluator(prev)

@@ -21,6 +21,16 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ## Upgrading
 
+### To 1.9.0 (from 1.8.x) — closes a fail-open; `maxProperties` newly enforced
+
+`validate` now enforces **`maxProperties`** in its default (non-strict) path, which it previously *ignored* — a strict-only "ghost constraint" ([#9](https://github.com/tonioloewald/tosijs-schema/issues/9)). This is a validation tightening, so it's breaking:
+
+| Schema | ≤ 1.8.1 (default `validate`) | 1.9.0 |
+| --- | --- | --- |
+| `{ maxProperties: 1 }` on `{ a: 1, b: 2 }` | pass (ignored) | **fail** (too many props) |
+
+Only affects schemas that declare `maxProperties`. The check short-circuits at `max + 1`, so it's O(min(N, max+1)) — cheap for normal ceilings, and objects without the keyword are untouched. `{ strict: true }` and `agentContract` already enforced it, so anything gated through them is unchanged. **`filter()` shares this enforcement** — it re-validates its stripped result, so filtering an over-ceiling object against a `maxProperties` schema now returns an `Error` where 1.8.x returned the (still-over-ceiling) data (`filter` strips unknown keys, not surplus dictionary entries). If a schema was leaning on the old skip, drop the `maxProperties` keyword or raise the ceiling. Everything else is additive.
+
 ### To 1.8.0 (from 1.7.x) — closes a fail-open; two keywords newly enforced
 
 `validate` now enforces **`oneOf`** and **`exclusiveMinimum`/`exclusiveMaximum`**, which it previously *ignored* (returning `true` for values they forbid — [#8](https://github.com/tonioloewald/tosijs-schema/issues/8)). This is a validation tightening, so it's breaking:
@@ -347,7 +357,7 @@ Uses stride sampling for large arrays/objects (O(1) for >97 items).
 validate(data, schema, { strict: true })
 ```
 
-Validates every item. Also enforces `maxProperties`.
+Validates every item (no stride sampling). `maxProperties` is enforced in every mode as of v1.9.0, so `strict` no longer changes it.
 
 ### Error Handling
 
@@ -538,7 +548,7 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 | Decision | Rationale |
 |----------|-----------|
 | Stride sampling (97) | Prime number, checks ~1% of large collections, always verifies first/last |
-| `maxProperties` only in strict mode | Counting is O(n), defeats sampling optimization |
+| `maxProperties` enforced in every mode (v1.9.0) | The check short-circuits at `max+1`, so it's O(min(N, max+1)) — only schemas that declare it pay, bounded by the declared ceiling |
 | `additionalProperties: false` enforced (since v1.5.0) | Unknown keys are refused; previously a falsy-check bug skipped this — use `filter()` for lenient intake that strips extras instead |
 
 ## Test Coverage
@@ -547,15 +557,15 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   98.94 |   98.59 |
+All files        |   98.94 |   98.60 |
  src/contract.ts |   97.73 |   97.39 | 85,469,471,474,483-485,516-517
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   96.97 |   95.58 | 122-126,336-342,477,1050-1051,1065,1085-1086,1109-1118,1121-1122
+ src/schema.ts   |   96.97 |   95.60 | 122-126,336-342,477,1058-1059,1073,1093-1094,1117-1126,1129-1130
 ```
 
-281 tests, 850 assertions.
+281 tests, 900 assertions.
 <!-- /coverage:readme -->
 
 ## License

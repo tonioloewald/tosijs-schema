@@ -5,6 +5,29 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] — 2026-09-01
+
+**Contains a BREAKING validation change** (`maxProperties` now enforced in every
+mode, closing a fail-open). Same defect class as [GHSA-3qw7-pvr3-2gpq](https://github.com/tonioloewald/tosijs-schema/security/advisories/GHSA-3qw7-pvr3-2gpq)
+(fail-open validation), narrowed across 1.5.0 / 1.8.0, narrowed again here. See
+README "Upgrading to 1.9.0".
+
+### Fixed — BREAKING
+
+- **`maxProperties` is now enforced in every mode** ([#9](https://github.com/tonioloewald/tosijs-schema/issues/9)).
+  Through 1.8.x it was a strict-only "ghost constraint": `validate(obj, schema)`
+  in the default (non-strict) path silently ignored it, so
+  `validate({ a: 1, b: 2 }, { maxProperties: 1 })` returned `true`. It's now
+  checked in the default path too. The check **short-circuits at `max + 1`** — it
+  stops the moment it sees one key too many — so the cost is O(min(N, max+1)),
+  not O(N), and only schemas that *declare* `maxProperties` pay anything.
+  Property-count enforcement is independent of value stride-sampling (a large
+  dictionary under its ceiling still samples values by stride). This is a
+  validation tightening, so it's breaking even though it lands in a minor (see
+  README "Versioning & stability"). `agentContract` and `{ strict: true }`
+  already enforced it — this closes the gap in the lenient `validate` path, the
+  same internal contradiction #8 fixed for `oneOf`/`exclusive*`.
+
 ## [1.8.1] — 2026-08-25
 
 ### Fixed
