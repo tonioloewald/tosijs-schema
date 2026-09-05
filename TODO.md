@@ -224,6 +224,35 @@ unsupported + `agentContract` refuses + `validate` silently ignores." The
 reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
 Schema off the wire") is essentially what #8 turned out to be.
 
+## Smoke lane (`smoke.ts`, added 2026-09-05 from tosijs-ui#61)
+
+Packs the real tarball, installs it into a scratch consumer, imports BY PACKAGE
+NAME, typechecks the emitted `.d.ts` with `skipLibCheck` OFF, and executes.
+Wired into `pack`. Verified falsifiable (deleting the `./infer` export fails it).
+Covers four things no local loop sees: the `exports` map, the published
+declarations, the tarball contents, and that the artifact runs.
+
+Two findings from building it, both worth keeping:
+
+- [x] **`bunx tsc` in a scratch dir silently resolves a DIFFERENT TypeScript**
+  (measured: 7.0.2 in a tmpdir vs the repo's pinned 5.9.2), so the gate would
+  report failures the repo can't reproduce. Now invokes the repo's own
+  `node_modules/.bin/tsc` by absolute path. This is the ui#61 "check whose scope
+  is a silent parameter" class, produced *by the check itself* — worth
+  remembering when writing any gate that shells out to a tool.
+- [ ] *(open question, low priority)* Our published `.d.ts` uses
+  `ReadonlySet<string>` (`ENFORCED_KEYWORDS`, `ENFORCED_FORMATS`), which needs
+  `lib: es2015.collection`. A consumer compiling at tsc's DEFAULT target (ES5)
+  with `skipLibCheck: false` cannot compile our types. The smoke lane asserts
+  `--target es2020` as our declared baseline instead. Decide + document the
+  floor explicitly (README/package `engines`-style note), or drop the
+  `ReadonlySet` type from the public surface. Nobody has hit this; it's a
+  portability claim we currently make implicitly.
+- [ ] *(forward-compat, non-blocking)* Our `.d.ts` under **tsc 7.0.2** was not
+  otherwise exercised. Consider a separate non-blocking forward-compat run
+  against latest TypeScript, kept OUT of the release gate so a new tsc release
+  can never block a publish.
+
 ## v1.9.0 pre-release review follow-ups (GO_WITH_FOLLOWUPS; 0 blockers)
 
 `depth: full` review (base `v1.8.1`) of the `maxProperties` enforcement fix (#9):
