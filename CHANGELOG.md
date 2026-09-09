@@ -5,60 +5,72 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.9.1] — 2026-09-09
+## [1.10.0] — 2026-09-09
 
-Additive at runtime — nothing that validated or gated before behaves differently.
+**Contains BREAKING validation changes** (two gate tightenings, both closing
+fail-opens). Cut as a minor, not the 1.9.1 this started as: per README
+"Versioning & stability", a gate that starts *refusing* what it used to accept
+is breaking here even when the API surface only grew. The additive #10 work
+would have been a patch on its own; the tightenings that came out of its review
+are what moved the number.
 
-> **Type-level note for implementers.** The `AgentContract` interface gained a
-> **required** member, so if you *implement or wrap* it (a test double, a
-> decorator) rather than just consuming what `agentContract()` returns, TypeScript
-> will now ask for `affectedRoots`. Forward it — `affectedRoots(p) { return inner.affectedRoots(p) }`
-> — and **don't stub it as `() => []`**: that re-creates the #10 fail-open inside
-> your double, where it is even harder to see. Consumers of the returned object
-> (the overwhelmingly common case) need no change.
+### Fixed — BREAKING
 
-Both from [#10](https://github.com/tonioloewald/tosijs-schema/issues/10),
-reported by a consumer building a capability-gated write path on `agentContract`.
-`check()` answered a bare `true` both for *"this write is valid"* and for *"this
-path touches nothing I contract"*, so the natural `if (verdict !== true) refuse()`
-did no validation at all over every uncontracted root. The gate refused a schema
-it couldn't enforce, then quietly permitted a path it couldn't judge.
+Both were fail-opens at the gate, found by this release's own pre-release review.
+Only `agentContract` is affected — `validate`/`filter`/`inferSchema` are untouched.
+
+| Case | ≤ 1.9.0 | 1.10.0 |
+| --- | --- | --- |
+| `agentContract({ r: { type:'object', additionalProperties:false, schema:true } })` | constructs; `describe()` → `{"r":true}` — an **accept-all gate** | **throws** at construction (`root.schema` is not an enforced keyword) |
+| root `app.billing`, `check('app["billing"].rate', v)` | `true` — **ungated** | judged, exactly as the dotted spelling is |
+
+- **A stray `schema` key can no longer turn a restrictive schema into an
+  accept-all gate.** The builder unwrap was duck-typed and ran *before* the
+  construction allowlist, so a plain JSON schema carrying a `schema` key was
+  silently replaced by that key's value. Reachable from the marketed path —
+  schemas received over the wire — and `schema` is not a JSON Schema keyword, so
+  nothing else flagged it. Unwrapping now requires an actual builder (one
+  carrying `validate`).
+  - **Migration:** if construction now throws naming `root.schema`, your schema
+    has a stray `schema` key. It was never being enforced; remove it.
+- **Quoted- and leading-bracket paths no longer bypass the gate.**
+  `affectedRoots()`/`check()` matched on a raw prefix, so `app["billing"].rate`,
+  `app['billing'].rate` and `["billing"].rate` all read as *uncontracted* and
+  passed ungated. They now normalize to their dotted form and are judged.
+  - **Migration:** writes on those spellings are now gated. If one was passing
+    only because it was unmatched, it needs a proposal like any other write.
+  - Roots that denote the same path two ways (`{ 'a.b': A, 'a["b"]': B }`), or
+    that nest once normalized, are refused at construction rather than one
+    silently shadowing the other.
 
 ### Added
 
-- **`contract.affectedRoots(path): string[]`** — the contracted roots a write
-  touches (at, under, or ABOVE). This is the matcher `check()` itself uses, so
-  the two cannot disagree. It was previously private, and the obvious
-  hand-rolled version (`path === root || path.startsWith(root + '.')`) is wrong:
-  it misses **bracket indexing**, so `billing_rules[0].resource` reads as
-  uncontracted and skips the gate — a bug invisible to any test suite written in
-  dotted form.
-- **`agentContract(schemas, { unknownPath: 'allow' | 'refuse' })`** — makes the
-  fail-closed posture expressible. Defaults to `'allow'` (existing behavior,
-  correct for a surface that contracts a subset); `'refuse'` treats a write
-  touching no contracted root as a breach, for gates meant to cover everything.
-  An unrecognized value **throws at construction** rather than falling back to
-  `'allow'` — a typo in the one option whose purpose is failing closed must not
-  fail open.
+- **`contract.affectedRoots(path): string[]`** ([#10](https://github.com/tonioloewald/tosijs-schema/issues/10))
+  — the contracted roots a write touches (at, under, or ABOVE). The matcher
+  `check()` itself uses, so the two cannot disagree on any path they both judge.
+  It was private, and the obvious hand-rolled version
+  (`path === root || path.startsWith(root + '.')`) is wrong: it misses bracket
+  indexing, and that bug survives any test suite written in dotted form. Throws
+  `TypeError` on a non-string path rather than answering `[]`, which would fail
+  open in the documented `affectedRoots(p).length === 0` posture.
+- **`agentContract(schemas, { unknownPath: 'allow' | 'refuse' })`** (#10) —
+  makes the fail-closed posture expressible. `check()` returns bare `true` both
+  for "valid write" and for "touches nothing I contract", so the natural
+  `if (verdict !== true) refuse()` validated nothing over uncontracted roots.
+  Defaults to `'allow'` (unchanged); `'refuse'` treats such a write as a breach.
+  An unrecognized value — including `null` from a parsed-JSON config — **throws
+  at construction** rather than falling back to the permissive default.
+- **`check()` honors its documented `true | Error` seam for a non-string `path`**,
+  where it previously threw a raw `TypeError` from the matcher. Fails closed
+  regardless of `unknownPath`.
 
-### Fixed
-
-Found by this release's own pre-release review, all in the same family as #10
-(a gate that fails open on a spelling, a typo, or a shape it didn't expect):
-
-- **Quoted-bracket paths no longer bypass the gate.** `affectedRoots()`/`check()`
-  matched on a raw prefix, so with root `app.billing` the lodash-style spellings
-  `app["billing"].rate` / `app['billing'].rate` read as *uncontracted* and passed
-  ungated under the default. They now normalize to their dotted form.
-- **`check()` honors its documented `true | Error` seam for a non-string `path`.**
-  It threw a raw `TypeError` out of the matcher; it now returns an `Error`, and
-  fails closed regardless of `unknownPath`.
-- **A stray `schema` key can no longer turn a restrictive schema into an
-  accept-all gate.** The builder unwrap was duck-typed and ran *before* the
-  construction allowlist, so `{ type:'object', additionalProperties:false, schema:true }`
-  — reachable from a schema received over the wire — silently became the boolean
-  schema `true`. Unwrapping now requires an actual builder, so the stray key is
-  refused at construction.
+> **Type-level note for implementers.** The `AgentContract` interface gained a
+> **required** member. If you *implement or wrap* it (a test double, a decorator)
+> rather than just consuming what `agentContract()` returns, TypeScript will now
+> ask for `affectedRoots`. Forward it —
+> `affectedRoots(p) { return inner.affectedRoots(p) }` — and **don't stub it as
+> `() => []`**: that re-creates the #10 fail-open inside your double, where it is
+> even harder to see.
 
 ## [1.9.0] — 2026-09-01
 

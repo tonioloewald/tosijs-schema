@@ -37,7 +37,13 @@ export interface AgentContract {
      * WRONG: it misses bracket indexing, so `billing_rules[0].resource` reads as
      * uncontracted and skips the gate. That bug is invisible to any test suite
      * written in dotted form. This is the matcher `check()` itself uses, so the
-     * two cannot disagree. — asked for in #10
+     * two cannot disagree on any path they both judge. — asked for in #10
+     *
+     * Throws `TypeError` on a non-string `path`: the never-throw guarantee is
+     * `check()`'s (it refuses such a write with an `Error` before reaching here),
+     * and answering `[]` — "touches no contracted root" — to a question that
+     * cannot be evaluated would fail open in the documented
+     * `if (affectedRoots(path).length === 0)` posture.
      */
     affectedRoots(path: string): string[];
 }

@@ -1099,10 +1099,11 @@ function unenforcedKeywords(schema) {
 }
 var agentContract = (schemas, options) => {
   const strict = options?.strict ?? true;
-  const unknownPath = options?.unknownPath ?? "allow";
-  if (unknownPath !== "allow" && unknownPath !== "refuse") {
+  const rawUnknownPath = options?.unknownPath;
+  if (rawUnknownPath !== undefined && rawUnknownPath !== "allow" && rawUnknownPath !== "refuse") {
     throw new Error(`agentContract: unknownPath must be 'allow' or 'refuse', got ` + `${JSON.stringify(options?.unknownPath)} — an unrecognized value would ` + `fall back to 'allow' and fail open, which is what this option exists to prevent`);
   }
+  const unknownPath = rawUnknownPath ?? "allow";
   const plain = Object.create(null);
   const predicated = Object.create(null);
   for (const [root, schema] of Object.entries(schemas)) {
@@ -1116,18 +1117,24 @@ var agentContract = (schemas, options) => {
   }
   const roots = Object.keys(plain);
   const extendsPath = (child, parent) => child.startsWith(parent + ".") || child.startsWith(parent + "[") || parent === "";
-  const normalizePath = (p) => p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => "." + key);
+  const normalizePath = (p) => p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => "." + key).replace(/^\./, "");
   const normedRoots = roots.map((root) => [root, normalizePath(root)]);
-  for (const a of roots) {
-    for (const b of roots) {
-      if (a !== b && extendsPath(a, b)) {
-        throw new Error(`agentContract: root '${a}' is nested under root '${b}' — which ` + `root judges a deep write would be ambiguous; contract the outer root only`);
+  for (const [aName, a] of normedRoots) {
+    for (const [bName, b] of normedRoots) {
+      if (aName === bName)
+        continue;
+      if (a === b) {
+        throw new Error(`agentContract: roots '${aName}' and '${bName}' denote the same path — ` + `one would silently shadow the other; contract it once`);
+      }
+      if (extendsPath(a, b)) {
+        throw new Error(`agentContract: root '${aName}' is nested under root '${bName}' — which ` + `root judges a deep write would be ambiguous; contract the outer root only`);
       }
     }
   }
   const affectedRoots = (path) => {
-    if (typeof path !== "string")
-      return [];
+    if (typeof path !== "string") {
+      throw new TypeError(`affectedRoots(path): path must be a string, got ${path === null ? "null" : typeof path} — cannot locate a write that has no path`);
+    }
     const p = normalizePath(path);
     const at = normedRoots.find(([, root]) => p === root || extendsPath(p, root));
     return at != null ? [at[0]] : normedRoots.filter(([, root]) => extendsPath(root, p)).map(([name]) => name);

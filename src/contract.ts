@@ -47,7 +47,13 @@ export interface AgentContract {
    * WRONG: it misses bracket indexing, so `billing_rules[0].resource` reads as
    * uncontracted and skips the gate. That bug is invisible to any test suite
    * written in dotted form. This is the matcher `check()` itself uses, so the
-   * two cannot disagree. — asked for in #10
+   * two cannot disagree on any path they both judge. — asked for in #10
+   *
+   * Throws `TypeError` on a non-string `path`: the never-throw guarantee is
+   * `check()`'s (it refuses such a write with an `Error` before reaching here),
+   * and answering `[]` — "touches no contracted root" — to a question that
+   * cannot be evaluated would fail open in the documented
+   * `if (affectedRoots(path).length === 0)` posture.
    */
   affectedRoots(path: string): string[]
 }
@@ -369,19 +375,29 @@ export const agentContract = (
   // `true` for both "valid" and "uncontracted" makes the natural
   // `if (verdict !== true) refuse()` silently unvalidated over every
   // uncontracted root, so the fail-closed posture has to be expressible.
-  const unknownPath = options?.unknownPath ?? 'allow'
   // Validated at construction, loudly: this is the one option whose entire
   // purpose is a fail-CLOSED posture, so a typo ('Refuse', or a value arriving
   // from config/over the wire) silently degrading to fail-open would be the
   // exact hole it exists to close. The same module already throws on a schema
   // keyword typo (`minumum`) for this reason — an option typo deserves no less.
-  if (unknownPath !== 'allow' && unknownPath !== 'refuse') {
+  //
+  // Check the RAW option before defaulting: `?? 'allow'` collapses `null` into
+  // the permissive value, so a parsed-JSON `{"unknownPath": null}` — precisely
+  // the config/over-the-wire case this guard names — would sail through while
+  // 'Refuse' threw. Only an explicitly absent option may default.
+  const rawUnknownPath = options?.unknownPath
+  if (
+    rawUnknownPath !== undefined &&
+    rawUnknownPath !== 'allow' &&
+    rawUnknownPath !== 'refuse'
+  ) {
     throw new Error(
       `agentContract: unknownPath must be 'allow' or 'refuse', got ` +
         `${JSON.stringify(options?.unknownPath)} — an unrecognized value would ` +
         `fall back to 'allow' and fail open, which is what this option exists to prevent`
     )
   }
+  const unknownPath: 'allow' | 'refuse' = rawUnknownPath ?? 'allow'
   // null-prototype maps: a root literally named '__proto__' must land as an
   // own key, not silently become a prototype assignment (dropping the root
   // from the gate entirely)
@@ -415,18 +431,41 @@ export const agentContract = (
    * as #10 itself (a matcher that misses a legal spelling), so fixing it here
    * rather than shipping a half-fix behind advice to "just use affectedRoots".
    * A key containing a dot folds into extra segments, which can only make MORE
-   * paths look contracted — the fail-CLOSED direction, which is the one to err in.
+   * paths look CONTRACTED — the fail-closed direction for path-vs-root. Note
+   * that reasoning does NOT extend to root-vs-root: two roots that normalize to
+   * the same string would silently shadow each other, so the nesting scan below
+   * runs on normalized roots and refuses collisions outright.
+   *
+   * The trailing `replace(/^\./, '')` is load-bearing: a path whose FIRST
+   * segment is bracketed (`["billing"].rate` — what a defensive path builder
+   * emits to survive keys containing dots) folds to a LEADING dot, which then
+   * fails `startsWith('billing.')` and reads as uncontracted. That spelling
+   * resolves to the same location under lodash `_.set`, so gate and applier
+   * would disagree.
    */
   const normalizePath = (p: string): string =>
-    p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => '.' + key)
+    p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => '.' + key).replace(/^\./, '')
   // original name paired with its normalized form: affectedRoots must return
   // the root as the caller spelled it, but match on the normalized one
   const normedRoots = roots.map((root) => [root, normalizePath(root)] as const)
-  for (const a of roots) {
-    for (const b of roots) {
-      if (a !== b && extendsPath(a, b)) {
+  // The nesting scan runs on NORMALIZED roots, the same semantics affectedRoots
+  // matches with. Comparing raw roots here while matching on normalized ones
+  // let `{ 'app["billing"]': A, 'app.billing.rate': B }` construct: the guard
+  // saw two unrelated strings, the matcher saw one nested under the other, and
+  // B became a root that `describe()` advertises but that can never judge
+  // anything. Two path semantics in one closure is the bug; there is now one.
+  for (const [aName, a] of normedRoots) {
+    for (const [bName, b] of normedRoots) {
+      if (aName === bName) continue
+      if (a === b) {
         throw new Error(
-          `agentContract: root '${a}' is nested under root '${b}' — which ` +
+          `agentContract: roots '${aName}' and '${bName}' denote the same path — ` +
+            `one would silently shadow the other; contract it once`
+        )
+      }
+      if (extendsPath(a, b)) {
+        throw new Error(
+          `agentContract: root '${aName}' is nested under root '${bName}' — which ` +
             `root judges a deep write would be ambiguous; contract the outer root only`
         )
       }
@@ -434,10 +473,20 @@ export const agentContract = (
   }
   /** every contracted root this write would touch (at, under, or above) */
   const affectedRoots = (path: string): string[] => {
-    // a non-string path is a caller bug, not a write we can judge — report it
-    // as touching nothing and let check() turn it into a documented Error
-    // rather than a raw TypeError out of String.prototype.startsWith
-    if (typeof path !== 'string') return []
+    // A non-string path THROWS here rather than answering `[]`. The never-throw
+    // contract belongs to check() (which guards before ever calling this), not
+    // to a query helper — and `[]` would be actively dangerous, because the
+    // documented posture is `if (affectedRoots(path).length === 0) { …ungated… }`:
+    // a JSON-decoded array-of-segments would read as "touches nothing" and be
+    // waved through. Answering "no roots" to a question we cannot evaluate is
+    // the fail-open this whole release is about.
+    if (typeof path !== 'string') {
+      throw new TypeError(
+        `affectedRoots(path): path must be a string, got ${
+          path === null ? 'null' : typeof path
+        } — cannot locate a write that has no path`
+      )
+    }
     const p = normalizePath(path)
     const at = normedRoots.find(([, root]) => p === root || extendsPath(p, root))
     return at != null

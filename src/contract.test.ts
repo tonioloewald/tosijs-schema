@@ -897,8 +897,11 @@ describe('agentContract — 1.9.1 review remediation', () => {
         const verdict = gate.check(bad as any, 1)
         expect(verdict).toBeInstanceOf(Error)
       }
-      // the newly-public matcher must not throw either
-      expect(gate.affectedRoots(undefined as any)).toEqual([])
+      // …but the query helper THROWS rather than answering "[]" — answering
+      // "touches no contracted root" to an unevaluatable question would fail
+      // open in the documented `affectedRoots(p).length === 0` posture
+      expect(() => gate.affectedRoots(undefined as any)).toThrow(TypeError)
+      expect(() => gate.affectedRoots(['a', 'b'] as any)).toThrow('must be a string')
     }
   })
 
@@ -909,7 +912,6 @@ describe('agentContract — 1.9.1 review remediation', () => {
     const gate = agentContract({ 'app.b': S }, { unknownPath: 'refuse' })
     expect(gate.check('other.root', 1, { root: 'other.root', proposed: 1 })).toBeInstanceOf(Error)
   })
-})
 
   test('a stray `schema` key cannot turn a restrictive schema into an accept-all gate', () => {
     // toPlain's duck-typed unwrap ran before the allowlist, so this construed
@@ -930,3 +932,45 @@ describe('agentContract — 1.9.1 review remediation', () => {
       additionalProperties: false,
     })
   })
+
+  test('a leading-bracket path cannot bypass the gate (M1)', () => {
+    const gate = agentContract({ billing: S })
+    // a defensive path builder emits fully-bracketed segments to survive keys
+    // containing dots; lodash _.set resolves these to the same location, so a
+    // gate that reads them as uncontracted disagrees with the applier
+    for (const path of ['["billing"].x', "['billing'].x", '["billing"]["rate"]', '["billing"]']) {
+      expect(gate.affectedRoots(path)).toEqual(['billing'])
+      expect(gate.check(path, 1)).toBeInstanceOf(Error)
+    }
+    // nested root spelled with a leading bracket resolves too
+    const deep = agentContract({ 'app.billing': S })
+    expect(deep.affectedRoots('["app"]["billing"].rate')).toEqual(['app.billing'])
+  })
+
+  test('the nested-root guard uses the same matcher semantics as check (M2)', () => {
+    // was: guard compared RAW roots while affectedRoots matched normalized ones,
+    // so this constructed and left the second root dead — advertised by
+    // describe(), unable to judge anything
+    expect(() =>
+      agentContract({ 'app["billing"]': S, 'app.billing.rate': { type: 'number' } })
+    ).toThrow('nested under root')
+    // two spellings of the SAME root shadow each other — refuse outright
+    expect(() => agentContract({ 'a.b': S, 'a["b"]': S })).toThrow('same path')
+    // the dotted control still throws, as it always did
+    expect(() =>
+      agentContract({ 'app.billing': S, 'app.billing.rate': { type: 'number' } })
+    ).toThrow('nested under root')
+    // unrelated roots still construct
+    expect(() => agentContract({ 'a.b': S, 'a.c': S })).not.toThrow()
+  })
+
+  test('unknownPath: null does not slip past the guard into fail-open', () => {
+    // `?? 'allow'` collapsed null into the permissive value, so a parsed-JSON
+    // { "unknownPath": null } sailed through while 'Refuse' threw
+    expect(() => agentContract({ 'a.b': S }, { unknownPath: null as any })).toThrow('unknownPath')
+    // an explicitly absent option still defaults
+    expect(() => agentContract({ 'a.b': S }, {})).not.toThrow()
+    expect(agentContract({ 'a.b': S }, {}).check('somewhere.else', 1)).toBe(true)
+  })
+})
+

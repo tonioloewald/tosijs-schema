@@ -21,6 +21,20 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ## Upgrading
 
+### To 1.10.0 (from 1.9.x) — two `agentContract` fail-opens closed
+
+**Only affects `agentContract`.** `validate`, `filter` and `inferSchema` are untouched, so if you don't build gates, this release is additive for you.
+
+| Case | ≤ 1.9.0 | 1.10.0 |
+| --- | --- | --- |
+| a gate schema carrying a stray `schema` key | constructs — and becomes an **accept-all gate** | **throws** at construction |
+| `check('app["billing"].rate', v)` with root `app.billing` | `true` — **ungated** | judged, like the dotted spelling |
+| two roots denoting the same path (`'a.b'` + `'a["b"]'`) | constructs; one silently shadows the other | **throws** at construction |
+
+Both were fail-opens: a gate that quietly permitted what it advertised it would judge. **Migration:** if construction now throws naming `root.schema`, remove that key — it was never enforced. If a write on a bracket-quoted path starts being refused, it now needs a proposal like any other write; that spelling was passing only because the matcher missed it.
+
+Also new (additive, from [#10](https://github.com/tonioloewald/tosijs-schema/issues/10)): `affectedRoots(path)` to ask which contracted roots a write touches, and `{ unknownPath: 'refuse' }` to make the fail-closed posture explicit — see [Agent Contracts](#agent-contracts).
+
 ### To 1.9.0 (from 1.8.x) — closes a fail-open; `maxProperties` newly enforced
 
 `validate` now enforces **`maxProperties`** in its default (non-strict) path, which it previously *ignored* — a strict-only "ghost constraint" ([#9](https://github.com/tonioloewald/tosijs-schema/issues/9)). This is a validation tightening, so it's breaking:
@@ -440,7 +454,7 @@ Import only what you use. The package is `sideEffects: false` and each concern i
 | `s` (builder) | builder + validator | ~2.7 kB |
 | `filter` | validator + filter | ~3.1 kB |
 | `agentContract` | validator + contract layer | ~4.6 kB |
-| everything | the whole library | ~8.2 kB |
+| everything | the whole library | ~8.3 kB |
 
 `inferSchema` is also published as a self-contained subpath, `tosijs-schema/infer`, so it stays ~1.5 kB even where a bundler can't tree-shake the pre-bundled main entry. The other pieces share the validator core (one module), so importing `validate`, `s`, `filter`, or `diff` lands around 2.7–3.1 kB regardless.
 
@@ -479,7 +493,7 @@ const gate = agentContract(schemas, { unknownPath: 'refuse' })
 gate.check('not.contracted', 1) // Error: … touches no contracted root
 ```
 
-Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith(root + '.')`: that misses **bracket indexing**, so `app.order[0].qty` reads as uncontracted and skips the gate — a bug invisible to any test suite written in dotted form. `unknownPath` defaults to `'allow'` (unchanged behavior); `'refuse'` is right when the gate is meant to cover everything. Both added in 1.9.1 ([#10](https://github.com/tonioloewald/tosijs-schema/issues/10)).
+Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith(root + '.')`: that misses **bracket indexing**, so `app.order[0].qty` reads as uncontracted and skips the gate — a bug invisible to any test suite written in dotted form. `unknownPath` defaults to `'allow'` (unchanged behavior); `'refuse'` is right when the gate is meant to cover everything. Both added in 1.10.0 ([#10](https://github.com/tonioloewald/tosijs-schema/issues/10)).
 
 **The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Construction validates every schema key against an **allowlist** — the `ENFORCED_KEYWORDS` set `validate` actually implements, plus annotations (`title`, `description`, `default`, `examples`, `$counterexamples`, …) and `x-*` extensions. Anything else — `allOf`/`not`/`$ref`, unimplemented spec keywords, even typos like `minumum` — is refused with an `Error`: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Value-level holes are refused too: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, tuple `items` without an exact `maxItems` cap, non-primitive `const`/`enum` members, and multi-type arrays. Boolean schemas are legal and enforced (`properties: { key: false }` forbids the key). Protocol breaches fail closed as well: any write touching a contracted root — at it, under it, or above it — without a proposal for that exact root, a mismatched `proposal.root`, and ancestor writes spanning several contracted roots are all refused with an `Error` naming the breach.
 
@@ -572,15 +586,15 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   98.99 |   98.64 |
- src/contract.ts |   97.96 |   97.60 | 121,571,573,576,585-587,618-619
+All files        |   98.99 |   98.66 |
+ src/contract.ts |   97.96 |   97.69 | 127,620,622,625,634-636,667-668
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
  src/schema.ts   |   96.97 |   95.60 | 122-126,336-342,477,1058-1059,1073,1093-1094,1117-1126,1129-1130
 ```
 
-289 tests, 948 assertions.
+292 tests, 966 assertions.
 <!-- /coverage:readme -->
 
 ## License
