@@ -33,10 +33,15 @@ Only `agentContract` is affected — `validate`/`filter`/`inferSchema` are untou
   carrying `validate`).
   - **Migration:** if construction now throws naming `root.schema`, your schema
     has a stray `schema` key. It was never being enforced; remove it.
-- **Quoted- and leading-bracket paths no longer bypass the gate.**
-  `affectedRoots()`/`check()` matched on a raw prefix, so `app["billing"].rate`,
-  `app['billing'].rate` and `["billing"].rate` all read as *uncontracted* and
-  passed ungated. They now normalize to their dotted form and are judged.
+- **No bracket spelling bypasses the gate any more.** `affectedRoots()`/`check()`
+  matched on a raw prefix, so `app["billing"].rate`, `app['billing'].rate`,
+  `app[billing].rate`, `["billing"].rate` and `app.list.0.rate` (vs a root spelled
+  `app.list[0]`) all read as *uncontracted* and passed ungated — while tosijs's own
+  `by-path` writes several of those to the identical location, so gate and applier
+  disagreed. ALL bracket segments — quoted, unquoted, numeric — now canonicalize to
+  dotted form for roots and paths alike, leaving one grammar instead of a growing
+  list of special cases. A path that does NOT canonicalize (unbalanced bracket, or
+  a bracket not followed by a separator) is **refused**, not waved through.
   - **Migration:** writes on those spellings are now gated. If one was passing
     only because it was unmatched, it needs a proposal like any other write.
   - Roots that denote the same path two ways (`{ 'a.b': A, 'a["b"]': B }`), or
@@ -63,6 +68,10 @@ Only `agentContract` is affected — `validate`/`filter`/`inferSchema` are untou
 - **`check()` honors its documented `true | Error` seam for a non-string `path`**,
   where it previously threw a raw `TypeError` from the matcher. Fails closed
   regardless of `unknownPath`.
+- **`strict` is validated at construction.** `?? true` rescued only nullish, so
+  `{ strict: 0 }`, `{ strict: '' }` or `{ strict: NaN }` — every one reachable from
+  a parsed-JSON config — silently built a *sampling* gate. A non-boolean now throws,
+  matching `unknownPath`. (Pre-existing; same fail-open class.)
 
 > **Type-level note for implementers.** The `AgentContract` interface gained a
 > **required** member. If you *implement or wrap* it (a test double, a decorator)

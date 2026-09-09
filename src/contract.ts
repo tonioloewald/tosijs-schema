@@ -366,7 +366,20 @@ export const agentContract = (
   schemas: Record<string, SchemaLike>,
   options?: { strict?: boolean; unknownPath?: 'allow' | 'refuse' }
 ): AgentContract => {
-  const strict = options?.strict ?? true
+  // Same guard as `unknownPath` below, for the same reason: `?? true` rescues
+  // only nullish, so `{ strict: 0 }`, `{ strict: '' }` or `{ strict: NaN }`
+  // build a SAMPLING gate — and `{ strict: process.env.STRICT_GATE }` samples
+  // when the variable is unset ('') while going strict for the string 'false'.
+  // A permissive posture must be reachable only from an explicitly absent option.
+  const rawStrict = options?.strict
+  if (rawStrict !== undefined && typeof rawStrict !== 'boolean') {
+    throw new Error(
+      `agentContract: strict must be a boolean, got ${JSON.stringify(rawStrict)} — ` +
+        `a non-boolean would coerce this gate into sampling, which is the fail-open ` +
+        `a gate must not have`
+    )
+  }
+  const strict = rawStrict ?? true
   // 'allow' (default, unchanged) — a write touching no contracted root passes,
   // which is right for a surface that deliberately contracts a subset.
   // 'refuse' — such a write is a breach. Opt-in because it is only correct when
@@ -442,9 +455,33 @@ export const agentContract = (
    * fails `startsWith('billing.')` and reads as uncontracted. That spelling
    * resolves to the same location under lodash `_.set`, so gate and applier
    * would disagree.
+   *
+   * The quote group is OPTIONAL on purpose. Four releases running, this matcher
+   * has been fixed one spelling at a time (1.8.0, 1.9.0, 1.9.1, and again here),
+   * each round leaving the next respelling open: `app[billing].rate` and
+   * `app.list.0.rate` both write where `app.list[0].rate` writes under tosijs's
+   * own `by-path`, but only one spelling was gated. So ALL bracket segments —
+   * quoted, unquoted, numeric — canonicalize to dotted form, for roots and paths
+   * alike, leaving exactly ONE grammar to match on instead of a growing list of
+   * special cases. Anything that still contains a bracket afterwards did not
+   * canonicalize, and {@link canBeJudged} refuses it rather than letting it
+   * fall through to "touches no contracted root" — the fail-open this whole
+   * sequence has been about.
    */
   const normalizePath = (p: string): string =>
-    p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => '.' + key).replace(/^\./, '')
+    p.replace(/\[(["']?)(.*?)\1\]/g, (_m, _q, key) => '.' + key).replace(/^\./, '')
+  /**
+   * A path is judgeable only if it fully canonicalizes. Two ways it doesn't:
+   * a bracket survives the fold (unbalanced, e.g. `app[billing.rate`), or a
+   * closing bracket is followed by something other than `.`, `[` or end-of-string
+   * (`app["billing"]rate` — no separator, so the fold would silently splice two
+   * segments into the single key `app.billingrate`). Both are malformed rather
+   * than merely unfamiliar, and both are refused: guessing which location a
+   * malformed path meant is how a gate ends up judging one thing while the
+   * applier writes another.
+   */
+  const canBeJudged = (raw: string, normalized: string): boolean =>
+    !/[[\]]/.test(normalized) && !/\](?![.[]|$)/.test(raw)
   // original name paired with its normalized form: affectedRoots must return
   // the root as the caller spelled it, but match on the normalized one
   const normedRoots = roots.map((root) => [root, normalizePath(root)] as const)
@@ -488,6 +525,14 @@ export const agentContract = (
       )
     }
     const p = normalizePath(path)
+    if (!canBeJudged(path, p)) {
+      throw new TypeError(
+        `affectedRoots(path): '${path}' does not canonicalize — an unbalanced ` +
+          `bracket, or a bracket not followed by a separator, leaves a path this ` +
+          `gate cannot locate. Answering "no roots" would fail open in the ` +
+          `documented length === 0 posture.`
+      )
+    }
     const at = normedRoots.find(([, root]) => p === root || extendsPath(p, root))
     return at != null
       ? [at[0]]
@@ -508,6 +553,15 @@ export const agentContract = (
         )
       }
       const at = path || "''"
+      // a path we cannot canonicalize is one we cannot judge — refuse it rather
+      // than fall through to `affected.length === 0 → true`, which is precisely
+      // the fail-open shape this release closes elsewhere
+      if (!canBeJudged(path, normalizePath(path))) {
+        return new Error(
+          `contract breach at ${at} — path does not canonicalize (unbalanced ` +
+            `bracket); the gate cannot judge a write it cannot locate`
+        )
+      }
       const affected = affectedRoots(path)
       if (affected.length === 0) {
         // touches no contracted root — allowed by default, a breach under

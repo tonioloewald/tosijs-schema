@@ -972,5 +972,57 @@ describe('agentContract — 1.9.1 review remediation', () => {
     expect(() => agentContract({ 'a.b': S }, {})).not.toThrow()
     expect(agentContract({ 'a.b': S }, {}).check('somewhere.else', 1)).toBe(true)
   })
+
+  test('every bracket spelling of the same location is gated (class fix, not instance)', () => {
+    // Four releases fixed this matcher one spelling at a time. All bracket
+    // segments — quoted, unquoted, numeric — now canonicalize to dotted form,
+    // so there is one grammar rather than a growing list of special cases.
+    const gate = agentContract({ 'app.billing': S })
+    for (const path of [
+      'app.billing.rate',
+      'app["billing"].rate',
+      "app['billing'].rate",
+      'app[billing].rate',        // unquoted — missed through 1.9.x
+      '["app"]["billing"].rate',
+      '["app"].billing.rate',
+    ]) {
+      expect(gate.affectedRoots(path)).toEqual(['app.billing'])
+      expect(gate.check(path, 1)).toBeInstanceOf(Error)
+    }
+    // dotted-index vs bracket-index: tosijs by-path writes BOTH to the same
+    // location, so the gate must recognize both spellings of the same root
+    const list = agentContract({ 'app.list[0]': S })
+    for (const path of ['app.list[0].rate', 'app.list.0.rate', 'app.list["0"].rate']) {
+      expect(list.affectedRoots(path)).toEqual(['app.list[0]'])
+      expect(list.check(path, 1)).toBeInstanceOf(Error)
+    }
+    // and a path that cannot be canonicalized is REFUSED, not waved through
+    expect(gate.check('app[billing.rate', 1)).toBeInstanceOf(Error)
+    expect(() => gate.affectedRoots('app[billing.rate')).toThrow('canonicalize')
+  })
+
+  test('fail-open corpus: no constructor option accepts a config value that opens the gate', () => {
+    // The mechanical guard for the class that has produced a finding in four
+    // consecutive releases: feed every option the values a parsed-JSON config
+    // can actually produce, and assert each either THROWS or lands fail-CLOSED.
+    // A new option that defaults permissive must be added here or this test is
+    // the thing that notices.
+    const fromConfig = [null, 0, 1, '', 'false', 'true', 'Refuse', 'REFUSE', NaN, [], {}]
+    for (const v of fromConfig) {
+      // strict: anything non-boolean must throw rather than silently sample
+      expect(() => agentContract({ 'a.b': S }, { strict: v as any })).toThrow('strict')
+      // unknownPath: anything not exactly 'allow'/'refuse' must throw
+      expect(() => agentContract({ 'a.b': S }, { unknownPath: v as any })).toThrow('unknownPath')
+    }
+    // the legal values, and only those, construct
+    expect(() => agentContract({ 'a.b': S }, { strict: true, unknownPath: 'allow' })).not.toThrow()
+    expect(() => agentContract({ 'a.b': S }, { strict: false, unknownPath: 'refuse' })).not.toThrow()
+    expect(() => agentContract({ 'a.b': S }, {})).not.toThrow()
+    // and the default posture is still the strict one
+    const big: any[] = Array.from({ length: 300 }, (_, i) => i)
+    big[5] = 'bad'
+    const g = agentContract({ 'a.nums': { type: 'array', items: { type: 'number' } } })
+    expect(g.check('a.nums', big, { root: 'a.nums', proposed: big })).toBeInstanceOf(Error)
+  })
 })
 

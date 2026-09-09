@@ -1098,7 +1098,11 @@ function unenforcedKeywords(schema) {
   return unenforced(s2);
 }
 var agentContract = (schemas, options) => {
-  const strict = options?.strict ?? true;
+  const rawStrict = options?.strict;
+  if (rawStrict !== undefined && typeof rawStrict !== "boolean") {
+    throw new Error(`agentContract: strict must be a boolean, got ${JSON.stringify(rawStrict)} — ` + `a non-boolean would coerce this gate into sampling, which is the fail-open ` + `a gate must not have`);
+  }
+  const strict = rawStrict ?? true;
   const rawUnknownPath = options?.unknownPath;
   if (rawUnknownPath !== undefined && rawUnknownPath !== "allow" && rawUnknownPath !== "refuse") {
     throw new Error(`agentContract: unknownPath must be 'allow' or 'refuse', got ` + `${JSON.stringify(options?.unknownPath)} — an unrecognized value would ` + `fall back to 'allow' and fail open, which is what this option exists to prevent`);
@@ -1117,7 +1121,8 @@ var agentContract = (schemas, options) => {
   }
   const roots = Object.keys(plain);
   const extendsPath = (child, parent) => child.startsWith(parent + ".") || child.startsWith(parent + "[") || parent === "";
-  const normalizePath = (p) => p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => "." + key).replace(/^\./, "");
+  const normalizePath = (p) => p.replace(/\[(["']?)(.*?)\1\]/g, (_m, _q, key) => "." + key).replace(/^\./, "");
+  const canBeJudged = (raw, normalized) => !/[[\]]/.test(normalized) && !/\](?![.[]|$)/.test(raw);
   const normedRoots = roots.map((root) => [root, normalizePath(root)]);
   for (const [aName, a] of normedRoots) {
     for (const [bName, b] of normedRoots) {
@@ -1136,6 +1141,9 @@ var agentContract = (schemas, options) => {
       throw new TypeError(`affectedRoots(path): path must be a string, got ${path === null ? "null" : typeof path} — cannot locate a write that has no path`);
     }
     const p = normalizePath(path);
+    if (!canBeJudged(path, p)) {
+      throw new TypeError(`affectedRoots(path): '${path}' does not canonicalize — an unbalanced ` + `bracket, or a bracket not followed by a separator, leaves a path this ` + `gate cannot locate. Answering "no roots" would fail open in the ` + `documented length === 0 posture.`);
+    }
     const at = normedRoots.find(([, root]) => p === root || extendsPath(p, root));
     return at != null ? [at[0]] : normedRoots.filter(([, root]) => extendsPath(root, p)).map(([name]) => name);
   };
@@ -1146,6 +1154,9 @@ var agentContract = (schemas, options) => {
         return new Error(`contract breach — path must be a string, got ${path === null ? "null" : typeof path}; the gate cannot judge a write it cannot locate`);
       }
       const at = path || "''";
+      if (!canBeJudged(path, normalizePath(path))) {
+        return new Error(`contract breach at ${at} — path does not canonicalize (unbalanced ` + `bracket); the gate cannot judge a write it cannot locate`);
+      }
       const affected = affectedRoots(path);
       if (affected.length === 0) {
         if (unknownPath === "refuse") {
