@@ -35,13 +35,49 @@ export interface ContractProposal {
 export interface AgentContract {
   check(path: string, value: any, proposal?: ContractProposal): true | Error
   describe(): Record<string, JSONSchema | boolean>
+  /**
+   * Every contracted root this write would touch — at it, under it, or ABOVE
+   * it (an ancestor write replaces the contracted subtree). Empty means the
+   * path touches nothing this gate contracts.
+   *
+   * Exported because `check()` answers `true` both for "valid write" and for
+   * "not my business", so a caller that wants a fail-closed posture over
+   * uncontracted paths has to ask this question itself — and the obvious
+   * hand-rolled version (`path === root || path.startsWith(root + '.')`) is
+   * WRONG: it misses bracket indexing, so `billing_rules[0].resource` reads as
+   * uncontracted and skips the gate. That bug is invisible to any test suite
+   * written in dotted form. This is the matcher `check()` itself uses, so the
+   * two cannot disagree. — asked for in #10
+   */
+  affectedRoots(path: string): string[]
 }
 
 /** a builder (`s.object(...)`) or a plain JSON Schema object */
 export type SchemaLike = JSONSchema | boolean | Base<any> | Record<string, any>
 
+/**
+ * Unwrap a builder to its plain schema — but ONLY an actual builder.
+ *
+ * This used to be `x?.schema ?? x`, a duck-type that ran BEFORE the
+ * construction allowlist, so a plain JSON schema carrying a stray `schema` key
+ * was silently replaced by that key's value: `{ type:'object',
+ * additionalProperties:false, schema:true }` became the boolean schema `true`,
+ * i.e. a restrictive-looking declaration constructed an ACCEPT-ALL gate. That
+ * is reachable from the marketed path — schemas received over the wire — and
+ * `schema` is not a JSON Schema keyword, so nothing else flagged it.
+ *
+ * A builder always carries a `validate` method (see `create()` in schema.ts);
+ * a JSON Schema never does. Requiring it means a stray `schema` key now
+ * reaches `unenforced()` and is refused at construction, loudly.
+ */
+const isBuilder = (x: any): boolean =>
+  x != null &&
+  typeof x === 'object' &&
+  'schema' in x &&
+  typeof (x as any).validate === 'function'
+
 const toPlain = (schema: SchemaLike): JSONSchema | boolean =>
-  ((schema as any)?.schema ?? schema) as JSONSchema
+  (isBuilder(schema) ? (schema as any).schema : schema) as JSONSchema
 
 /**
  * Keys that are pure annotations — legal in a gate schema because they
@@ -322,9 +358,30 @@ export function unenforcedKeywords(schema: SchemaLike): string[] {
  */
 export const agentContract = (
   schemas: Record<string, SchemaLike>,
-  options?: { strict?: boolean }
+  options?: { strict?: boolean; unknownPath?: 'allow' | 'refuse' }
 ): AgentContract => {
   const strict = options?.strict ?? true
+  // 'allow' (default, unchanged) — a write touching no contracted root passes,
+  // which is right for a surface that deliberately contracts a subset.
+  // 'refuse' — such a write is a breach. Opt-in because it is only correct when
+  // the gate is meant to cover the WHOLE surface; defaulting to it would break
+  // every existing partial-contract consumer. See #10: `check()` returning bare
+  // `true` for both "valid" and "uncontracted" makes the natural
+  // `if (verdict !== true) refuse()` silently unvalidated over every
+  // uncontracted root, so the fail-closed posture has to be expressible.
+  const unknownPath = options?.unknownPath ?? 'allow'
+  // Validated at construction, loudly: this is the one option whose entire
+  // purpose is a fail-CLOSED posture, so a typo ('Refuse', or a value arriving
+  // from config/over the wire) silently degrading to fail-open would be the
+  // exact hole it exists to close. The same module already throws on a schema
+  // keyword typo (`minumum`) for this reason — an option typo deserves no less.
+  if (unknownPath !== 'allow' && unknownPath !== 'refuse') {
+    throw new Error(
+      `agentContract: unknownPath must be 'allow' or 'refuse', got ` +
+        `${JSON.stringify(options?.unknownPath)} — an unrecognized value would ` +
+        `fall back to 'allow' and fail open, which is what this option exists to prevent`
+    )
+  }
   // null-prototype maps: a root literally named '__proto__' must land as an
   // own key, not silently become a prototype assignment (dropping the root
   // from the gate entirely)
@@ -348,6 +405,23 @@ export const agentContract = (
     child.startsWith(parent + '.') ||
     child.startsWith(parent + '[') ||
     parent === '' // the empty path is an ancestor of every root
+  /**
+   * Path grammar: dot/bracket, as tosijs writes them (`a.b`, `a[0].b`).
+   * A QUOTED bracket — `a["b"]` / `a['b']`, the spelling lodash `_.set` and
+   * friends normalize to — names the same location, so it is folded to its
+   * dotted form before matching. Without this the matcher is a raw prefix test
+   * and `app["billing"].rate` reads as UNCONTRACTED against root `app.billing`
+   * — the gate bypassed by respelling the path. That is the same defect class
+   * as #10 itself (a matcher that misses a legal spelling), so fixing it here
+   * rather than shipping a half-fix behind advice to "just use affectedRoots".
+   * A key containing a dot folds into extra segments, which can only make MORE
+   * paths look contracted — the fail-CLOSED direction, which is the one to err in.
+   */
+  const normalizePath = (p: string): string =>
+    p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => '.' + key)
+  // original name paired with its normalized form: affectedRoots must return
+  // the root as the caller spelled it, but match on the normalized one
+  const normedRoots = roots.map((root) => [root, normalizePath(root)] as const)
   for (const a of roots) {
     for (const b of roots) {
       if (a !== b && extendsPath(a, b)) {
@@ -360,16 +434,44 @@ export const agentContract = (
   }
   /** every contracted root this write would touch (at, under, or above) */
   const affectedRoots = (path: string): string[] => {
-    const at = roots.find(
-      (root) => path === root || extendsPath(path, root)
-    )
-    return at != null ? [at] : roots.filter((root) => extendsPath(root, path))
+    // a non-string path is a caller bug, not a write we can judge — report it
+    // as touching nothing and let check() turn it into a documented Error
+    // rather than a raw TypeError out of String.prototype.startsWith
+    if (typeof path !== 'string') return []
+    const p = normalizePath(path)
+    const at = normedRoots.find(([, root]) => p === root || extendsPath(p, root))
+    return at != null
+      ? [at[0]]
+      : normedRoots.filter(([, root]) => extendsPath(root, p)).map(([name]) => name)
   }
   return {
+    affectedRoots,
     check(path, _value, proposal) {
+      // check()'s contract is `true | Error` and it never throws (documented
+      // since 1.5.0) — a non-string path must therefore come back as a refusal,
+      // not a raw TypeError from the matcher. Fails CLOSED: an unjudgeable
+      // path is a breach regardless of `unknownPath`.
+      if (typeof path !== 'string') {
+        return new Error(
+          `contract breach — path must be a string, got ${
+            path === null ? 'null' : typeof path
+          }; the gate cannot judge a write it cannot locate`
+        )
+      }
       const at = path || "''"
       const affected = affectedRoots(path)
-      if (affected.length === 0) return true // touches no contracted root
+      if (affected.length === 0) {
+        // touches no contracted root — allowed by default, a breach under
+        // { unknownPath: 'refuse' }
+        if (unknownPath === 'refuse') {
+          return new Error(
+            `contract breach at ${at} — path touches no contracted root and ` +
+              `the gate is { unknownPath: 'refuse' }; contract this root or ` +
+              `route the write around the gate deliberately`
+          )
+        }
+        return true
+      }
       if (proposal == null) {
         return new Error(
           `contract breach at ${at} — write affecting contracted root ` +

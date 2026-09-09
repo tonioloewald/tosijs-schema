@@ -790,3 +790,143 @@ describe('unenforcedKeywords — the honesty lint (#8)', () => {
     ).toThrow('root.anyOf.1.not')
   })
 })
+
+// ---------------------------------------------------------------------------
+// #10 — the uncontracted-path fail-open, reported by a consumer building a
+// capability-gated write path. `check()` answered bare `true` both for a valid
+// write and for "not my business", so the natural
+// `if (verdict !== true) refuse()` did no validation at all over uncontracted
+// roots; and the matcher that gets bracket paths right was private, so callers
+// re-derived a version that silently misses them.
+// ---------------------------------------------------------------------------
+describe('agentContract — uncontracted paths (#10)', () => {
+  const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false }
+
+  test('affectedRoots exposes the real matcher, including bracket indexing', () => {
+    const gate = agentContract({ billing_rules: schema })
+    // at the root, under it (both spellings), and above it
+    expect(gate.affectedRoots('billing_rules')).toEqual(['billing_rules'])
+    expect(gate.affectedRoots('billing_rules.0.resource')).toEqual(['billing_rules'])
+    // the case a hand-rolled `path.startsWith(root + '.')` misses — the whole
+    // reason this is exported rather than left to callers
+    expect(gate.affectedRoots('billing_rules[0].resource')).toEqual(['billing_rules'])
+    // an ancestor write replaces the contracted subtree, so it is affected too
+    expect(gate.affectedRoots('')).toEqual(['billing_rules'])
+    // a non-root prefix is NOT a match
+    expect(gate.affectedRoots('billing_rulesX')).toEqual([])
+    expect(gate.affectedRoots('invoice_handling.filters.0.action')).toEqual([])
+  })
+
+  test('affectedRoots agrees with check() on every path form (they share one matcher)', () => {
+    const gate = agentContract({ billing_rules: schema })
+    for (const path of [
+      'billing_rules',
+      'billing_rules.0.resource',
+      'billing_rules[0].resource',
+      'billing_rulesX',
+      'invoice_handling.filters.0.action',
+    ]) {
+      const contracted = gate.affectedRoots(path).length > 0
+      // a contracted path with no proposal is a breach; an uncontracted one passes
+      const verdict = gate.check(path, 'v')
+      expect(verdict instanceof Error).toBe(contracted)
+    }
+  })
+
+  test("unknownPath: 'refuse' makes the fail-closed posture expressible", () => {
+    const open = agentContract({ billing_rules: schema })
+    const closed = agentContract({ billing_rules: schema }, { unknownPath: 'refuse' })
+    const stray = 'invoice_handling.filters.0.action'
+    // default is unchanged — uncontracted writes pass
+    expect(open.check(stray, 42)).toBe(true)
+    // opt-in refuses, with a reason naming why
+    const refused = closed.check(stray, 42)
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toContain('touches no contracted root')
+    // and a CONTRACTED path still behaves exactly as before under the option
+    expect(closed.check('billing_rules', { a: 'x' }, { root: 'billing_rules', proposed: { a: 'x' } })).toBe(true)
+    expect(closed.check('billing_rules', { a: 1 }, { root: 'billing_rules', proposed: { a: 1 } })).toBeInstanceOf(Error)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v1.9.1 review remediation — three findings in the same family as #10 itself:
+// a matcher that misses a legal spelling, an option that fails open on a typo,
+// and a documented `true | Error` seam that actually threw.
+// ---------------------------------------------------------------------------
+describe('agentContract — 1.9.1 review remediation', () => {
+  const S = { type: 'object', properties: { rate: { type: 'number' } }, required: ['rate'], additionalProperties: false }
+
+  test('quoted-bracket paths cannot bypass the gate by respelling', () => {
+    const gate = agentContract({ 'app.billing': S })
+    // lodash-style spellings of the SAME location — all must be contracted
+    for (const path of [
+      'app.billing',
+      'app.billing.rate',
+      'app["billing"].rate',
+      "app['billing'].rate",
+      'app["billing"][0].rate',
+    ]) {
+      expect(gate.affectedRoots(path)).toEqual(['app.billing'])
+      // and check() agrees — no proposal on a contracted path is a breach
+      expect(gate.check(path, 1)).toBeInstanceOf(Error)
+    }
+    // still not over-matching a different sibling root
+    expect(gate.affectedRoots('app.billingX')).toEqual([])
+    expect(gate.affectedRoots('app["billingX"]')).toEqual([])
+  })
+
+  test("an unknownPath typo throws at construction rather than failing open", () => {
+    expect(() => agentContract({ 'app.b': S }, { unknownPath: 'Refuse' as any })).toThrow('unknownPath')
+    expect(() => agentContract({ 'app.b': S }, { unknownPath: '' as any })).toThrow('fail open')
+    // the two legal values still construct
+    expect(() => agentContract({ 'app.b': S }, { unknownPath: 'allow' })).not.toThrow()
+    expect(() => agentContract({ 'app.b': S }, { unknownPath: 'refuse' })).not.toThrow()
+  })
+
+  test('a non-string path returns an Error, never throws (the true|Error seam)', () => {
+    for (const gate of [
+      agentContract({ 'app.b': S }),
+      agentContract({ 'app.b': S }, { unknownPath: 'refuse' }),
+    ]) {
+      for (const bad of [undefined, null, 0, {}, ['app', 'b']]) {
+        // NB: assert on the RETURN, not via .not.toThrow() — bun's matcher
+        // treats a returned Error as a thrown one, so the wrapper would fail
+        // on exactly the behavior we want. Reaching the next line at all is
+        // the no-throw assertion; the Error is the seam's documented refusal.
+        const verdict = gate.check(bad as any, 1)
+        expect(verdict).toBeInstanceOf(Error)
+      }
+      // the newly-public matcher must not throw either
+      expect(gate.affectedRoots(undefined as any)).toEqual([])
+    }
+  })
+
+  test("a gate with no schemas under unknownPath:'refuse' refuses the world", () => {
+    const empty = agentContract({}, { unknownPath: 'refuse' })
+    expect(empty.check('anything', 1)).toBeInstanceOf(Error)
+    // and an uncontracted path carrying a proposal is still refused
+    const gate = agentContract({ 'app.b': S }, { unknownPath: 'refuse' })
+    expect(gate.check('other.root', 1, { root: 'other.root', proposed: 1 })).toBeInstanceOf(Error)
+  })
+})
+
+  test('a stray `schema` key cannot turn a restrictive schema into an accept-all gate', () => {
+    // toPlain's duck-typed unwrap ran before the allowlist, so this construed
+    // as the boolean schema `true` — an accept-all gate wearing a closed
+    // schema's clothes, reachable from wire data (`schema` is not a JSON
+    // Schema keyword, so nothing else flagged it).
+    expect(() =>
+      agentContract({
+        r: { type: 'object', properties: {}, additionalProperties: false, schema: true } as any,
+      })
+    ).toThrow('schema')
+    // real builders still unwrap normally
+    const built = agentContract({ r: s.object({ a: s.string }) })
+    expect(built.describe().r).toEqual({
+      type: 'object',
+      properties: { a: { type: 'string' } },
+      required: ['a'],
+      additionalProperties: false,
+    })
+  })

@@ -440,7 +440,7 @@ Import only what you use. The package is `sideEffects: false` and each concern i
 | `s` (builder) | builder + validator | ~2.7 kB |
 | `filter` | validator + filter | ~3.1 kB |
 | `agentContract` | validator + contract layer | ~4.6 kB |
-| everything | the whole library | ~7.9 kB |
+| everything | the whole library | ~8.2 kB |
 
 `inferSchema` is also published as a self-contained subpath, `tosijs-schema/infer`, so it stays ~1.5 kB even where a bundler can't tree-shake the pre-bundled main entry. The other pieces share the validator core (one module), so importing `validate`, `s`, `filter`, or `diff` lands around 2.7–3.1 kB regardless.
 
@@ -465,6 +465,21 @@ contract.describe() // plain JSON Schemas — "what's legal", shippable over the
 ```
 
 Deep writes are judged as the whole root they would produce, so `required` on siblings, cross-field constraints, and root-level `$predicate`s all participate. Validation is strict by default (a gate that samples isn't a gate); pass `{ strict: false }` to opt into sampled validation for huge roots.
+
+**Uncontracted paths: know which `true` you got.** `check()` returns `true` both for *"this write is valid"* and for *"this path touches nothing I contract"* — deliberate, since a surface may contract only a subset. But the two are indistinguishable at the call site, so the natural `if (verdict !== true) refuse()` performs **no validation at all** over every uncontracted root. Two ways to be explicit:
+
+```typescript
+// 1. ask which roots a path touches — the matcher check() itself uses
+contract.affectedRoots('app.order[0].qty')  // ['app.order']  ← bracket form included
+contract.affectedRoots('app.orderX')        // []             ← not a root
+if (contract.affectedRoots(path).length === 0) { /* your call */ }
+
+// 2. or make the gate cover the whole surface
+const gate = agentContract(schemas, { unknownPath: 'refuse' })
+gate.check('not.contracted', 1) // Error: … touches no contracted root
+```
+
+Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith(root + '.')`: that misses **bracket indexing**, so `app.order[0].qty` reads as uncontracted and skips the gate — a bug invisible to any test suite written in dotted form. `unknownPath` defaults to `'allow'` (unchanged behavior); `'refuse'` is right when the gate is meant to cover everything. Both added in 1.9.1 ([#10](https://github.com/tonioloewald/tosijs-schema/issues/10)).
 
 **The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Construction validates every schema key against an **allowlist** — the `ENFORCED_KEYWORDS` set `validate` actually implements, plus annotations (`title`, `description`, `default`, `examples`, `$counterexamples`, …) and `x-*` extensions. Anything else — `allOf`/`not`/`$ref`, unimplemented spec keywords, even typos like `minumum` — is refused with an `Error`: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Value-level holes are refused too: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, tuple `items` without an exact `maxItems` cap, non-primitive `const`/`enum` members, and multi-type arrays. Boolean schemas are legal and enforced (`properties: { key: false }` forbids the key). Protocol breaches fail closed as well: any write touching a contracted root — at it, under it, or above it — without a proposal for that exact root, a mismatched `proposal.root`, and ancestor writes spanning several contracted roots are all refused with an `Error` naming the breach.
 
@@ -557,15 +572,15 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   98.94 |   98.60 |
- src/contract.ts |   97.73 |   97.39 | 85,469,471,474,483-485,516-517
+All files        |   98.99 |   98.64 |
+ src/contract.ts |   97.96 |   97.60 | 121,571,573,576,585-587,618-619
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
  src/schema.ts   |   96.97 |   95.60 | 122-126,336-342,477,1058-1059,1073,1093-1094,1117-1126,1129-1130
 ```
 
-281 tests, 900 assertions.
+289 tests, 948 assertions.
 <!-- /coverage:readme -->
 
 ## License

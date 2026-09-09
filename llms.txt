@@ -1,4 +1,4 @@
-# tosijs-schema v1.9.0
+# tosijs-schema v1.9.1
 
 Schema-first validation for TypeScript/JavaScript — plain JSON Schema is the
 source of truth; types are inferred from it, not the other way around. ~8kB gzipped (or ~1.5kB via the `tosijs-schema/infer` subpath), zero dependencies, no eval/new Function.
@@ -29,9 +29,12 @@ source of truth; types are inferred from it, not the other way around. ~8kB gzip
 - `Infer<typeof Schema>` derives the TypeScript type from a builder.
 - `$predicate` keyword: serialized computational validation, inert until an
   evaluator is registered via `setPredicateEvaluator()`.
-- `agentContract(schemas)`: fail-closed contract gate for agent write
-  surfaces (tosijs). `checkExamples(schema)`: lints `examples` (must pass)
-  and `$counterexamples` (must fail).
+- `agentContract(schemas, options?)`: contract gate for agent write surfaces
+  (tosijs). Fail-closed over CONTRACTED roots; a path touching none passes
+  unless constructed with `{ unknownPath: 'refuse' }`. `affectedRoots(path)`
+  reports which roots a write touches (handles `r.x`, `r[0].x`, `r["x"]`).
+  `checkExamples(schema)`: lints `examples` (must pass) and
+  `$counterexamples` (must fail).
 - `inferSchema(sample, opts?)`: derive a JSON Schema from example data
   (runtime inverse of `Infer<S>`). Structure only, objects open, unifies
   across every element. Tree-shakeable via the `tosijs-schema/infer` subpath

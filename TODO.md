@@ -224,6 +224,77 @@ unsupported + `agentContract` refuses + `validate` silently ignores." The
 reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
 Schema off the wire") is essentially what #8 turned out to be.
 
+## v1.9.1 pre-release review follow-ups (GO_WITH_FOLLOWUPS; 0 blockers)
+
+`tier: pre-minor`, `depth: full`, base `v1.9.0`. Full record:
+`reviews/1.9.1-agentcontract-uncontracted-paths.md`.
+
+**Fixed pre-tag** (the 3 "do before tagging" items + 3 same-class security
+findings the review had triaged as follow-ups — all were fail-opens at the gate,
+this repo's recurring class, so they were fixed rather than deferred):
+quoted-bracket path bypass; non-string `path` throwing instead of returning an
+`Error`; `unknownPath` typo failing open; `toPlain`'s stray-`schema`-key
+accept-all gate; CONTEXT.md/llms.txt describing the pre-#10 surface; CHANGELOG
+claiming "non-breaking" when `AgentContract` gained a required member.
+
+Remaining:
+
+- [ ] *(security/dx)* `agentContract` does not define the path grammar it string-matches
+  on. State it in the `affectedRoots` JSDoc + README (tosijs dot/bracket, unescaped;
+  anything else reads as uncontracted and fails open unless `{ unknownPath: 'refuse' }`),
+  and either reject or warn once on root keys outside it (`'/app/order'`, escaped dots).
+  Pin a JSON-Pointer-shaped path as `[]` so the boundary is explicit, not accidental.
+- [ ] *(efficiency, confirmed by re-measurement)* README's per-import size table is
+  understated on every row a script does not regenerate: `s` 3.45 kB vs claimed ~2.7
+  (+28%), `filter` 4.03 vs ~3.1 (+30%), `agentContract` 5.16 vs ~4.6 (+12%). Only the
+  `everything` row is generated. `agentContract` is exactly the row this diff grew and
+  the one that didn't move — unchanged since v1.6.0. Extend `make-coverage.ts` to
+  measure each documented entry point via a re-export shim so the drift gate catches
+  per-import regressions; correct the four numbers by hand meanwhile.
+- [ ] *(dx)* `smoke.ts` never exercises this release's payload. Make it habit that the
+  consumer fixture names whatever the release adds — here `affectedRoots('x[0].a')` and
+  `{ unknownPath: 'refuse' }`.
+- [ ] *(dx)* `smoke.ts` derives the tarball name from `stdout + stderr` concatenated and
+  takes `.pop()`. Clean today, but any npm deprecation/EBADENGINE line becomes the
+  "filename" and the gate dies with an opaque `renameSync ENOENT`. Parse stdout only and
+  pack straight to the scratch dir (`--pack-destination`, which also kills the repo-root
+  `.tgz` and the cross-filesystem rename risk).
+- [ ] *(dx)* Decide whether `describe()` should carry the gate's posture: a serialized
+  contract is byte-identical whether built `'allow'` or `'refuse'`, so the remote side
+  still cannot tell which `true` it will get — #10's ambiguity moved one hop out.
+- [ ] *(dx)* `affectedRoots` hands out a fresh mutable array of internal root names while
+  the rest of `contract.ts` is fastidious about copies. Decide whether that shape is now
+  frozen public surface; note it in the JSDoc either way.
+- [ ] *(blast-radius)* The #10 remedy reaches nobody who merely updates — both facilities
+  are opt-in. Considered a once-per-process warn on the first `true`-with-zero-affected-roots
+  (matching the `oneOf` latch), **decided against for now**: it would fire just as often for
+  the *intended* partial-contract configuration as for the buggy one, and generalizing the
+  oneOf latch (a private, cost-shaped flag) is a refactor plus a semantic widening.
+  Recorded so it isn't re-litigated; revisit if a second consumer hits #10's shape.
+- [ ] *(process)* Scope drift inside this tag: `smoke.ts`, release-doctor adoption and the
+  versioning-policy rewrite shipped inside `v1.9.1` with no lens attention of their own.
+  Prefer one coherent body per tag, or run the always-on tier per substantive commit.
+- [ ] *(process)* Nothing gates doc/API sync — that is why the stale CONTEXT/llms.txt was
+  invisible. A cheap check (grep the shipped docs for every exported `AgentContract`
+  member) would have caught it; consider adding it to `make-coverage.ts`.
+- [ ] *(carried forward from 1.9.0, still open)* bounded dictionaries enumerate keys twice
+  per `validate`; rode along in this tag undecided because the efficiency lens saw a diff
+  that doesn't touch `schema.ts`.
+
+### → shared practices (write-back owed)
+
+- [ ] `releasing.md` — the smoke-consumer lane's two gotchas: pin the compiler (`bunx tsc`
+  can resolve a different TypeScript) and write an explicit `target` into the scratch
+  consumer (tsc defaults to ES5, which cannot compile `ReadonlySet` in a published
+  `.d.ts`). tosijs-ui solved both independently — two adopters, so it is a doc gap.
+- [ ] `CLAUDE.md` — `smoke.ts` shells out to `npm pack`/`npm` despite this repo's "use Bun
+  for everything" rule. It is deliberate (npm is what publishes, so the lane tests npm's
+  `files` packing) — carve the exception out explicitly rather than leaving it as a
+  contradiction.
+- [ ] The versioning-policy rewrite landed in the same diff it licenses, unreviewed. The
+  required-interface-member change above is exactly the case its "breaks nothing" test
+  should have caught — re-read it against that case.
+
 ## Smoke lane (`smoke.ts`, added 2026-09-05 from tosijs-ui#61)
 
 Packs the real tarball, installs it into a scratch consumer, imports BY PACKAGE

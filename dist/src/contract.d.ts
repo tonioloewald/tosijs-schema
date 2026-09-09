@@ -25,6 +25,21 @@ export interface ContractProposal {
 export interface AgentContract {
     check(path: string, value: any, proposal?: ContractProposal): true | Error;
     describe(): Record<string, JSONSchema | boolean>;
+    /**
+     * Every contracted root this write would touch — at it, under it, or ABOVE
+     * it (an ancestor write replaces the contracted subtree). Empty means the
+     * path touches nothing this gate contracts.
+     *
+     * Exported because `check()` answers `true` both for "valid write" and for
+     * "not my business", so a caller that wants a fail-closed posture over
+     * uncontracted paths has to ask this question itself — and the obvious
+     * hand-rolled version (`path === root || path.startsWith(root + '.')`) is
+     * WRONG: it misses bracket indexing, so `billing_rules[0].resource` reads as
+     * uncontracted and skips the gate. That bug is invisible to any test suite
+     * written in dotted form. This is the matcher `check()` itself uses, so the
+     * two cannot disagree. — asked for in #10
+     */
+    affectedRoots(path: string): string[];
 }
 /** a builder (`s.object(...)`) or a plain JSON Schema object */
 export type SchemaLike = JSONSchema | boolean | Base<any> | Record<string, any>;
@@ -75,6 +90,7 @@ export declare function unenforcedKeywords(schema: SchemaLike): string[];
  */
 export declare const agentContract: (schemas: Record<string, SchemaLike>, options?: {
     strict?: boolean;
+    unknownPath?: "allow" | "refuse";
 }) => AgentContract;
 export interface ExampleFinding {
     /** where in the schema tree, e.g. `root` or `root.properties.qty` */

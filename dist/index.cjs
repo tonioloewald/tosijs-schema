@@ -925,7 +925,8 @@ var createM = (r) => {
   return new M(r);
 };
 // src/contract.ts
-var toPlain = (schema) => schema?.schema ?? schema;
+var isBuilder = (x) => x != null && typeof x === "object" && ("schema" in x) && typeof x.validate === "function";
+var toPlain = (schema) => isBuilder(schema) ? schema.schema : schema;
 var ANNOTATION_KEYWORDS = new Set([
   "title",
   "description",
@@ -1098,6 +1099,10 @@ function unenforcedKeywords(schema) {
 }
 var agentContract = (schemas, options) => {
   const strict = options?.strict ?? true;
+  const unknownPath = options?.unknownPath ?? "allow";
+  if (unknownPath !== "allow" && unknownPath !== "refuse") {
+    throw new Error(`agentContract: unknownPath must be 'allow' or 'refuse', got ` + `${JSON.stringify(options?.unknownPath)} — an unrecognized value would ` + `fall back to 'allow' and fail open, which is what this option exists to prevent`);
+  }
   const plain = Object.create(null);
   const predicated = Object.create(null);
   for (const [root, schema] of Object.entries(schemas)) {
@@ -1111,6 +1116,8 @@ var agentContract = (schemas, options) => {
   }
   const roots = Object.keys(plain);
   const extendsPath = (child, parent) => child.startsWith(parent + ".") || child.startsWith(parent + "[") || parent === "";
+  const normalizePath = (p) => p.replace(/\[(["'])(.*?)\1\]/g, (_m, _q, key) => "." + key);
+  const normedRoots = roots.map((root) => [root, normalizePath(root)]);
   for (const a of roots) {
     for (const b of roots) {
       if (a !== b && extendsPath(a, b)) {
@@ -1119,15 +1126,26 @@ var agentContract = (schemas, options) => {
     }
   }
   const affectedRoots = (path) => {
-    const at = roots.find((root) => path === root || extendsPath(path, root));
-    return at != null ? [at] : roots.filter((root) => extendsPath(root, path));
+    if (typeof path !== "string")
+      return [];
+    const p = normalizePath(path);
+    const at = normedRoots.find(([, root]) => p === root || extendsPath(p, root));
+    return at != null ? [at[0]] : normedRoots.filter(([, root]) => extendsPath(root, p)).map(([name]) => name);
   };
   return {
+    affectedRoots,
     check(path, _value, proposal) {
+      if (typeof path !== "string") {
+        return new Error(`contract breach — path must be a string, got ${path === null ? "null" : typeof path}; the gate cannot judge a write it cannot locate`);
+      }
       const at = path || "''";
       const affected = affectedRoots(path);
-      if (affected.length === 0)
+      if (affected.length === 0) {
+        if (unknownPath === "refuse") {
+          return new Error(`contract breach at ${at} — path touches no contracted root and ` + `the gate is { unknownPath: 'refuse' }; contract this root or ` + `route the write around the gate deliberately`);
+        }
         return true;
+      }
       if (proposal == null) {
         return new Error(`contract breach at ${at} — write affecting contracted root ` + `'${affected[0]}' arrived without a proposal`);
       }
