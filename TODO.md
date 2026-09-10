@@ -224,6 +224,47 @@ unsupported + `agentContract` refuses + `validate` silently ignores." The
 reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
 Schema off the wire") is essentially what #8 turned out to be.
 
+## v1.10.0 review follow-ups (three passes; see `reviews/1.10.0-*.md`)
+
+Fixed pre-tag across the passes: the CHANGELOG/version-policy violation (1.9.1 →
+1.10.0, BREAKING framing + migration table); the nested-root guard comparing raw
+roots while the matcher normalized (a regression); leading-bracket paths; and
+finally the CLASS fix — all bracket spellings canonicalize to one dotted grammar,
+un-canonicalizable paths are refused rather than read as uncontracted, `strict` is
+validated at construction, and a **fail-open corpus test** now feeds every
+constructor option the values a parsed-JSON config can produce.
+
+Remaining:
+
+- [ ] *(docs)* State the accepted path grammar in the `affectedRoots` JSDoc + README —
+  and specifically that an *unquoted* bracket body is an array index or
+  `[idPath=value]` lookup, **never** a property key, in tosijs's grammar. Two competent
+  reviewers read that opposite ways inside one review cycle, which is the evidence the
+  gap is real. Consider refusing/warning once on root keys outside the grammar (leading
+  `/`, escaped dots) so a JSON-Pointer applier is caught at construction rather than
+  never. *(Supersedes the older grammar item below — same issue, now with evidence.)*
+- [ ] *(dx)* Decide whether `describe()` should carry the gate's posture: a serialized
+  contract is byte-identical whether built `'allow'` or `'refuse'`, so the remote side
+  still cannot tell which `true` it will get — #10's ambiguity moved one hop out.
+- [ ] *(dx)* `affectedRoots` returns a fresh mutable array of internal root names;
+  decide whether that shape is frozen public surface and note it in the JSDoc.
+- [ ] *(process, for the AAR — do not root-cause inline)* 1.8.0, 1.9.0, 1.9.1 and
+  1.10.0 each closed an `agentContract` path fail-open found only by a review pass.
+  The corpus test is the first mechanical guard that re-asks the question next
+  release; check at the quarterly whether it actually caught anything, and whether
+  a "fail-open corpus" convention belongs in `practices/review.md` for security-gate
+  components generally.
+
+### → shared practices (write-back owed, joins the batch below)
+
+- [ ] **Permissive defaults must be reachable only from `undefined`.**
+  `?? defaultPermissive` silently accepts `0`, `''`, `NaN` and every other falsy
+  non-nullish value a parsed-JSON config can produce, so any option whose default is
+  the *loose* posture needs an allowlist guard that throws, not a nullish coalesce.
+  Before/after pair from this release: `options.strict` (was `?? true`, built a
+  sampling gate from `{ strict: 0 }`) and its already-hardened sibling
+  `options.unknownPath`.
+
 ## v1.9.1 pre-release review follow-ups (GO_WITH_FOLLOWUPS; 0 blockers)
 
 `tier: pre-minor`, `depth: full`, base `v1.9.0`. Full record:
