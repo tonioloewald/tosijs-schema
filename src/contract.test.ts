@@ -857,25 +857,6 @@ describe('agentContract — uncontracted paths (#10)', () => {
 describe('agentContract — 1.9.1 review remediation', () => {
   const S = { type: 'object', properties: { rate: { type: 'number' } }, required: ['rate'], additionalProperties: false }
 
-  test('quoted-bracket paths cannot bypass the gate by respelling', () => {
-    const gate = agentContract({ 'app.billing': S })
-    // lodash-style spellings of the SAME location — all must be contracted
-    for (const path of [
-      'app.billing',
-      'app.billing.rate',
-      'app["billing"].rate',
-      "app['billing'].rate",
-      'app["billing"][0].rate',
-    ]) {
-      expect(gate.affectedRoots(path)).toEqual(['app.billing'])
-      // and check() agrees — no proposal on a contracted path is a breach
-      expect(gate.check(path, 1)).toBeInstanceOf(Error)
-    }
-    // still not over-matching a different sibling root
-    expect(gate.affectedRoots('app.billingX')).toEqual([])
-    expect(gate.affectedRoots('app["billingX"]')).toEqual([])
-  })
-
   test("an unknownPath typo throws at construction rather than failing open", () => {
     expect(() => agentContract({ 'app.b': S }, { unknownPath: 'Refuse' as any })).toThrow('unknownPath')
     expect(() => agentContract({ 'app.b': S }, { unknownPath: '' as any })).toThrow('fail open')
@@ -933,37 +914,6 @@ describe('agentContract — 1.9.1 review remediation', () => {
     })
   })
 
-  test('a leading-bracket path cannot bypass the gate (M1)', () => {
-    const gate = agentContract({ billing: S })
-    // a defensive path builder emits fully-bracketed segments to survive keys
-    // containing dots; lodash _.set resolves these to the same location, so a
-    // gate that reads them as uncontracted disagrees with the applier
-    for (const path of ['["billing"].x', "['billing'].x", '["billing"]["rate"]', '["billing"]']) {
-      expect(gate.affectedRoots(path)).toEqual(['billing'])
-      expect(gate.check(path, 1)).toBeInstanceOf(Error)
-    }
-    // nested root spelled with a leading bracket resolves too
-    const deep = agentContract({ 'app.billing': S })
-    expect(deep.affectedRoots('["app"]["billing"].rate')).toEqual(['app.billing'])
-  })
-
-  test('the nested-root guard uses the same matcher semantics as check (M2)', () => {
-    // was: guard compared RAW roots while affectedRoots matched normalized ones,
-    // so this constructed and left the second root dead — advertised by
-    // describe(), unable to judge anything
-    expect(() =>
-      agentContract({ 'app["billing"]': S, 'app.billing.rate': { type: 'number' } })
-    ).toThrow('nested under root')
-    // two spellings of the SAME root shadow each other — refuse outright
-    expect(() => agentContract({ 'a.b': S, 'a["b"]': S })).toThrow('same path')
-    // the dotted control still throws, as it always did
-    expect(() =>
-      agentContract({ 'app.billing': S, 'app.billing.rate': { type: 'number' } })
-    ).toThrow('nested under root')
-    // unrelated roots still construct
-    expect(() => agentContract({ 'a.b': S, 'a.c': S })).not.toThrow()
-  })
-
   test('unknownPath: null does not slip past the guard into fail-open', () => {
     // `?? 'allow'` collapsed null into the permissive value, so a parsed-JSON
     // { "unknownPath": null } sailed through while 'Refuse' threw
@@ -971,34 +921,6 @@ describe('agentContract — 1.9.1 review remediation', () => {
     // an explicitly absent option still defaults
     expect(() => agentContract({ 'a.b': S }, {})).not.toThrow()
     expect(agentContract({ 'a.b': S }, {}).check('somewhere.else', 1)).toBe(true)
-  })
-
-  test('every bracket spelling of the same location is gated (class fix, not instance)', () => {
-    // Four releases fixed this matcher one spelling at a time. All bracket
-    // segments — quoted, unquoted, numeric — now canonicalize to dotted form,
-    // so there is one grammar rather than a growing list of special cases.
-    const gate = agentContract({ 'app.billing': S })
-    for (const path of [
-      'app.billing.rate',
-      'app["billing"].rate',
-      "app['billing'].rate",
-      'app[billing].rate',        // unquoted — missed through 1.9.x
-      '["app"]["billing"].rate',
-      '["app"].billing.rate',
-    ]) {
-      expect(gate.affectedRoots(path)).toEqual(['app.billing'])
-      expect(gate.check(path, 1)).toBeInstanceOf(Error)
-    }
-    // dotted-index vs bracket-index: tosijs by-path writes BOTH to the same
-    // location, so the gate must recognize both spellings of the same root
-    const list = agentContract({ 'app.list[0]': S })
-    for (const path of ['app.list[0].rate', 'app.list.0.rate', 'app.list["0"].rate']) {
-      expect(list.affectedRoots(path)).toEqual(['app.list[0]'])
-      expect(list.check(path, 1)).toBeInstanceOf(Error)
-    }
-    // and a path that cannot be canonicalized is REFUSED, not waved through
-    expect(gate.check('app[billing.rate', 1)).toBeInstanceOf(Error)
-    expect(() => gate.affectedRoots('app[billing.rate')).toThrow('canonicalize')
   })
 
   test('fail-open corpus: no constructor option accepts a config value that opens the gate', () => {
@@ -1023,6 +945,44 @@ describe('agentContract — 1.9.1 review remediation', () => {
     big[5] = 'bad'
     const g = agentContract({ 'a.nums': { type: 'array', items: { type: 'number' } } })
     expect(g.check('a.nums', big, { root: 'a.nums', proposed: big })).toBeInstanceOf(Error)
+  })
+
+  test('the matcher grammar is a PREFIX test — and its limits are pinned, not implied', () => {
+    // Honest boundary. v1.10.0 tried to canonicalize every spelling with a
+    // regex and it was reverted (four passes, four more bypasses, plus a
+    // quadratic blowup on unbalanced brackets). So the recognized grammar is
+    // exactly this, and the gap below is documented rather than papered over.
+    const gate = agentContract({ 'app.billing': S })
+    // recognized
+    for (const path of ['app.billing', 'app.billing.rate', 'app.billing[0].rate']) {
+      expect(gate.affectedRoots(path)).toEqual(['app.billing'])
+    }
+    // NOT recognized — other spellings of the same location read as uncontracted
+    // under the default posture. If a future tokenizer closes this, these
+    // assertions flip and that is the signal to update the docs with it.
+    for (const path of ['app["billing"].rate', "app['billing'].rate", '/app/billing/rate']) {
+      expect(gate.affectedRoots(path)).toEqual([])
+      expect(gate.check(path, 1)).toBe(true)
+    }
+    // …and the shipped remedy closes every one of them regardless of spelling
+    const closed = agentContract({ 'app.billing': S }, { unknownPath: 'refuse' })
+    for (const path of ['app["billing"].rate', "app['billing'].rate", '/app/billing/rate']) {
+      expect(closed.check(path, 1)).toBeInstanceOf(Error)
+    }
+    // a non-root prefix is still correctly NOT a match
+    expect(gate.affectedRoots('app.billingX')).toEqual([])
+  })
+
+  test('path matching is linear — no quadratic blowup on a hostile path', () => {
+    // v1.10.0's reverted regex was O(n^2) on unbalanced brackets: ~977ms at 40k
+    // chars, ~24s at 200k, on the agent-supplied field of a capability gate.
+    // The prefix test has no backtracking; this pins that it stays cheap.
+    const gate = agentContract({ 'app.billing': S })
+    const hostile = '['.repeat(200_000)
+    const t = performance.now()
+    gate.check(hostile, 1)
+    gate.affectedRoots(hostile)
+    expect(performance.now() - t).toBeLessThan(100)
   })
 })
 

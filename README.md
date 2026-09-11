@@ -21,17 +21,16 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ## Upgrading
 
-### To 1.10.0 (from 1.9.x) — two `agentContract` fail-opens closed
+### To 1.10.0 (from 1.9.x) — one `agentContract` fail-open closed
 
-**Only affects `agentContract`.** `validate`, `filter` and `inferSchema` are untouched, so if you don't build gates, this release is additive for you.
+**Only affects `agentContract` construction.** `validate`, `filter` and `inferSchema` are unchanged.
 
 | Case | ≤ 1.9.0 | 1.10.0 |
 | --- | --- | --- |
 | a gate schema carrying a stray `schema` key | constructs — and becomes an **accept-all gate** | **throws** at construction |
-| `check('app["billing"].rate', v)` with root `app.billing` | `true` — **ungated** | judged, like the dotted spelling |
-| two roots denoting the same path (`'a.b'` + `'a["b"]'`) | constructs; one silently shadows the other | **throws** at construction |
+| `{ strict: 0 }` / `{ strict: '' }` (e.g. from a parsed config) | silently builds a **sampling** gate | **throws** |
 
-Both were fail-opens: a gate that quietly permitted what it advertised it would judge. **Migration:** if construction now throws naming `root.schema`, remove that key — it was never enforced. If a write on a bracket-quoted path starts being refused, it now needs a proposal like any other write; that spelling was passing only because the matcher missed it.
+**Migration:** if construction throws naming `root.schema`, remove that key — it was never enforced. If it throws on `strict`, pass a real boolean.
 
 Also new (additive, from [#10](https://github.com/tonioloewald/tosijs-schema/issues/10)): `affectedRoots(path)` to ask which contracted roots a write touches, and `{ unknownPath: 'refuse' }` to make the fail-closed posture explicit — see [Agent Contracts](#agent-contracts).
 
@@ -454,7 +453,7 @@ Import only what you use. The package is `sideEffects: false` and each concern i
 | `s` (builder) | builder + validator | ~2.7 kB |
 | `filter` | validator + filter | ~3.1 kB |
 | `agentContract` | validator + contract layer | ~4.6 kB |
-| everything | the whole library | ~8.6 kB |
+| everything | the whole library | ~8.3 kB |
 
 `inferSchema` is also published as a self-contained subpath, `tosijs-schema/infer`, so it stays ~1.5 kB even where a bundler can't tree-shake the pre-bundled main entry. The other pieces share the validator core (one module), so importing `validate`, `s`, `filter`, or `diff` lands around 2.7–3.1 kB regardless.
 
@@ -493,7 +492,9 @@ const gate = agentContract(schemas, { unknownPath: 'refuse' })
 gate.check('not.contracted', 1) // Error: … touches no contracted root
 ```
 
-Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith(root + '.')`: that misses **bracket indexing**, so `app.order[0].qty` reads as uncontracted and skips the gate — a bug invisible to any test suite written in dotted form. Every bracket spelling canonicalizes to dotted form (`a["b"]`, `a['b']`, `a[b]`, `a[0]` ≡ `a.b` / `a.0`), so the gate and a path-writing applier agree on what a path means; a path that cannot be canonicalized is refused rather than treated as uncontracted. Note `affectedRoots` **throws** `TypeError` on a non-string or un-canonicalizable path — answering "touches no roots" to a question it cannot evaluate would fail open in the `length === 0` posture above; `check()` returns an `Error` for the same input, since never-throwing is its contract, not this helper's. `unknownPath` defaults to `'allow'` (unchanged behavior); `'refuse'` is right when the gate is meant to cover everything. Both added in 1.10.0 ([#10](https://github.com/tonioloewald/tosijs-schema/issues/10)).
+Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith(root + '.')`: that misses **bracket indexing**, so `app.order[0].qty` reads as uncontracted and skips the gate — a bug invisible to any test suite written in dotted form. Note `affectedRoots` **throws** `TypeError` on a non-string path (answering "touches no roots" to a question it cannot evaluate would fail open in the `length === 0` posture above); `check()` returns an `Error` for the same input, since never-throwing is its contract, not this helper's.
+
+**Know the grammar it matches.** This is a prefix test, not a path parser: it recognizes `root`, `root.x` and `root[0].x`. Other spellings of the same location — `root["x"]`, `root.0.x`, a JSON Pointer — read as *uncontracted*, so if your applier accepts those, a write can be respelled past a default gate. **`{ unknownPath: 'refuse' }` closes that regardless of spelling**, which is why it is the right choice for a gate meant to cover a whole surface. (A canonicalizing matcher was built for 1.10.0 and reverted — see the CHANGELOG; the real fix is a tokenizer, tracked separately.)
 
 **The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Construction validates every schema key against an **allowlist** — the `ENFORCED_KEYWORDS` set `validate` actually implements, plus annotations (`title`, `description`, `default`, `examples`, `$counterexamples`, …) and `x-*` extensions. Anything else — `allOf`/`not`/`$ref`, unimplemented spec keywords, even typos like `minumum` — is refused with an `Error`: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Value-level holes are refused too: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, tuple `items` without an exact `maxItems` cap, non-primitive `const`/`enum` members, and multi-type arrays. Boolean schemas are legal and enforced (`properties: { key: false }` forbids the key). Protocol breaches fail closed as well: any write touching a contracted root — at it, under it, or above it — without a proposal for that exact root, a mismatched `proposal.root`, and ancestor writes spanning several contracted roots are all refused with an `Error` naming the breach.
 
@@ -586,15 +587,15 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   98.99 |   98.68 |
- src/contract.ts |   98.00 |   97.80 | 127,674,676,679,688-690,721-722
+All files        |   98.95 |   98.65 |
+ src/contract.ts |   97.78 |   97.66 | 136,617,619,622,631-633,664-665
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
  src/schema.ts   |   96.97 |   95.60 | 122-126,336-342,477,1058-1059,1073,1093-1094,1117-1126,1129-1130
 ```
 
-294 tests, 1012 assertions.
+292 tests, 981 assertions.
 <!-- /coverage:readme -->
 
 ## License

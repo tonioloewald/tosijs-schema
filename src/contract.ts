@@ -47,7 +47,16 @@ export interface AgentContract {
    * WRONG: it misses bracket indexing, so `billing_rules[0].resource` reads as
    * uncontracted and skips the gate. That bug is invisible to any test suite
    * written in dotted form. This is the matcher `check()` itself uses, so the
-   * two cannot disagree on any path they both judge. — asked for in #10
+   * two cannot disagree. — asked for in #10
+   *
+   * **Grammar, stated honestly.** This is a prefix test, not a path parser. It
+   * recognizes `root`, `root.x` and `root[0].x`. It does NOT recognize other
+   * spellings of the same location — `root["x"]`, `root.0.x`, `/root/x` — so if
+   * your applier accepts those, a write can be respelled past a default
+   * (`unknownPath: 'allow'`) gate. Construct with `{ unknownPath: 'refuse' }`
+   * when the gate is meant to cover a whole surface; that closes the gap
+   * regardless of spelling. Making the matcher grammar-complete needs a
+   * tokenizer, not more string rewriting — see TODO.md.
    *
    * Throws `TypeError` on a non-string `path`: the never-throw guarantee is
    * `check()`'s (it refuses such a write with an `Error` before reaching here),
@@ -434,75 +443,29 @@ export const agentContract = (
     child.startsWith(parent + '.') ||
     child.startsWith(parent + '[') ||
     parent === '' // the empty path is an ancestor of every root
-  /**
-   * Path grammar: dot/bracket, as tosijs writes them (`a.b`, `a[0].b`).
-   * A QUOTED bracket — `a["b"]` / `a['b']`, the spelling lodash `_.set` and
-   * friends normalize to — names the same location, so it is folded to its
-   * dotted form before matching. Without this the matcher is a raw prefix test
-   * and `app["billing"].rate` reads as UNCONTRACTED against root `app.billing`
-   * — the gate bypassed by respelling the path. That is the same defect class
-   * as #10 itself (a matcher that misses a legal spelling), so fixing it here
-   * rather than shipping a half-fix behind advice to "just use affectedRoots".
-   * A key containing a dot folds into extra segments, which can only make MORE
-   * paths look CONTRACTED — the fail-closed direction for path-vs-root. Note
-   * that reasoning does NOT extend to root-vs-root: two roots that normalize to
-   * the same string would silently shadow each other, so the nesting scan below
-   * runs on normalized roots and refuses collisions outright.
-   *
-   * The trailing `replace(/^\./, '')` is load-bearing: a path whose FIRST
-   * segment is bracketed (`["billing"].rate` — what a defensive path builder
-   * emits to survive keys containing dots) folds to a LEADING dot, which then
-   * fails `startsWith('billing.')` and reads as uncontracted. That spelling
-   * resolves to the same location under lodash `_.set`, so gate and applier
-   * would disagree.
-   *
-   * The quote group is OPTIONAL on purpose. Four releases running, this matcher
-   * has been fixed one spelling at a time (1.8.0, 1.9.0, 1.9.1, and again here),
-   * each round leaving the next respelling open: `app[billing].rate` and
-   * `app.list.0.rate` both write where `app.list[0].rate` writes under tosijs's
-   * own `by-path`, but only one spelling was gated. So ALL bracket segments —
-   * quoted, unquoted, numeric — canonicalize to dotted form, for roots and paths
-   * alike, leaving exactly ONE grammar to match on instead of a growing list of
-   * special cases. Anything that still contains a bracket afterwards did not
-   * canonicalize, and {@link canBeJudged} refuses it rather than letting it
-   * fall through to "touches no contracted root" — the fail-open this whole
-   * sequence has been about.
-   */
-  const normalizePath = (p: string): string =>
-    p.replace(/\[(["']?)(.*?)\1\]/g, (_m, _q, key) => '.' + key).replace(/^\./, '')
-  /**
-   * A path is judgeable only if it fully canonicalizes. Two ways it doesn't:
-   * a bracket survives the fold (unbalanced, e.g. `app[billing.rate`), or a
-   * closing bracket is followed by something other than `.`, `[` or end-of-string
-   * (`app["billing"]rate` — no separator, so the fold would silently splice two
-   * segments into the single key `app.billingrate`). Both are malformed rather
-   * than merely unfamiliar, and both are refused: guessing which location a
-   * malformed path meant is how a gate ends up judging one thing while the
-   * applier writes another.
-   */
-  const canBeJudged = (raw: string, normalized: string): boolean =>
-    !/[[\]]/.test(normalized) && !/\](?![.[]|$)/.test(raw)
-  // original name paired with its normalized form: affectedRoots must return
-  // the root as the caller spelled it, but match on the normalized one
-  const normedRoots = roots.map((root) => [root, normalizePath(root)] as const)
-  // The nesting scan runs on NORMALIZED roots, the same semantics affectedRoots
-  // matches with. Comparing raw roots here while matching on normalized ones
-  // let `{ 'app["billing"]': A, 'app.billing.rate': B }` construct: the guard
-  // saw two unrelated strings, the matcher saw one nested under the other, and
-  // B became a root that `describe()` advertises but that can never judge
-  // anything. Two path semantics in one closure is the bug; there is now one.
-  for (const [aName, a] of normedRoots) {
-    for (const [bName, b] of normedRoots) {
-      if (aName === bName) continue
-      if (a === b) {
+  // NOTE: this is a PREFIX test over path strings, not a path parser, and the
+  // gate therefore recognizes exactly the spellings below — `root`, `root.x`,
+  // `root[0].x`. A write respelled another way that an applier resolves to the
+  // SAME location (`root["x"]`, `root.0.x`, a JSON Pointer) reads as
+  // uncontracted and, under the default `unknownPath: 'allow'`, is not judged.
+  //
+  // v1.10.0 attempted to close that by canonicalizing every spelling with a
+  // regex, and it was reverted: four review passes found a further bypass each
+  // time (quoted, then leading, then unquoted/numeric, then dotted-key and
+  // element-scoped), the fold silently merged genuinely different locations
+  // (`a["b.c"]` is ONE key, not two levels), and the regex was quadratic on
+  // unbalanced brackets — a DoS on the least-trusted input in the system. The
+  // real fix is a tokenizer comparing SEGMENT ARRAYS plus a written-down
+  // grammar; that is its own change, tracked in TODO.md.
+  //
+  // Until then the honest posture is: this limitation is pre-existing, it is
+  // documented, and `{ unknownPath: 'refuse' }` closes it for a gate that is
+  // meant to cover a whole surface.
+  for (const a of roots) {
+    for (const b of roots) {
+      if (a !== b && extendsPath(a, b)) {
         throw new Error(
-          `agentContract: roots '${aName}' and '${bName}' denote the same path — ` +
-            `one would silently shadow the other; contract it once`
-        )
-      }
-      if (extendsPath(a, b)) {
-        throw new Error(
-          `agentContract: root '${aName}' is nested under root '${bName}' — which ` +
+          `agentContract: root '${a}' is nested under root '${b}' — which ` +
             `root judges a deep write would be ambiguous; contract the outer root only`
         )
       }
@@ -524,19 +487,8 @@ export const agentContract = (
         } — cannot locate a write that has no path`
       )
     }
-    const p = normalizePath(path)
-    if (!canBeJudged(path, p)) {
-      throw new TypeError(
-        `affectedRoots(path): '${path}' does not canonicalize — an unbalanced ` +
-          `bracket, or a bracket not followed by a separator, leaves a path this ` +
-          `gate cannot locate. Answering "no roots" would fail open in the ` +
-          `documented length === 0 posture.`
-      )
-    }
-    const at = normedRoots.find(([, root]) => p === root || extendsPath(p, root))
-    return at != null
-      ? [at[0]]
-      : normedRoots.filter(([, root]) => extendsPath(root, p)).map(([name]) => name)
+    const at = roots.find((root) => path === root || extendsPath(path, root))
+    return at != null ? [at] : roots.filter((root) => extendsPath(root, path))
   }
   return {
     affectedRoots,
@@ -553,15 +505,6 @@ export const agentContract = (
         )
       }
       const at = path || "''"
-      // a path we cannot canonicalize is one we cannot judge — refuse it rather
-      // than fall through to `affected.length === 0 → true`, which is precisely
-      // the fail-open shape this release closes elsewhere
-      if (!canBeJudged(path, normalizePath(path))) {
-        return new Error(
-          `contract breach at ${at} — path does not canonicalize (unbalanced ` +
-            `bracket); the gate cannot judge a write it cannot locate`
-        )
-      }
       const affected = affectedRoots(path)
       if (affected.length === 0) {
         // touches no contracted root — allowed by default, a breach under

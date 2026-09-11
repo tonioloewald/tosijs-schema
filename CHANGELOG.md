@@ -5,73 +5,79 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.10.0] — 2026-09-09
+## [1.10.0] — 2026-09-11
 
-**Contains BREAKING validation changes** (two gate tightenings, both closing
-fail-opens). Cut as a minor, not the 1.9.1 this started as: per README
-"Versioning & stability", a gate that starts *refusing* what it used to accept
-is breaking here even when the API surface only grew. The additive #10 work
-would have been a patch on its own; the tightenings that came out of its review
-are what moved the number.
+**Contains one BREAKING change** at the `agentContract` construction boundary
+(a fail-open closed). `validate`, `filter` and `inferSchema` are **unchanged in
+this release** — but see the note under *Known limitation* below: the same
+duck-type defect fixed here for the gate is still present in `validate`/`filter`
+and is being fixed separately.
 
-### Fixed — BREAKING
-
-Both were fail-opens at the gate, found by this release's own pre-release review.
-Only `agentContract` is affected — `validate`/`filter`/`inferSchema` are untouched.
-
-| Case | ≤ 1.9.0 | 1.10.0 |
-| --- | --- | --- |
-| `agentContract({ r: { type:'object', additionalProperties:false, schema:true } })` | constructs; `describe()` → `{"r":true}` — an **accept-all gate** | **throws** at construction (`root.schema` is not an enforced keyword) |
-| root `app.billing`, `check('app["billing"].rate', v)` | `true` — **ungated** | judged, exactly as the dotted spelling is |
-
-- **A stray `schema` key can no longer turn a restrictive schema into an
-  accept-all gate.** The builder unwrap was duck-typed and ran *before* the
-  construction allowlist, so a plain JSON schema carrying a `schema` key was
-  silently replaced by that key's value. Reachable from the marketed path —
-  schemas received over the wire — and `schema` is not a JSON Schema keyword, so
-  nothing else flagged it. Unwrapping now requires an actual builder (one
-  carrying `validate`).
-  - **Migration:** if construction now throws naming `root.schema`, your schema
-    has a stray `schema` key. It was never being enforced; remove it.
-- **No bracket spelling bypasses the gate any more.** `affectedRoots()`/`check()`
-  matched on a raw prefix, so `app["billing"].rate`, `app['billing'].rate`,
-  `app[billing].rate`, `["billing"].rate` and `app.list.0.rate` (vs a root spelled
-  `app.list[0]`) all read as *uncontracted* and passed ungated — while tosijs's own
-  `by-path` writes several of those to the identical location, so gate and applier
-  disagreed. ALL bracket segments — quoted, unquoted, numeric — now canonicalize to
-  dotted form for roots and paths alike, leaving one grammar instead of a growing
-  list of special cases. A path that does NOT canonicalize (unbalanced bracket, or
-  a bracket not followed by a separator) is **refused**, not waved through.
-  - **Migration:** writes on those spellings are now gated. If one was passing
-    only because it was unmatched, it needs a proposal like any other write.
-  - Roots that denote the same path two ways (`{ 'a.b': A, 'a["b"]': B }`), or
-    that nest once normalized, are refused at construction rather than one
-    silently shadowing the other.
+Primarily this delivers [#10](https://github.com/tonioloewald/tosijs-schema/issues/10),
+reported by a consumer building a capability-gated write path: `check()` answered
+a bare `true` both for "this write is valid" and for "this path touches nothing I
+contract", so the natural `if (verdict !== true) refuse()` performed **no
+validation at all** over uncontracted roots.
 
 ### Added
 
-- **`contract.affectedRoots(path): string[]`** ([#10](https://github.com/tonioloewald/tosijs-schema/issues/10))
-  — the contracted roots a write touches (at, under, or ABOVE). The matcher
-  `check()` itself uses, so the two cannot disagree on any path they both judge.
-  It was private, and the obvious hand-rolled version
+- **`contract.affectedRoots(path): string[]`** — the contracted roots a write
+  touches (at, under, or ABOVE it). The matcher `check()` itself uses, so the two
+  cannot disagree. It was private, and the obvious hand-rolled version
   (`path === root || path.startsWith(root + '.')`) is wrong: it misses bracket
-  indexing, and that bug survives any test suite written in dotted form. Throws
-  `TypeError` on a non-string path rather than answering `[]`, which would fail
-  open in the documented `affectedRoots(p).length === 0` posture.
-- **`agentContract(schemas, { unknownPath: 'allow' | 'refuse' })`** (#10) —
-  makes the fail-closed posture expressible. `check()` returns bare `true` both
-  for "valid write" and for "touches nothing I contract", so the natural
-  `if (verdict !== true) refuse()` validated nothing over uncontracted roots.
-  Defaults to `'allow'` (unchanged); `'refuse'` treats such a write as a breach.
-  An unrecognized value — including `null` from a parsed-JSON config — **throws
-  at construction** rather than falling back to the permissive default.
+  indexing (`billing_rules[0].resource`), a bug invisible to any test suite
+  written in dotted form. Throws `TypeError` on a non-string path rather than
+  answering `[]`, which would fail open in the documented
+  `affectedRoots(p).length === 0` posture.
+- **`agentContract(schemas, { unknownPath: 'allow' | 'refuse' })`** — makes the
+  fail-closed posture expressible. Defaults to `'allow'` (existing behavior,
+  correct for a surface that deliberately contracts a subset); `'refuse'` treats
+  a write touching no contracted root as a breach. An unrecognized value —
+  including `null` from a parsed-JSON config — **throws at construction** rather
+  than falling back to the permissive default.
+- **`strict` is validated at construction** (same reason). `?? true` rescued only
+  nullish, so `{ strict: 0 }`, `{ strict: '' }` or `{ strict: NaN }` silently
+  built a *sampling* gate — and `{ strict: process.env.STRICT_GATE }` sampled
+  when the variable was unset. A non-boolean now throws.
 - **`check()` honors its documented `true | Error` seam for a non-string `path`**,
-  where it previously threw a raw `TypeError` from the matcher. Fails closed
+  where it previously threw a raw `TypeError` out of the matcher. Fails closed
   regardless of `unknownPath`.
-- **`strict` is validated at construction.** `?? true` rescued only nullish, so
-  `{ strict: 0 }`, `{ strict: '' }` or `{ strict: NaN }` — every one reachable from
-  a parsed-JSON config — silently built a *sampling* gate. A non-boolean now throws,
-  matching `unknownPath`. (Pre-existing; same fail-open class.)
+
+### Fixed — BREAKING
+
+- **A stray `schema` key can no longer turn a restrictive gate schema into an
+  accept-all gate.** The builder unwrap was duck-typed and ran *before* the
+  construction allowlist, so `{ type:'object', additionalProperties:false, schema:true }`
+  was silently replaced by that key's value — the boolean schema `true`. Reachable
+  from the marketed path (schemas received over the wire), and `schema` is not a
+  JSON Schema keyword, so nothing else flagged it. Unwrapping now requires an
+  actual builder (one carrying `validate`).
+  - **Migration:** if `agentContract` now throws naming `root.schema`, that key
+    was never being enforced — remove it.
+
+### Known limitation (documented, not newly introduced)
+
+`agentContract`'s root matcher is a **prefix test, not a path parser**. It
+recognizes `root`, `root.x` and `root[0].x`. Other spellings of the same
+location — `root["x"]`, `root.0.x`, a JSON Pointer — read as *uncontracted*, so
+under the default `unknownPath: 'allow'` they are not judged. This has been true
+of every released version; `{ unknownPath: 'refuse' }` (new here) closes it
+regardless of spelling, and the boundary is now pinned by tests rather than
+implied.
+
+A canonicalizing matcher was built for this release and **reverted before
+shipping**: four review passes each found a further bypass (quoted → leading →
+unquoted/numeric → dotted-key and element-scoped), string folding merged
+genuinely distinct locations (`a["b.c"]` is ONE key, not two levels), and the
+regex was quadratic on unbalanced brackets — an unbounded-CPU path on the
+least-trusted input in the system. The correct fix is a tokenizer over segment
+arrays plus a written-down grammar, which is its own change rather than a patch
+on this one.
+
+The same duck-type unwrap fixed above for the gate is **still present in
+`validate`/`filter`** (`schema.ts`), where a stray `schema` key likewise
+overrides the schema. That is a tightening of the core validator and ships in
+its own release.
 
 > **Type-level note for implementers.** The `AgentContract` interface gained a
 > **required** member. If you *implement or wrap* it (a test double, a decorator)

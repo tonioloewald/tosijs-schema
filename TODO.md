@@ -224,7 +224,46 @@ unsupported + `agentContract` refuses + `validate` silently ignores." The
 reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
 Schema off the wire") is essentially what #8 turned out to be.
 
-## v1.10.0 review follow-ups (three passes; see `reviews/1.10.0-*.md`)
+## NEXT: the two things 1.10.0 deliberately did NOT ship
+
+Both were decided, not forgotten. Each wants its own release and its own review.
+
+- [ ] **A path TOKENIZER for `agentContract`'s matcher.** 1.10.0 built a
+  regex-canonicalizing matcher and **reverted it before shipping** — four review
+  passes each found a further bypass (quoted → leading → unquoted/numeric →
+  dotted-key and element-scoped), string folding merged genuinely distinct
+  locations (`a["b.c"]` is ONE key, not two levels — and that fold bypassed the
+  new `unknownPath: 'refuse'` by respelling), and the regex was **quadratic** on
+  unbalanced brackets (~977ms at 40k chars, ~24s at 200k) on the agent-supplied
+  `path` field of a capability gate, where the prefix test is O(n).
+  The design, decided:
+  - Parse both roots and paths into **segment arrays**; match by array prefix.
+    No string-prefix pitfalls, quoted keys stay ONE segment (so the dotted-key
+    merge is structurally impossible), linear, no backtracking.
+  - Malformed input is a **parse failure → fail closed**, not a fall-through to
+    "touches no contracted root". That fall-through was the fail-open in every
+    one of the four rounds.
+  - **Write the grammar down first** — you cannot write a parser without it, and
+    not having one written down is why canonicalization never converged (it was
+    being matched against "whatever lodash and tosijs happen to accept").
+  - **Refuse element-scoped roots at construction** (`movieObjs[id=666]`,
+    `app.list[0]`) with "contract the containing array, not an element":
+    `[id=666]` and `[1]` name the same element only at runtime, with data, so no
+    textual matcher can be correct for them. Note this un-endorses a root shape
+    the reverted tests advertised.
+  - Ship with a hostile-input test (200k-char path, must stay cheap) and extend
+    the fail-open corpus.
+- [ ] **The duck-type unwrap in the CORE validator.** 1.10.0 fixed it for the
+  gate (`toPlain` now requires a real builder); it is still live verbatim in
+  `validate`/`filter` (`src/schema.ts`). Verified at HEAD:
+  `validate(42, { type:'object', required:['a'], schema:true })` → **`true`**;
+  `filter({nope:1}, thatSchema)` → unstripped. Same hole, same reachability (the
+  marketed "plain JSON schema off the wire" path), in the core rather than the
+  gate. Fixing it is a **tightening** of `validate`, so it is BREAKING and needs
+  its own release + migration note — which is precisely why it is not bolted
+  onto this one.
+
+## v1.10.0 review follow-ups (four passes; see `reviews/1.10.0-*.md`)
 
 Fixed pre-tag across the passes: the CHANGELOG/version-policy violation (1.9.1 →
 1.10.0, BREAKING framing + migration table); the nested-root guard comparing raw
