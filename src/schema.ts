@@ -236,13 +236,19 @@ export function getPredicateEvaluator(): PredicateEvaluator | null {
 }
 
 // --- Type Helpers for Object Optionality ---
-type OptionalKeys<T> = {
+// These are EXPORTED, and must stay exported, even though consumers rarely
+// name them by hand. A published library that re-exports a schema
+// (`export const S = s.object({...})`) emits a .d.ts referencing the builder's
+// return type; if that type is not publicly nameable, declaration emit fails
+// with TS4023 and the consumer cannot ship at all. `tsc --noEmit` passes, so
+// nothing catches it until someone tries to publish — see issue #11.
+export type OptionalKeys<T> = {
   [K in keyof T]-?: undefined extends T[K] ? K : never
 }[keyof T]
-type RequiredKeys<T> = {
+export type RequiredKeys<T> = {
   [K in keyof T]-?: undefined extends T[K] ? never : K
 }[keyof T]
-type SmartObject<T> = { [K in OptionalKeys<T>]?: T[K] } & {
+export type SmartObject<T> = { [K in OptionalKeys<T>]?: T[K] } & {
   [K in RequiredKeys<T>]: T[K]
 } extends infer O
   ? { [K in keyof O]: O[K] }
@@ -259,7 +265,7 @@ export interface Base<T> {
   meta(m: Record<string, any>): Base<T>
 }
 
-interface Str<T = string> extends Base<T> {
+export interface Str<T = string> extends Base<T> {
   // Metadata Overrides
   title(t: string): Str<T>
   describe(d: string): Str<T>
@@ -279,7 +285,7 @@ interface Str<T = string> extends Base<T> {
   get emoji(): Str<T>
 }
 
-interface Num<T = number> extends Base<T> {
+export interface Num<T = number> extends Base<T> {
   title(t: string): Num<T>
   describe(d: string): Num<T>
   default(v: T): Num<T>
@@ -291,7 +297,7 @@ interface Num<T = number> extends Base<T> {
   get int(): Num<T>
 }
 
-interface Arr<T> extends Base<T> {
+export interface Arr<T> extends Base<T> {
   title(t: string): Arr<T>
   describe(d: string): Arr<T>
   default(v: T): Arr<T>
@@ -301,7 +307,7 @@ interface Arr<T> extends Base<T> {
   max(count: number): Arr<T>
 }
 
-interface Obj<T> extends Base<T> {
+export interface Obj<T> extends Base<T> {
   title(t: string): Obj<T>
   describe(d: string): Obj<T>
   default(v: T): Obj<T>

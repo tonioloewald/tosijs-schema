@@ -88,13 +88,13 @@ export type PredicateEvaluator = (source: string, value: unknown) => boolean;
 export declare function setPredicateEvaluator(fn: PredicateEvaluator | null): PredicateEvaluator | null;
 /** The currently-registered `$predicate` evaluator, if any. */
 export declare function getPredicateEvaluator(): PredicateEvaluator | null;
-type OptionalKeys<T> = {
+export type OptionalKeys<T> = {
     [K in keyof T]-?: undefined extends T[K] ? K : never;
 }[keyof T];
-type RequiredKeys<T> = {
+export type RequiredKeys<T> = {
     [K in keyof T]-?: undefined extends T[K] ? never : K;
 }[keyof T];
-type SmartObject<T> = {
+export type SmartObject<T> = {
     [K in OptionalKeys<T>]?: T[K];
 } & {
     [K in RequiredKeys<T>]: T[K];
@@ -111,7 +111,7 @@ export interface Base<T> {
     default(v: T): Base<T>;
     meta(m: Record<string, any>): Base<T>;
 }
-interface Str<T = string> extends Base<T> {
+export interface Str<T = string> extends Base<T> {
     title(t: string): Str<T>;
     describe(d: string): Str<T>;
     default(v: T): Str<T>;
@@ -127,7 +127,7 @@ interface Str<T = string> extends Base<T> {
     get date(): Str<T>;
     get emoji(): Str<T>;
 }
-interface Num<T = number> extends Base<T> {
+export interface Num<T = number> extends Base<T> {
     title(t: string): Num<T>;
     describe(d: string): Num<T>;
     default(v: T): Num<T>;
@@ -137,7 +137,7 @@ interface Num<T = number> extends Base<T> {
     step(val: number): Num<T>;
     get int(): Num<T>;
 }
-interface Arr<T> extends Base<T> {
+export interface Arr<T> extends Base<T> {
     title(t: string): Arr<T>;
     describe(d: string): Arr<T>;
     default(v: T): Arr<T>;
@@ -145,7 +145,7 @@ interface Arr<T> extends Base<T> {
     min(count: number): Arr<T>;
     max(count: number): Arr<T>;
 }
-interface Obj<T> extends Base<T> {
+export interface Obj<T> extends Base<T> {
     title(t: string): Obj<T>;
     describe(d: string): Obj<T>;
     default(v: T): Obj<T>;

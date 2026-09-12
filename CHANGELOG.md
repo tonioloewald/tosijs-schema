@@ -5,6 +5,33 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.10.1] — 2026-09-12
+
+Additive — nothing that validated, gated or compiled before behaves differently.
+
+### Fixed
+
+- **A library that re-exports a schema can emit declarations again**
+  ([#11](https://github.com/tonioloewald/tosijs-schema/issues/11)). The builder
+  interfaces `s.*` actually return — `Obj`, `Str`, `Num`, `Arr`, plus the
+  `SmartObject`/`OptionalKeys`/`RequiredKeys` helpers that appear inside them —
+  were declared but never exported, so `export const S = s.object({...})` in a
+  published package failed declaration emit with **TS4023** (*"has or is using
+  name 'Obj' … but cannot be named"*). Applications never saw it, because they
+  never run `tsc --declaration`; it made the package unusable as a dependency of
+  any library with schemas in its public API — which for a schema-first library
+  is most of them.
+  - The report named `s.object`; `s.string.min(1)`, `s.number`, `s.array()` and
+    `s.record()` were equally broken, so all of them are fixed, not just the one
+    reported.
+  - **Why nothing caught it:** `tsc --noEmit` passes, bundlers don't read
+    `.d.ts`, and `bun test` doesn't either — declaration emit is the one build an
+    application never runs and a library always does. The prepublish smoke lane
+    now builds a scratch consumer that **re-exports every builder shape and emits
+    its own `.d.ts`**, so this class fails at `bun run pack` instead of at a
+    consumer's release. (Same family as tosijs#38 and the `TS2742` case
+    `tosijs-3d-ensemble` reported in tosijs-coding-practices#10.)
+
 ## [1.10.0] — 2026-09-11
 
 **Contains two BREAKING changes**, both at the `agentContract` construction

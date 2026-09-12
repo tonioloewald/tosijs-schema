@@ -102,7 +102,38 @@ console.log('all ' + checks.length + ' runtime assertions passed')
   if (!tsc.ok) fail('published .d.ts does not typecheck from outside', tsc.out)
   else console.log('  ✓ published .d.ts typechecks from outside (skipLibCheck off)')
 
-  // 5. and it must actually RUN
+  // 5. DECLARATION EMIT from a consumer that RE-EXPORTS our types.
+  //    `--noEmit` above is not this check. A published library must emit its own
+  //    .d.ts, and doing so forces TypeScript to NAME the type of every exported
+  //    value — so a builder return type we declare but never export makes the
+  //    consumer's build fail with TS4023 and they cannot ship at all. Nothing
+  //    local catches it: bundlers don't read .d.ts, `bun test` doesn't, and
+  //    `tsc --noEmit` (ours AND theirs) passes. That is issue #11, found by a
+  //    consumer extracting a library, and it is the same family as tosijs#38.
+  //    Every builder shape is re-exported here, because #11 was reported for
+  //    `s.object` while `s.string`/`s.number`/`s.array` were equally broken.
+  writeFileSync(
+    join(dir, 'reexport.ts'),
+    `import { s } from 'tosijs-schema'
+export const AnObject = s.object({ title: s.string, n: s.number.optional })
+export const AString = s.string.min(1)
+export const ANumber = s.number.min(0)
+export const AnArray = s.array(s.string)
+export const ARecord = s.record(s.number)
+export const ATuple = s.tuple([s.string, s.number])
+export const AUnion = s.union([s.string, s.number])
+`
+  )
+  const dts = run(
+    [join(repo, 'node_modules/.bin/tsc'), '--declaration', '--emitDeclarationOnly',
+     '--outDir', 'dts-out', '--strict', '--target', 'es2020',
+     '--module', 'esnext', '--moduleResolution', 'bundler', 'reexport.ts'],
+    dir
+  )
+  if (!dts.ok) fail('a consumer re-exporting our schemas cannot emit declarations (TS4023 class)', dts.out)
+  else console.log('  ✓ a consumer can re-export schemas and emit its own .d.ts')
+
+  // 6. and it must actually RUN
   const exec = run(['bun', 'use.ts'], dir)
   if (!exec.ok) fail('published package does not run', exec.out)
   else console.log(`  ✓ ${exec.out.trim()}`)
