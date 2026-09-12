@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.10.0] — 2026-09-11
 
-**Contains one BREAKING change** at the `agentContract` construction boundary
-(a fail-open closed). `validate`, `filter` and `inferSchema` are **unchanged in
+**Contains two BREAKING changes**, both at the `agentContract` construction
+boundary and both closing a fail-open: a gate that used to build now throws. `validate`, `filter` and `inferSchema` are **unchanged in
 this release** — but see the note under *Known limitation* below: the same
 duck-type defect fixed here for the gate is still present in `validate`/`filter`
 and is being fixed separately.
@@ -35,15 +35,16 @@ validation at all** over uncontracted roots.
   a write touching no contracted root as a breach. An unrecognized value —
   including `null` from a parsed-JSON config — **throws at construction** rather
   than falling back to the permissive default.
-- **`strict` is validated at construction** (same reason). `?? true` rescued only
-  nullish, so `{ strict: 0 }`, `{ strict: '' }` or `{ strict: NaN }` silently
-  built a *sampling* gate — and `{ strict: process.env.STRICT_GATE }` sampled
-  when the variable was unset. A non-boolean now throws.
 - **`check()` honors its documented `true | Error` seam for a non-string `path`**,
   where it previously threw a raw `TypeError` out of the matcher. Fails closed
   regardless of `unknownPath`.
 
 ### Fixed — BREAKING
+
+| Constructor call | ≤ 1.9.0 | 1.10.0 |
+| --- | --- | --- |
+| schema carrying a stray `schema` key | builds an **accept-all** gate | **throws** |
+| `{ strict: 0 }` / `{ strict: '' }` / any non-boolean | builds a **sampling** gate | **throws** |
 
 - **A stray `schema` key can no longer turn a restrictive gate schema into an
   accept-all gate.** The builder unwrap was duck-typed and ran *before* the
@@ -54,6 +55,13 @@ validation at all** over uncontracted roots.
   actual builder (one carrying `validate`).
   - **Migration:** if `agentContract` now throws naming `root.schema`, that key
     was never being enforced — remove it.
+- **`strict` is validated at construction.** `?? true` rescued only nullish, so
+  `{ strict: 0 }`, `{ strict: '' }` or `{ strict: NaN }` silently built a
+  *sampling* gate — and `{ strict: process.env.STRICT_GATE }` sampled whenever
+  the variable was unset, while going strict for the string `'false'`. A
+  non-boolean now throws.
+  - **Migration:** pass a real boolean. If you were passing a config value, note
+    that the old behavior was sampling — i.e. your gate was not strict.
 
 ### Known limitation (documented, not newly introduced)
 
