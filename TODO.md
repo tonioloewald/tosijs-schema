@@ -253,6 +253,16 @@ Both were decided, not forgotten. Each wants its own release and its own review.
     the reverted tests advertised.
   - Ship with a hostile-input test (200k-char path, must stay cheap) and extend
     the fail-open corpus.
+- [ ] **Unbounded `pattern` ReDoS in `validate`.** *(verified, pass 5 — 6.8s for
+  a 31-byte payload on the shipped Node build.)* A schema's `pattern` is compiled
+  and run against untrusted values with no complexity or length bound, so a
+  catastrophically-backtracking pattern — in a schema received over the wire, the
+  marketed path — hangs the thread. Distinct from the reverted matcher ReDoS:
+  this one is pre-existing and lives in the core validator. Options to weigh:
+  cap input length before `test()`, refuse nested-quantifier patterns at
+  `agentContract` construction (the gate can afford the analysis; `validate`
+  can't), and/or document that `pattern` runs consumer-supplied regex on
+  consumer-supplied data. Needs a design decision, not a quick patch.
 - [ ] **The duck-type unwrap in the CORE validator.** 1.10.0 fixed it for the
   gate (`toPlain` now requires a real builder); it is still live verbatim in
   `validate`/`filter` (`src/schema.ts`). Verified at HEAD:

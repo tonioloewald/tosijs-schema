@@ -494,7 +494,7 @@ gate.check('not.contracted', 1) // Error: … touches no contracted root
 
 Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith(root + '.')`: that misses **bracket indexing**, so `app.order[0].qty` reads as uncontracted and skips the gate — a bug invisible to any test suite written in dotted form. Note `affectedRoots` **throws** `TypeError` on a non-string path (answering "touches no roots" to a question it cannot evaluate would fail open in the `length === 0` posture above); `check()` returns an `Error` for the same input, since never-throwing is its contract, not this helper's.
 
-**Know the grammar it matches.** This is a prefix test, not a path parser: it recognizes `root`, `root.x` and `root[0].x`. Other spellings of the same location — `root["x"]`, `root.0.x`, a JSON Pointer — read as *uncontracted*, so if your applier accepts those, a write can be respelled past a default gate. **`{ unknownPath: 'refuse' }` closes that regardless of spelling**, which is why it is the right choice for a gate meant to cover a whole surface. (A canonicalizing matcher was built for 1.10.0 and reverted — see the CHANGELOG; the real fix is a tokenizer, tracked separately.)
+**Know the grammar it matches.** A path matches a root when it equals the root or continues it with `.` or `[`, so **any spelling of the subtree under a root matches** (`app.x`, `app[0].x`, `app["x"]`, `app.0.x` all match root `app`). The gap is in the **root's own spelling**: a multi-segment root (`app.billing`) is recognized only when the path spells those segments identically, so `app["billing"].rate` reads as *uncontracted*. A leading bracket (`["app"].x`) and a JSON Pointer (`/app/billing/rate`) also read as uncontracted. So if any contracted root has more than one segment, or your applier accepts alternate notations, use **`{ unknownPath: 'refuse' }`** — it closes every spelling regardless. (A canonicalizing matcher was built for 1.10.0 and reverted — see the CHANGELOG; the real fix is a tokenizer, tracked separately.)
 
 **The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Construction validates every schema key against an **allowlist** — the `ENFORCED_KEYWORDS` set `validate` actually implements, plus annotations (`title`, `description`, `default`, `examples`, `$counterexamples`, …) and `x-*` extensions. Anything else — `allOf`/`not`/`$ref`, unimplemented spec keywords, even typos like `minumum` — is refused with an `Error`: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Value-level holes are refused too: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, tuple `items` without an exact `maxItems` cap, non-primitive `const`/`enum` members, and multi-type arrays. Boolean schemas are legal and enforced (`properties: { key: false }` forbids the key). Protocol breaches fail closed as well: any write touching a contracted root — at it, under it, or above it — without a proposal for that exact root, a mismatched `proposal.root`, and ancestor writes spanning several contracted roots are all refused with an `Error` naming the breach.
 
@@ -588,14 +588,14 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
 All files        |   98.95 |   98.65 |
- src/contract.ts |   97.78 |   97.66 | 136,617,619,622,631-633,664-665
+ src/contract.ts |   97.78 |   97.66 | 143,625,627,630,639-641,672-673
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
  src/schema.ts   |   96.97 |   95.60 | 122-126,336-342,477,1058-1059,1073,1093-1094,1117-1126,1129-1130
 ```
 
-292 tests, 981 assertions.
+292 tests, 993 assertions.
 <!-- /coverage:readme -->
 
 ## License

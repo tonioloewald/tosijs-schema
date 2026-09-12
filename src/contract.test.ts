@@ -947,30 +947,46 @@ describe('agentContract — 1.9.1 review remediation', () => {
     expect(g.check('a.nums', big, { root: 'a.nums', proposed: big })).toBeInstanceOf(Error)
   })
 
-  test('the matcher grammar is a PREFIX test — and its limits are pinned, not implied', () => {
-    // Honest boundary. v1.10.0 tried to canonicalize every spelling with a
-    // regex and it was reverted (four passes, four more bypasses, plus a
-    // quadratic blowup on unbalanced brackets). So the recognized grammar is
-    // exactly this, and the gap below is documented rather than papered over.
-    const gate = agentContract({ 'app.billing': S })
-    // recognized
-    for (const path of ['app.billing', 'app.billing.rate', 'app.billing[0].rate']) {
-      expect(gate.affectedRoots(path)).toEqual(['app.billing'])
+  test('the matcher grammar is a PREFIX test — both directions pinned', () => {
+    // Honest boundary. The prose used to say `root["x"]`/`root.0.x` read as
+    // uncontracted — FALSE, and it survived because the only test used a
+    // MULTI-segment root, where the claim happens to hold. Both directions are
+    // pinned now, so prose and behavior cannot diverge that way again.
+    //
+    // Rule: a path matches when it EQUALS the root or continues it with `.`/`[`.
+
+    // (a) SINGLE-segment root — every subtree spelling keeps the `r.`/`r[`
+    //     prefix, so all of these DO match. Child spelling is not the gap.
+    const single = agentContract({ r: S })
+    for (const path of ['r.x', 'r[0].x', 'r["x"]', "r['x']", 'r.0.x']) {
+      expect(single.affectedRoots(path)).toEqual(['r'])
     }
-    // NOT recognized — other spellings of the same location read as uncontracted
-    // under the default posture. If a future tokenizer closes this, these
-    // assertions flip and that is the signal to update the docs with it.
+    // …but a leading bracket or a foreign notation does NOT match
+    for (const path of ['["r"].x', '/r/x']) {
+      expect(single.affectedRoots(path)).toEqual([])
+      expect(single.check(path, 1)).toBe(true)
+    }
+
+    // (b) MULTI-segment root — the ROOT's own spelling must match literally.
+    //     This is the real gap: respelling a root segment escapes the gate.
+    const multi = agentContract({ 'app.billing': S })
+    for (const path of ['app.billing', 'app.billing.rate', 'app.billing["rate"]', 'app.billing[0].rate']) {
+      expect(multi.affectedRoots(path)).toEqual(['app.billing'])
+    }
     for (const path of ['app["billing"].rate', "app['billing'].rate", '/app/billing/rate']) {
-      expect(gate.affectedRoots(path)).toEqual([])
-      expect(gate.check(path, 1)).toBe(true)
+      expect(multi.affectedRoots(path)).toEqual([])
+      expect(multi.check(path, 1)).toBe(true)
     }
-    // …and the shipped remedy closes every one of them regardless of spelling
+
+    // (c) the shipped remedy closes every escaping spelling, regardless of shape
     const closed = agentContract({ 'app.billing': S }, { unknownPath: 'refuse' })
-    for (const path of ['app["billing"].rate', "app['billing'].rate", '/app/billing/rate']) {
+    for (const path of ['app["billing"].rate', "app['billing'].rate", '/app/billing/rate', '["app"].billing.rate']) {
       expect(closed.check(path, 1)).toBeInstanceOf(Error)
     }
+
     // a non-root prefix is still correctly NOT a match
-    expect(gate.affectedRoots('app.billingX')).toEqual([])
+    expect(multi.affectedRoots('app.billingX')).toEqual([])
+    expect(single.affectedRoots('rX')).toEqual([])
   })
 
   test('path matching is linear — no quadratic blowup on a hostile path', () => {

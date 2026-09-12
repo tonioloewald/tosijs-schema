@@ -4,7 +4,7 @@
 > **Measured at:** v1.10.0
 > **Test Framework:** Bun Test
 > **Total Tests:** 292
-> **Total Assertions:** 981
+> **Total Assertions:** 993
 > **Pass Rate:** 100%
 <!-- /coverage:stats -->
 
@@ -17,7 +17,7 @@
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
 All files        |   98.95 |   98.65 |
- src/contract.ts |   97.78 |   97.66 | 136,617,619,622,631-633,664-665
+ src/contract.ts |   97.78 |   97.66 | 143,625,627,630,639-641,672-673
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |

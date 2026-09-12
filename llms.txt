@@ -32,7 +32,12 @@ source of truth; types are inferred from it, not the other way around. ~8kB gzip
 - `agentContract(schemas, options?)`: contract gate for agent write surfaces
   (tosijs). Fail-closed over CONTRACTED roots; a path touching none passes
   unless constructed with `{ unknownPath: 'refuse' }`. `affectedRoots(path)`
-  reports which roots a write touches (handles `r.x`, `r[0].x`, `r["x"]`).
+  reports which roots a write touches. Its matcher is a PREFIX test: every
+  spelling of the subtree under a root matches (`r.x`, `r[0].x`, `r["x"]`,
+  `r.0.x` all match root `r`), but the ROOT's own spelling must match
+  literally — so `app["billing"].rate` MISSES root `app.billing`, as do a
+  leading bracket (`["r"].x`) and a JSON Pointer. Use
+  `{ unknownPath: 'refuse' }` when roots are multi-segment.
   `checkExamples(schema)`: lints `examples` (must pass) and
   `$counterexamples` (must fail).
 - `inferSchema(sample, opts?)`: derive a JSON Schema from example data

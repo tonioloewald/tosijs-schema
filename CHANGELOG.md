@@ -57,13 +57,7 @@ validation at all** over uncontracted roots.
 
 ### Known limitation (documented, not newly introduced)
 
-`agentContract`'s root matcher is a **prefix test, not a path parser**. It
-recognizes `root`, `root.x` and `root[0].x`. Other spellings of the same
-location — `root["x"]`, `root.0.x`, a JSON Pointer — read as *uncontracted*, so
-under the default `unknownPath: 'allow'` they are not judged. This has been true
-of every released version; `{ unknownPath: 'refuse' }` (new here) closes it
-regardless of spelling, and the boundary is now pinned by tests rather than
-implied.
+`agentContract`'s root matcher is a **prefix test, not a path parser**. A path matches a root when it equals the root or continues it with `.` or `[`, so **any spelling of the subtree under a root matches** (`app.x`, `app[0].x`, `app["x"]`, `app.0.x` all match root `app`). The gap is in the **root's own spelling**: a multi-segment root (`app.billing`) is recognized only when the path spells those segments identically, so `app["billing"].rate` reads as *uncontracted*. A leading bracket (`["app"].x`) and a JSON Pointer (`/app/billing/rate`) also read as uncontracted. This has been true of every released version; `{ unknownPath: 'refuse' }` (new here) closes it regardless of spelling, and the boundary is now pinned by tests rather than implied.
 
 A canonicalizing matcher was built for this release and **reverted before
 shipping**: four review passes each found a further bypass (quoted → leading →

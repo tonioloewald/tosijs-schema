@@ -39,14 +39,21 @@ export interface AgentContract {
      * written in dotted form. This is the matcher `check()` itself uses, so the
      * two cannot disagree. — asked for in #10
      *
-     * **Grammar, stated honestly.** This is a prefix test, not a path parser. It
-     * recognizes `root`, `root.x` and `root[0].x`. It does NOT recognize other
-     * spellings of the same location — `root["x"]`, `root.0.x`, `/root/x` — so if
-     * your applier accepts those, a write can be respelled past a default
-     * (`unknownPath: 'allow'`) gate. Construct with `{ unknownPath: 'refuse' }`
-     * when the gate is meant to cover a whole surface; that closes the gap
-     * regardless of spelling. Making the matcher grammar-complete needs a
-     * tokenizer, not more string rewriting — see TODO.md.
+     * **Grammar, stated honestly.** This is a prefix test, not a path parser: a
+     * path matches when it EQUALS the root or continues it with `.` or `[`.
+     * Consequences, both directions:
+     * - every spelling of the SUBTREE under a root matches — `r.x`, `r[0].x`,
+     *   `r["x"]`, `r.0.x` all match root `r`, because each keeps the `r.`/`r[`
+     *   prefix. Child-segment spelling is not the gap.
+     * - the ROOT's own spelling must match literally. A multi-segment root
+     *   (`app.billing`) is recognized only when the path spells those segments
+     *   the same way, so `app["billing"].rate` reads as UNCONTRACTED. A leading
+     *   bracket (`["app"].x`) and a JSON Pointer (`/app/billing/rate`) likewise.
+     *
+     * So the exposure is: a multi-segment root, plus an applier that accepts a
+     * respelling of it. `{ unknownPath: 'refuse' }` closes that regardless of
+     * spelling. Making the matcher grammar-complete needs a tokenizer, not more
+     * string rewriting — see TODO.md.
      *
      * Throws `TypeError` on a non-string `path`: the never-throw guarantee is
      * `check()`'s (it refuses such a write with an `Error` before reaching here),
