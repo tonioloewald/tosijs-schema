@@ -15,7 +15,7 @@
 // Adapted from tosijs-3d-ensemble's proposal in tosijs-ui#61. Deliberately
 // dependency-free and ~1 minute; if it grows teeth it should still stay cheap
 // enough that nobody is tempted to skip it.
-import { mkdtempSync, rmSync, writeFileSync, renameSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,6 +24,7 @@ const run = (cmd: string[], cwd: string) => {
   return {
     ok: p.exitCode === 0,
     out: p.stdout.toString() + p.stderr.toString(),
+    stdout: p.stdout.toString(),
   }
 }
 
@@ -36,11 +37,25 @@ const fail = (what: string, detail: string) => {
 }
 
 try {
-  // 1. pack the real tarball
-  const packed = run(['npm', 'pack', '--silent'], repo)
+  // 1. pack the real tarball, STRAIGHT INTO the scratch dir.
+  //    Two things here are deliberate:
+  //    - parse STDOUT only. This used to read stdout+stderr concatenated and
+  //      take the last line, so any npm notice (deprecation, EBADENGINE, a proxy
+  //      warning) would become the "filename" and the gate would die with an
+  //      opaque renameSync ENOENT — a release blocked for a reason that isn't
+  //      real, which is how gates get muted.
+  //    - --pack-destination, so no .tgz is ever written into the repo (it would
+  //      dirty the drift gate) and nothing is renamed across filesystems.
+  const packed = run(['npm', 'pack', '--silent', '--pack-destination', dir], repo)
   if (!packed.ok) throw new Error(`npm pack failed:\n${packed.out}`)
-  const tarball = packed.out.trim().split('\n').pop()!.trim()
-  renameSync(join(repo, tarball), join(dir, tarball))
+  const tarball = packed.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.endsWith('.tgz'))
+    .pop()
+  if (!tarball) {
+    throw new Error(`npm pack printed no .tgz filename on stdout:\n${packed.out}`)
+  }
 
   // 2. install it as a consumer would
   writeFileSync(

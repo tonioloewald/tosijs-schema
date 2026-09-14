@@ -34,6 +34,21 @@ export interface ContractProposal {
  */
 export interface AgentContract {
   check(path: string, value: any, proposal?: ContractProposal): true | Error
+  /**
+   * The serializable per-root contract. Its keys are exactly the contracted
+   * roots, which is what tells a surface (or a remote peer) what is gated.
+   *
+   * It deliberately does NOT carry the gate's `unknownPath` posture, so two
+   * gates built `'allow'` and `'refuse'` serialize identically — a known gap: a
+   * remote reader cannot tell which kind of `true` an uncontracted path will
+   * get. Folding it in here was considered and rejected, because this map is
+   * keyed by caller-supplied root names and any posture key could COLLIDE with
+   * a real root (a root literally named `unknownPath` is legal). Exposing it as
+   * a sibling member is the right shape, but adding a required member to this
+   * interface breaks anyone who implements or wraps it (see #10's note), so it
+   * waits for a minor rather than riding a patch. Until then a surface that
+   * needs to advertise its posture knows it — it constructed the gate.
+   */
   describe(): Record<string, JSONSchema | boolean>
   /**
    * Every contracted root this write would touch — at it, under it, or ABOVE
@@ -64,6 +79,12 @@ export interface AgentContract {
    * respelling of it. `{ unknownPath: 'refuse' }` closes that regardless of
    * spelling. Making the matcher grammar-complete needs a tokenizer, not more
    * string rewriting — see TODO.md.
+   *
+   * Returns a FRESH array each call, safe for the caller to mutate or sort —
+   * it is a copy of internal root names, never the gate's own state, so nothing
+   * a caller does to it can affect what `check()` enforces. (Decided rather
+   * than left implicit: the rest of this module deep-copies obsessively, so the
+   * one place handing out an array needed an explicit answer.)
    *
    * Throws `TypeError` on a non-string `path`: the never-throw guarantee is
    * `check()`'s (it refuses such a write with an `Error` before reaching here),

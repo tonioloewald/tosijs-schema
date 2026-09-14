@@ -5,6 +5,42 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.10.2] — 2026-09-14
+
+Housekeeping patch — no runtime behavior changes. Everything here is docs,
+build tooling, or type-level tests; `validate`, `filter`, `agentContract` and
+`inferSchema` behave exactly as in 1.10.1.
+
+### Fixed
+
+- **The per-import size table in the README was wrong on every row**, understating
+  by 15–20% (`validate` ~2.7 → **3.5 kB**, `s` ~2.7 → **3.5**, `filter` ~3.1 →
+  **4.0**, `agentContract` ~4.6 → **5.5**). Tree-shakeability is a headline
+  feature, so these are now **measured at build time** by `make-coverage.ts` —
+  each entry point is bundled from `dist/index.js` through a one-line re-export
+  shim and gzipped — and therefore covered by the existing drift gate. They had
+  been hand-maintained and stale across five releases, while the one *generated*
+  row ("everything") stayed correct, which made the stale rows look freshly
+  verified.
+
+### Changed (internal)
+
+- The prepublish smoke lane parses `npm pack`'s **stdout only** and packs
+  straight into its scratch directory (`--pack-destination`). It previously read
+  stdout+stderr concatenated and took the last line, so any npm notice
+  (deprecation, `EBADENGINE`, a proxy warning) would have become the "filename"
+  and failed the release gate with an opaque `ENOENT` — a gate crying wolf is a
+  gate that gets muted.
+- `affectedRoots()` is documented as returning a fresh, caller-mutable array
+  (verified: tampering with it cannot affect the gate), and `describe()` now
+  documents *why* it does not carry the gate's `unknownPath` posture — it is
+  keyed by caller-supplied root names, so a posture key could collide with a
+  real root. Both were open "decide this" items; they are decided and recorded
+  rather than left to resurface.
+- Type-level tests now pin the `JSONSchema` extension-key index signatures:
+  `$`-prefixed and `x-*` keys are assignable, and a typo'd `minumum` is pinned
+  with `@ts-expect-error` so the allowlist holds at the type level too.
+
 ## [1.10.1] — 2026-09-12
 
 Additive — nothing that validated, gated or compiled before behaves differently.

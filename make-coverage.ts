@@ -8,6 +8,11 @@
 // (non-zero exit) if a test fails or a target region can't be found, so a
 // silent no-op can't let the docs drift again.
 import { gzipSync } from 'bun'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const repoDir = import.meta.dir
 
 const run = (cmd: string[]): string => {
   const p = Bun.spawnSync(cmd, { stderr: 'pipe', stdout: 'pipe' })
@@ -56,6 +61,41 @@ if (!overall) throw new Error('make-coverage: could not read All-files line cove
 const idxBytes = await Bun.file('dist/index.js').bytes()
 const gzKb = (gzipSync(idxBytes, { level: 9 }).length / 1024).toFixed(1)
 
+// --- PER-IMPORT sizes, measured the way a consumer's bundler would see them.
+// Tree-shakeability is a marketed feature, and these four rows were
+// hand-maintained: every one drifted 15-20% low and shipped wrong through five
+// releases, while the ONE generated row ("everything") stayed correct — which
+// made the stale rows look freshly verified. Reviews flagged it twice. Measuring
+// them here puts them under the existing drift gate (regenerate, then
+// `git status --porcelain` must be empty), so they cannot silently rot again.
+const ENTRY_POINTS = ['validate', 's', 'filter', 'agentContract'] as const
+const perImport: Record<string, string> = {}
+{
+  const shimDir = mkdtempSync(join(tmpdir(), 'tosijs-schema-size-'))
+  try {
+    for (const name of ENTRY_POINTS) {
+      const shim = join(shimDir, `${name}.ts`)
+      // re-export exactly one name from the BUILT bundle: what a bundler shakes
+      writeFileSync(shim, `export { ${name} } from ${JSON.stringify(join(repoDir, 'dist/index.js'))}\n`)
+      const outFile = join(shimDir, `${name}.js`)
+      const built = Bun.spawnSync(
+        ['bun', 'build', shim, '--minify', '--target=node', '--outfile', outFile],
+        { stdout: 'pipe', stderr: 'pipe' }
+      )
+      if (built.exitCode !== 0) {
+        throw new Error(
+          `make-coverage: could not bundle the '${name}' entry point for sizing:\n` +
+            built.stderr.toString()
+        )
+      }
+      const bytes = gzipSync(await Bun.file(outFile).bytes(), { level: 9 }).length
+      perImport[name] = (bytes / 1024).toFixed(1)
+    }
+  } finally {
+    rmSync(shimDir, { recursive: true, force: true })
+  }
+}
+
 // Stamp the package VERSION, not a wall-clock date — a date would make the
 // drift gate (regenerate + `git diff` clean) go dirty the day after release
 // with no code change. Version only moves on a bump, exactly like llms.txt.
@@ -95,6 +135,16 @@ await Bun.write('COVERAGE.md', cov)
 
 let readme = await Bun.file('README.md').text()
 readme = replaceBlock(readme, 'coverage:readme', `${fenced}\n\n${pass} tests, ${expects} assertions.`, 'README.md')
+for (const name of ENTRY_POINTS) {
+  const label = name === 's' ? '`s` \\(builder\\)' : `\`${name}\``
+  readme = replaceLine(
+    readme,
+    new RegExp(`(\\| ${label} \\| [^|]+\\| ~)[\\d.]+( kB \\|)`),
+    `$1${perImport[name]}$2`,
+    'README.md',
+    `per-import size row for ${name}`,
+  )
+}
 readme = replaceLine(
   readme,
   /(\| everything \| the whole library \| ~)[\d.]+( kB \|)/,

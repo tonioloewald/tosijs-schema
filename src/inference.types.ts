@@ -4,7 +4,7 @@ This file checks TypeScript compilation behavior.
 It uses @ts-expect-error to assert that invalid types cause compile errors.
 */
 
-import { s, type Infer } from './schema'
+import { s, type Infer, type JSONSchema } from './schema'
 import { M, createM } from './monad'
 
 function assertType<Expected>(value: Expected) {
@@ -248,4 +248,37 @@ function assertType<Expected>(value: Expected) {
   const val: AnyType = { a: 1 }
   // Verify it behaves like TS 'any'
   val.nonExistentProp = 2 // Should compile
+}
+
+// =============================================================================
+// JSONSchema extension-key index signatures ($-prefixed and x-*)
+// -----------------------------------------------------------------------------
+// `validate` guarantees unknown `$`-prefixed and `x-*` keys pass through
+// untouched — that is documented and test-pinned at runtime. This pins the
+// TYPE side: a schema literal carrying such keys must still be assignable to
+// JSONSchema, or the runtime guarantee is unusable from TypeScript.
+// =============================================================================
+{
+  const withDollar: JSONSchema = {
+    type: 'object',
+    $exercise: [{ write: 'whatever' }],
+    $totallyMadeUp: { nested: true },
+    $counterexamples: [1, 2],
+    $inferred: true,
+  }
+  const withX: JSONSchema = {
+    type: 'string',
+    'x-openapi-thing': { any: 'shape' },
+    'x-tjs-undefined': true,
+  }
+  // both index signatures on one schema
+  const both: JSONSchema = { type: 'number', $custom: 1, 'x-custom': 2 }
+
+  // a plain unknown key is NOT covered by either signature — this is the
+  // allowlist working as designed (a typo'd `minumum` must not typecheck as
+  // though it were meaningful)
+  // @ts-expect-error — 'minumum' matches neither `$${string}` nor `x-${string}`
+  const typo: JSONSchema = { type: 'number', minumum: 3 }
+
+  void withDollar, withX, both, typo
 }
