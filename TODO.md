@@ -224,6 +224,73 @@ unsupported + `agentContract` refuses + `validate` silently ignores." The
 reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
 Schema off the wire") is essentially what #8 turned out to be.
 
+## NEXT RELEASE (scoped 2026-09-14): close the remaining FAIL-OPEN class in one pass
+
+Four releases (#8, #9, #10, and 1.10.0's construction fixes) each closed ONE
+fail-open, reactively, when a consumer or a review surfaced it. The class is
+still open. This is the sweep instead — enumerate first, fix together, one
+migration note. All are TIGHTENINGS, so this is a **minor**, not a patch.
+
+**Enumerated and reproduced at v1.10.2** (`validate`/`filter`/`agentContract`):
+
+| # | Fail-open | Reproduced | Surface |
+| --- | --- | --- | --- |
+| A | a **non-enumerable own property** escapes `additionalProperties: false` | `validate({a:1,+hidden}, closed)` → `true` | `validate` |
+| B | same, **at the gate** — `proposal.proposed` is a live object, not JSON | `check()` → `true` | `agentContract` |
+| C | a stray **`schema` key** overrides the whole schema (duck-typed unwrap) | `validate(42, {type:'object',required:['a'],schema:true})` → `true` | `validate` + `filter` |
+
+Root causes, and why they belong together: A/B are one bug on two surfaces —
+enumeration goes through `for..in` + `hasOwn`, which sees only *enumerable* own
+properties. C is the duck-type unwrap already fixed in `contract.ts` (1.10.0) and
+still live in `schema.ts`. Both are "the check reads the object through a lens
+that misses part of it", which is the whole class.
+
+**The A/B fix is cheaper than the status quo — measured, not assumed.**
+`Object.getOwnPropertyNames(o)` + an indexed loop beat `for..in` + `hasOwn` at
+every size tested (0.59x at 10 keys, 0.52x at 100, 0.81x at 1000), because the
+per-key `hasOwnProperty` *call* dominates. So there is no hot-path objection;
+if anything the sweep gets faster. Re-measure before landing.
+
+**Reachability, honestly:** `JSON.parse` never produces non-enumerable
+properties, so A/B need a live JS object. That is exactly what the gate receives
+(`proposal.proposed`), which is why B is the one that matters.
+
+Deliberately NOT in this sweep (scoped, not forgotten):
+- `filter`'s `anyOf` fallback returns the ORIGINAL unstripped data when every
+  branch fails. Only observable under `{ skipValidation: true }` — otherwise the
+  outer validate catches it — so it is a weaker member; decide separately.
+- `pattern` ReDoS (below) — a different class: not a check that fails to check,
+  but a check that costs unboundedly. Needs its own design decision.
+
+## The `pattern` ReDoS decision (scoped 2026-09-14, NOT yet implemented)
+
+Verified exponential at v1.10.2: `^(a+)+$` against a **32-byte** payload takes
+389ms (4ms at 21 bytes, 63ms at 25, 389ms at 29 — doubling every ~4 bytes).
+
+Three facts decide the shape:
+1. **A length cap does not work.** Blowup at 32 bytes; any cap loose enough for
+   emails/URLs/names is loose enough to hang.
+2. **A JS regex cannot be interrupted.** A timeout needs a worker or another
+   engine — both cost the zero-dependency promise and the size budget.
+3. **Static ReDoS detection is undecidable in general**, so any screen we ship
+   has false negatives and must be documented as a MITIGATION. Calling it a fix
+   would be a gate reporting a pass it did not earn (`dependencies.md`).
+
+So it is a scoping decision, shaped like the allowlist -> refuse -> enumerate
+pattern already in the codebase:
+- **`validate`: no change.** We cannot fix it correctly and any change is
+  breaking. Document that `pattern` runs a consumer-supplied regex against
+  consumer-supplied data, neither sandboxed.
+- **`agentContract`: refuse** patterns failing a cheap static screen at
+  construction — the gate already refuses unenforced keywords, unenforced
+  formats, invalid regexes and uncapped tuple `items`; it can afford strictness,
+  and it is where untrusted schemas actually arrive.
+- **Export the screen** so consumers can lint their own schemas (the enumerate
+  tier, same shape as `unenforcedKeywords`).
+- **Document the false negatives.**
+
+Gate tightening + additive export = a minor. Could ride the fail-open sweep above.
+
 ## NEXT: the two things 1.10.0 deliberately did NOT ship
 
 Both were decided, not forgotten. Each wants its own release and its own review.
