@@ -68,7 +68,7 @@ const gzKb = (gzipSync(idxBytes, { level: 9 }).length / 1024).toFixed(1)
 // made the stale rows look freshly verified. Reviews flagged it twice. Measuring
 // them here puts them under the existing drift gate (regenerate, then
 // `git status --porcelain` must be empty), so they cannot silently rot again.
-const ENTRY_POINTS = ['validate', 's', 'filter', 'agentContract'] as const
+const ENTRY_POINTS = ['validate', 's', 'filter', 'diff', 'agentContract'] as const
 const perImport: Record<string, string> = {}
 {
   const shimDir = mkdtempSync(join(tmpdir(), 'tosijs-schema-size-'))
@@ -95,6 +95,12 @@ const perImport: Record<string, string> = {}
     rmSync(shimDir, { recursive: true, force: true })
   }
 }
+
+// the /infer subpath is its own bundle with its own budget — measure the
+// artifact we actually publish, not a shim through the main entry
+const inferKb = (
+  gzipSync(await Bun.file('dist/infer.js').bytes(), { level: 9 }).length / 1024
+).toFixed(1)
 
 // Stamp the package VERSION, not a wall-clock date — a date would make the
 // drift gate (regenerate + `git diff` clean) go dirty the day after release
@@ -147,11 +153,49 @@ for (const name of ENTRY_POINTS) {
 }
 readme = replaceLine(
   readme,
+  /(\| `inferSchema` \(from `tosijs-schema\/infer`\) \| just inference \| \*\*~)[\d.]+( kB\*\* \|)/,
+  `$1${inferKb}$2`,
+  'README.md',
+  'inferSchema subpath size row',
+)
+// the prose range + the llms.txt ceiling are derived from the SAME measurements,
+// so a doc cannot claim a budget the build does not produce. llms.txt ships in
+// the tarball and is NOT otherwise under the drift gate, which is exactly how a
+// stale `~1-4.6kB` survived eight releases and two reviews that named the file.
+const namedImportKbs = ENTRY_POINTS.map((n) => Number(perImport[n]))
+const loKb = Math.min(...namedImportKbs).toFixed(1)
+const hiKb = Math.max(...namedImportKbs).toFixed(1)
+readme = replaceLine(
+  readme,
+  /(so it stays ~)[\d.]+( kB even where a bundler)/,
+  `$1${inferKb}$2`,
+  'README.md',
+  'inferSchema subpath size in prose',
+)
+readme = replaceLine(
+  readme,
+  /(importing `validate`, `s`, `filter`, or `diff` all land in the same )[\d.]+–[\d.]+( kB range)/,
+  `$1${loKb}–${hiKb}$2`,
+  'README.md',
+  'per-import prose range',
+)
+readme = replaceLine(
+  readme,
   /(\| everything \| the whole library \| ~)[\d.]+( kB \|)/,
   `$1${gzKb}$2`,
   'README.md',
   'tree-shaking "everything" size row',
 )
 await Bun.write('README.md', readme)
+
+let llms = await Bun.file('llms.txt').text()
+llms = replaceLine(
+  llms,
+  /(shake to ~)[\d.]+–[\d.]+(kB; `tosijs-schema\/infer` is a self-contained ~)[\d.]+(kB subpath)/,
+  `$1${loKb}–${hiKb}$2${inferKb}$3`,
+  'llms.txt',
+  'tree-shaking size sentence',
+)
+await Bun.write('llms.txt', llms)
 
 console.log(`make-coverage: ${pass} tests, ${expects} assertions, ${overall}% lines, index.js ${gzKb} kB gzipped (v${version})`)

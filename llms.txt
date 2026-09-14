@@ -47,7 +47,7 @@ source of truth; types are inferred from it, not the other way around. ~8kB gzip
 - `M` / `M.func`: railway-oriented pipelines with schema-validated I/O and
   timeouts.
 - Tree-shakeable: `sideEffects: false`, per-concern modules. Named imports
-  shake to ~1–4.6kB; `tosijs-schema/infer` is a self-contained ~1.5kB subpath.
+  shake to ~3.5–5.5kB; `tosijs-schema/infer` is a self-contained ~1.5kB subpath.
 
 ## Files
 
