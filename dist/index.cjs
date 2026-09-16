@@ -57,6 +57,7 @@ __export(exports_tosijs_schema, {
   setPredicateEvaluator: () => setPredicateEvaluator,
   setWarnings: () => setWarnings,
   unenforcedKeywords: () => unenforcedKeywords,
+  unwrap: () => unwrap,
   validate: () => validate
 });
 module.exports = __toCommonJS(exports_tosijs_schema);
@@ -312,14 +313,35 @@ var s = new Proxy(methods, {
   }
 });
 var ownKeys = (o) => Object.getOwnPropertyNames(o);
-var unwrap = (x) => x != null && typeof x === "object" && ("schema" in x) && typeof x.validate === "function" ? x.schema : x;
+var UNREADABLE = Symbol("unreadable");
+var readProp = (o, k) => {
+  try {
+    return o[k];
+  } catch {
+    return UNREADABLE;
+  }
+};
+var warnedSchemaKey = false;
+var unwrap = (x) => {
+  if (x == null || typeof x !== "object" || !("schema" in x))
+    return x;
+  if (typeof x.validate === "function")
+    return x.schema;
+  if (warningsEnabled && !warnedSchemaKey) {
+    warnedSchemaKey = true;
+    console.warn("[tosijs-schema] a non-builder object with a `schema` key was passed as a schema. " + "Treating the object itself as the schema and IGNORING that key. If `schema` holds " + "your real schema, pass it directly — otherwise nothing is enforced. " + "Silence with setWarnings(false). Warns once per process.");
+  }
+  return x;
+};
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 var warningsEnabled = true;
 var warnedOneOfCost = false;
 function setWarnings(on) {
   warningsEnabled = on;
-  if (on)
+  if (on) {
     warnedOneOfCost = false;
+    warnedSchemaKey = false;
+  }
 }
 var warnExpensive = () => {
   if (!warningsEnabled || warnedOneOfCost)
@@ -491,14 +513,9 @@ function validate(val, builderOrSchema, opts) {
       const min = s2.minProperties;
       const max = s2.maxProperties;
       if (min !== undefined || max !== undefined) {
-        let c = 0;
-        for (const k of ownKeys(v)) {
-          c++;
-          if (max !== undefined && c > max)
-            return err("Too many props");
-          if (max === undefined && min !== undefined && c >= min)
-            break;
-        }
+        const c = ownKeys(v).length;
+        if (max !== undefined && c > max)
+          return err("Too many props");
         if (min !== undefined && c < min)
           return err("Too few props");
       }
@@ -518,7 +535,10 @@ function validate(val, builderOrSchema, opts) {
         for (const k in s2.properties) {
           if (hasOwn(v, k)) {
             path.push(k);
-            const ok = walk(v[k], s2.properties[k]);
+            const val2 = readProp(v, k);
+            if (val2 === UNREADABLE)
+              return err(`Unreadable ${k}`);
+            const ok = walk(val2, s2.properties[k]);
             path.pop();
             if (!ok)
               return false;
@@ -538,7 +558,10 @@ function validate(val, builderOrSchema, opts) {
           const idx = step > 1 && i > len - 1 - step ? len - 1 : i;
           const k = keys[idx];
           path.push(k);
-          const ok = walk(v[k], s2.additionalProperties);
+          const val2 = readProp(v, k);
+          if (val2 === UNREADABLE)
+            return err(`Unreadable ${k}`);
+          const ok = walk(val2, s2.additionalProperties);
           path.pop();
           if (!ok)
             return false;
@@ -832,7 +855,7 @@ class M {
   }
   static func(inputSchema, outputSchema, impl, timeoutMs = 5000) {
     const wrapper = async (data) => {
-      const validIn = validate(data, inputSchema.schema, { fullScan: true });
+      const validIn = validate(data, unwrap(inputSchema), { fullScan: true });
       if (!validIn) {
         throw new SchemaError("Input", "Anonymous", ["Input schema mismatch"]);
       }
@@ -851,7 +874,7 @@ class M {
       } finally {
         clearTimeout(timer);
       }
-      const validOut = validate(result, outputSchema.schema, { fullScan: true });
+      const validOut = validate(result, unwrap(outputSchema), { fullScan: true });
       if (!validOut) {
         throw new SchemaError("Output", "Anonymous", ["Output schema mismatch"]);
       }

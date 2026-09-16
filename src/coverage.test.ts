@@ -1,6 +1,7 @@
 import { describe, test, expect, afterAll } from 'bun:test'
 import { s, validate, diff, filter, setWarnings } from './schema'
 import { agentContract } from './contract'
+import { M } from './monad'
 
 // oneOf validation emits a once-per-process cost warning; silence it so the
 // suite's output stays clean (restored after the file runs).
@@ -851,5 +852,74 @@ describe('fail-open sweep (v1.11.0)', () => {
     const closed = { type: 'object', properties: { a: { type: 'number' } }, additionalProperties: false }
     const inherited = Object.assign(Object.create({ ghost: 'not mine' }), { a: 1 })
     expect(validate(inherited, closed)).toBeTrue()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v1.11.0 review remediation. Three of these are defects the SWEEP itself
+// introduced or missed — the sweep is only honest if its own edges are pinned.
+// ---------------------------------------------------------------------------
+describe('fail-open sweep — remediation (v1.11.0)', () => {
+  test('M.func unwraps builders through the SAME policy as validate', async () => {
+    // the third spelling of the unwrap (a bare `.schema` read) — missed by an
+    // enumeration that grepped for `?? `/`||` rather than asking "where does a
+    // builder get unwrapped?"
+    const wire = JSON.parse(
+      '{"type":"object","properties":{"a":{"type":"string"}},"required":["a"],"schema":true}'
+    )
+    const fn = M.func(wire as any, wire as any, (d: any) => d)
+    // the stray `schema` key must NOT turn this into an accept-all gate
+    await expect(fn(42 as any)).rejects.toThrow()
+    await expect(fn({ a: 'ok' } as any)).resolves.toEqual({ a: 'ok' })
+    // a real builder still works
+    const b = s.object({ a: s.string })
+    await expect(M.func(b, b, (d: any) => d)({ a: 'ok' })).resolves.toEqual({ a: 'ok' })
+  })
+
+  test('a non-builder wrapper carrying `schema` is used AS the schema, and says so', () => {
+    // { schema: X } is the opposite shape from { type:…, schema:true }: here the
+    // key holds the REAL schema. We ignore it (the other shape is the reachable
+    // one) but must not do it silently — that would be a fail-open we authored.
+    const warns: string[] = []
+    const orig = console.warn
+    console.warn = (m: string) => void warns.push(String(m))
+    try {
+      setWarnings(true)
+      validate('nope', { schema: { type: 'number' } } as any)
+      expect(warns.length).toBe(1)
+      expect(warns[0]).toContain('`schema` key')
+      validate('again', { schema: { type: 'number' } } as any)
+      expect(warns.length).toBe(1) // once per process
+    } finally {
+      console.warn = orig
+      setWarnings(false)
+    }
+  })
+
+  test('validate never throws on an UNREADABLE property — it fails closed', () => {
+    const ap = { type: 'object', additionalProperties: { type: 'number' } }
+    // a plain `arguments` object: `callee` is an own NON-enumerable accessor
+    // that throws in strict mode. Invisible to for..in, so reading own
+    // non-enumerable keys is what made this reachable.
+    function grab(..._a: unknown[]) { return arguments }
+    expect(() => validate(grab(1, 2), ap)).not.toThrow()
+    expect(validate(grab(1, 2), ap)).toBeFalse()
+    // an explicitly throwing non-enumerable getter
+    const boom: any = {}
+    Object.defineProperty(boom, 'x', { get() { throw new Error('boom') }, enumerable: false, configurable: true })
+    expect(() => validate(boom, ap)).not.toThrow()
+    expect(validate(boom, ap)).toBeFalse()
+    // a READABLE non-enumerable getter is still validated normally
+    const fine: any = { a: 1 }
+    Object.defineProperty(fine, 'b', { get() { return 2 }, enumerable: false, configurable: true })
+    expect(validate(fine, ap)).toBeTrue()
+  })
+
+  test('property counts include non-enumerable keys (the short-circuit trade)', () => {
+    const o: any = { a: 1 }
+    Object.defineProperty(o, 'hidden', { value: 2, enumerable: false, configurable: true })
+    expect(validate(o, { type: 'object', maxProperties: 1 })).toBeFalse()
+    expect(validate(o, { type: 'object', maxProperties: 2 })).toBeTrue()
+    expect(validate(o, { type: 'object', minProperties: 2 })).toBeTrue()
   })
 })

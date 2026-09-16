@@ -1,4 +1,4 @@
-import { type Base, type Infer, validate } from './schema'
+import { type Base, type Infer, validate, unwrap } from './schema'
 
 // Errors
 
@@ -71,7 +71,7 @@ export class M<R extends Record<string, GuardedFunc<any, any>>> {
   ): GuardedFunc<Infer<I>, Infer<O>> {
     const wrapper = async (data: Infer<I>) => {
       // 1. Input Validation
-      const validIn = validate(data, inputSchema.schema, { fullScan: true })
+      const validIn = validate(data, unwrap(inputSchema), { fullScan: true })
       if (!validIn) {
         throw new SchemaError('Input', 'Anonymous', ['Input schema mismatch'])
       }
@@ -95,7 +95,7 @@ export class M<R extends Record<string, GuardedFunc<any, any>>> {
       }
 
       // 3. Output Validation
-      const validOut = validate(result, outputSchema.schema, { fullScan: true })
+      const validOut = validate(result, unwrap(outputSchema), { fullScan: true })
       if (!validOut) {
         throw new SchemaError('Output', 'Anonymous', ['Output schema mismatch'])
       }

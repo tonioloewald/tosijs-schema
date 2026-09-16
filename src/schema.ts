@@ -506,6 +506,27 @@ export const s = new Proxy(methods, {
 const ownKeys = (o: any): string[] => Object.getOwnPropertyNames(o)
 
 /**
+ * Read a property without letting USER CODE escape as an exception.
+ *
+ * `validate` is documented in three shipped files as never throwing, and a
+ * property read can run an accessor: a throwing getter, or the ES poison-pill
+ * `callee` on a plain `arguments` object (an own, NON-enumerable accessor —
+ * invisible to `for..in`, so this only became reachable when the sweep started
+ * reading own non-enumerable keys). An unreadable property cannot be shown to
+ * satisfy its schema, so it fails CLOSED rather than propagating.
+ *
+ * The sentinel is a module-private symbol, so no data value can forge it.
+ */
+const UNREADABLE = Symbol('unreadable')
+const readProp = (o: any, k: string): any => {
+  try {
+    return o[k]
+  } catch {
+    return UNREADABLE
+  }
+}
+
+/**
  * Unwrap a BUILDER to its plain schema — and only a builder.
  *
  * This was `(x as any)?.schema || x`, a duck-type, so a plain JSON Schema that
@@ -520,10 +541,31 @@ const ownKeys = (o: any): string[] => Object.getOwnPropertyNames(o)
  * Schema never does. `agentContract` was hardened this way in 1.10.0; this is
  * the same fix on the core path.
  */
-const unwrap = (x: any): any =>
-  x != null && typeof x === 'object' && 'schema' in x && typeof x.validate === 'function'
-    ? x.schema
-    : x
+let warnedSchemaKey = false
+export const unwrap = (x: any): any => {
+  if (x == null || typeof x !== 'object' || !('schema' in x)) return x
+  if (typeof (x as any).validate === 'function') return (x as any).schema
+  // A `schema` key on something that is NOT a builder. Two shapes reach here and
+  // they want opposite things, which is why this warns instead of guessing:
+  //   { type:'object', …, schema:true }  — a JSON Schema with a stray key. The
+  //     key is noise (often a `$schema` typo); ignoring it is right.
+  //   { schema: {type:'number'} }        — a hand-rolled wrapper whose `schema`
+  //     IS the real schema. Ignoring it means validating against a keyword-less
+  //     object, which accepts everything.
+  // Ignoring is the safer default (the first shape is the reachable one — no
+  // serialization route produces the second), but doing it SILENTLY would be a
+  // fail-open in the second shape, so say so once.
+  if (warningsEnabled && !warnedSchemaKey) {
+    warnedSchemaKey = true
+    console.warn(
+      '[tosijs-schema] a non-builder object with a `schema` key was passed as a schema. ' +
+        'Treating the object itself as the schema and IGNORING that key. If `schema` holds ' +
+        'your real schema, pass it directly — otherwise nothing is enforced. ' +
+        'Silence with setWarnings(false). Warns once per process.'
+    )
+  }
+  return x
+}
 
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
@@ -538,7 +580,11 @@ let warnedOneOfCost = false
 /** Enable/disable tosijs-schema's runtime cost warnings (default on). Process-global. */
 export function setWarnings(on: boolean): void {
   warningsEnabled = on
-  if (on) warnedOneOfCost = false // re-arm so a re-enabled process warns again
+  if (on) {
+    // re-arm so a re-enabled process warns again
+    warnedOneOfCost = false
+    warnedSchemaKey = false
+  }
 }
 const warnExpensive = (): void => {
   if (!warningsEnabled || warnedOneOfCost) return
@@ -802,23 +848,24 @@ export function validate(
         !Array.isArray(v) &&
         objectKeywordsPresent(s))
     ) {
-      // Property-count constraints. Both are enforced in every mode (v1.9.0):
-      // a `maxProperties` check SHORT-CIRCUITS at max+1 — it stops the moment it
-      // sees one key too many, so the cost is O(min(N, max+1)), not O(N), and
-      // only schemas that declare the keyword pay anything. This is why it no
-      // longer needs `fullScan`: counting a ceiling doesn't require the whole
-      // object. `minProperties` likewise stops once satisfied (unless a max is
-      // also present, which forces counting to the end or to max+1).
+      // Property-count constraints, enforced in every mode (v1.9.0) and now
+      // counting NON-ENUMERABLE own properties too (v1.11.0 — they used to be
+      // invisible, so a hidden key went uncounted). Cost is O(N) in the object's
+      // own-key count, and only schemas that DECLARE a count keyword pay it at
+      // all. 1.9.0's max+1 short-circuit is gone: it depended on walking keys
+      // one at a time, and a correct count has to include the non-enumerable
+      // ones, which only a materializing call reports.
       const min = s.minProperties
       const max = s.maxProperties
       if (min !== undefined || max !== undefined) {
-        let c = 0
-        for (const k of ownKeys(v)) {
-          void k
-          c++
-          if (max !== undefined && c > max) return err('Too many props')
-          if (max === undefined && min !== undefined && c >= min) break
-        }
+        // One native enumeration, then arithmetic. The old code short-circuited
+        // at max+1 without materializing, which `getOwnPropertyNames` cannot do
+        // — so this is O(N) where it was O(min(N, max+1)). That is a real (and
+        // documented) complexity change, accepted because correctness needs the
+        // non-enumerable keys and the native call is far cheaper per key than
+        // the `for..in` + `hasOwnProperty` loop it replaced.
+        const c = ownKeys(v).length
+        if (max !== undefined && c > max) return err('Too many props')
         if (min !== undefined && c < min) return err('Too few props')
       }
 
@@ -837,7 +884,9 @@ export function validate(
         for (const k in s.properties) {
           if (hasOwn(v, k)) {
             path.push(k)
-            const ok = walk(v[k], s.properties[k])
+            const val = readProp(v, k)
+            if (val === UNREADABLE) return err(`Unreadable ${k}`)
+            const ok = walk(val, s.properties[k])
             path.pop()
             if (!ok) return false
           }
@@ -855,7 +904,9 @@ export function validate(
           const idx = step > 1 && i > len - 1 - step ? len - 1 : i
           const k = keys[idx]!
           path.push(k)
-          const ok = walk(v[k], s.additionalProperties)
+          const val = readProp(v, k)
+          if (val === UNREADABLE) return err(`Unreadable ${k}`)
+          const ok = walk(val, s.additionalProperties)
           path.pop()
           if (!ok) return false
           if (idx === len - 1) break

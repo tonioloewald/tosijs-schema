@@ -34,7 +34,12 @@ Every item is the same shape: **the check returned `true` having not looked.**
   - **Migration:** if a value now fails with `Unexpected <key>`, it carries a
     non-enumerable own property that was never being checked. Strip it (
     `filter()` already drops them), declare it, or use `.open`.
-  - **It is also faster.** `Object.getOwnPropertyNames` + an indexed loop beats
+  - **`maxProperties` no longer short-circuits at `max + 1`.** 1.9.0 could stop
+    counting early; a correct count has to include keys `for..in` skips, and only
+    a materializing call reports those. So a huge object with a small declared
+    ceiling now enumerates once instead of stopping early — O(N) where it was
+    O(min(N, max+1)). Only schemas that DECLARE a count keyword pay it.
+  - **Otherwise it is faster.** `Object.getOwnPropertyNames` + an indexed loop beats
     `for..in` + a `hasOwnProperty` call per key: measured 10–20% quicker through
     the real validator (344ms vs 429ms for 20k validations of a 1000-key object).
     Prototype-chain keys remain ignored, as before.
@@ -46,7 +51,23 @@ Every item is the same shape: **the check returned `true` having not looked.**
   requires an actual builder (one carrying `validate`). `agentContract` got this
   fix in 1.10.0; this is the same fix on the core path, and it is reachable from
   the marketed route — a `$schema` typo in a schema received over the wire.
-  - **Migration:** remove the stray `schema` key. It was never being enforced.
+  - **Migration:** remove the stray `schema` key — in this shape it was never
+    being enforced. **But check which shape you have first.** A *wrapper*
+    (`{ schema: <the real schema> }`, no `validate` method) is the opposite
+    case: there the key held your actual schema, and it is now ignored, which
+    enforces nothing. That shape warns once per process rather than failing
+    silently; if you see the warning, pass the inner schema directly. (No
+    serialization route produces a wrapper — `JSON.stringify` of a builder
+    throws — so the stray-key shape is the reachable one.)
+- **`M.func` shares the same unwrap policy.** `src/monad.ts` read
+  `inputSchema.schema` directly — a third spelling of the same unwrap, and the
+  one this sweep initially missed, so `M.func(wireSchemaWithStrayKey, …)`
+  accepted everything. All three call sites now use one exported `unwrap`.
+- **`validate` fails closed on an UNREADABLE property instead of throwing.**
+  Reading own non-enumerable keys means accessors now run — including a throwing
+  getter and the ES poison-pill `callee` on a plain `arguments` object. `validate`
+  is documented as never throwing, so an unreadable property is refused
+  (`Unreadable <key>`) rather than propagating.
 
 ## [1.10.2] — 2026-09-14
 
