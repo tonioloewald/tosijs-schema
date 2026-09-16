@@ -21,6 +21,23 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ## Upgrading
 
+### To 1.11.0 (from 1.10.x) — the fail-open sweep
+
+Four earlier releases each closed one member of this class as it was reported. This closes the rest together, so the migration is one read instead of four.
+
+| Case | ≤ 1.10.2 | 1.11.0 |
+| --- | --- | --- |
+| a **non-enumerable** own property vs `additionalProperties: false` | passes as though absent | **fails** |
+| a non-enumerable property under `additionalProperties: <schema>` | never validated | **validated** |
+| a non-enumerable property vs `min`/`maxProperties` | uncounted | **counted** |
+| a stray `schema` key in a plain JSON Schema | made the whole schema **accept-all** | ignored; the real schema applies |
+
+**Who this affects:** almost nobody validating JSON — `JSON.parse` cannot produce a non-enumerable property. It affects code validating **live JS objects**, which is what `agentContract` receives, and anyone whose wire schema has a `schema` key (usually a `$schema` typo). In both cases the old behavior was that *no check happened*, so a new failure is a check that finally ran.
+
+**Migration:** for `Unexpected <key>`, strip the hidden property (`filter()` already drops them), declare it, or use `.open`. For the schema key, delete it.
+
+Bonus: the enumeration fix is **10–20% faster** than what it replaced.
+
 ### To 1.10.0 (from 1.9.x) — one `agentContract` fail-open closed
 
 **Only affects `agentContract` construction.** `validate`, `filter` and `inferSchema` are unchanged.
@@ -451,7 +468,7 @@ Import only what you use. The package is `sideEffects: false` and each concern i
 | `inferSchema` (from `tosijs-schema/infer`) | just inference | **~1.5 kB** |
 | `validate` | the validator | ~3.5 kB |
 | `s` (builder) | builder + validator | ~3.5 kB |
-| `filter` | validator + filter | ~4.0 kB |
+| `filter` | validator + filter | ~4.1 kB |
 | `diff` | validator + schema diff | ~3.9 kB |
 | `agentContract` | validator + contract layer | ~5.5 kB |
 | everything | the whole library | ~8.3 kB |
@@ -588,15 +605,15 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   98.95 |   98.65 |
+All files        |   98.97 |   98.66 |
  src/contract.ts |   97.78 |   97.66 | 164,646,648,651,660-662,693-694
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   96.97 |   95.60 | 122-126,342-348,483,1064-1065,1079,1099-1100,1123-1132,1135-1136
+ src/schema.ts   |   97.06 |   95.62 | 122-126,342-348,483,1100-1101,1115,1135-1136,1159-1168,1171-1172
 ```
 
-292 tests, 993 assertions.
+298 tests, 1007 assertions.
 <!-- /coverage:readme -->
 
 ## License

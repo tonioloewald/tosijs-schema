@@ -224,14 +224,20 @@ unsupported + `agentContract` refuses + `validate` silently ignores." The
 reconsider-if trigger it named ("a consumer needs to validate EXTERNAL JSON
 Schema off the wire") is essentially what #8 turned out to be.
 
-## NEXT RELEASE (scoped 2026-09-14): close the remaining FAIL-OPEN class in one pass
+## ~~NEXT RELEASE: close the remaining FAIL-OPEN class~~ — DONE in 1.11.0 (2026-09-16)
 
 Four releases (#8, #9, #10, and 1.10.0's construction fixes) each closed ONE
 fail-open, reactively, when a consumer or a review surfaced it. The class is
 still open. This is the sweep instead — enumerate first, fix together, one
 migration note. All are TIGHTENINGS, so this is a **minor**, not a patch.
 
-**Enumerated and reproduced at v1.10.2** (`validate`/`filter`/`agentContract`):
+**Shipped.** All three closed together, plus a fourth found while enumerating
+(a non-enumerable key under `additionalProperties: <schema>` was never *validated*,
+not just never counted). The enumeration fix measured 10-20% FASTER through the
+real validator, as predicted. `filter` needed no change — it rebuilds objects
+from `Object.keys`, so hidden keys were already dropped.
+
+Original scope, **enumerated and reproduced at v1.10.2** (`validate`/`filter`/`agentContract`):
 
 | # | Fail-open | Reproduced | Surface |
 | --- | --- | --- | --- |
@@ -330,7 +336,7 @@ Both were decided, not forgotten. Each wants its own release and its own review.
   `agentContract` construction (the gate can afford the analysis; `validate`
   can't), and/or document that `pattern` runs consumer-supplied regex on
   consumer-supplied data. Needs a design decision, not a quick patch.
-- [ ] **The duck-type unwrap in the CORE validator.** 1.10.0 fixed it for the
+- [x] **DONE in 1.11.0 — the duck-type unwrap in the CORE validator.** 1.10.0 fixed it for the
   gate (`toPlain` now requires a real builder); it is still live verbatim in
   `validate`/`filter` (`src/schema.ts`). Verified at HEAD:
   `validate(42, { type:'object', required:['a'], schema:true })` → **`true`**;

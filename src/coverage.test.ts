@@ -1,5 +1,6 @@
 import { describe, test, expect, afterAll } from 'bun:test'
 import { s, validate, diff, filter, setWarnings } from './schema'
+import { agentContract } from './contract'
 
 // oneOf validation emits a once-per-process cost warning; silence it so the
 // suite's output stays clean (restored after the file runs).
@@ -787,5 +788,68 @@ describe('Builder chaining order independence', () => {
     expect(schema.schema.format).toBe('email')
     expect(schema.schema.minLength).toBe(5)
     expect(schema.schema.maxLength).toBe(100)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v1.11.0 fail-open sweep. Four releases each closed ONE member of this class
+// reactively; these pin the rest together. Both are "the check read the value
+// through a lens that missed part of it".
+// ---------------------------------------------------------------------------
+describe('fail-open sweep (v1.11.0)', () => {
+  const hidden = (base: Record<string, unknown>, key: string, value: unknown) => {
+    const o: any = { ...base }
+    Object.defineProperty(o, key, { value, enumerable: false, writable: true, configurable: true })
+    return o
+  }
+
+  test('a NON-ENUMERABLE own property cannot hide from additionalProperties: false', () => {
+    const closed = { type: 'object', properties: { a: { type: 'number' } }, additionalProperties: false }
+    // for..in skips non-enumerables, so this used to pass as though absent
+    expect(validate(hidden({ a: 1 }, 'sneaky', 2), closed)).toBeFalse()
+    // …and the enumerable equivalent has always failed — they agree now
+    expect(validate({ a: 1, sneaky: 2 }, closed)).toBeFalse()
+    expect(validate({ a: 1 }, closed)).toBeTrue()
+  })
+
+  test('a non-enumerable property is VALIDATED under additionalProperties: <schema>', () => {
+    // it was never visited, so its type was never checked at all
+    const open = { type: 'object', properties: { a: { type: 'number' } }, additionalProperties: { type: 'number' } }
+    expect(validate(hidden({ a: 1 }, 'x', 'not-a-number'), open)).toBeFalse()
+    expect(validate(hidden({ a: 1 }, 'x', 99), open)).toBeTrue()
+  })
+
+  test('non-enumerable properties COUNT toward min/maxProperties', () => {
+    expect(validate(hidden({ a: 1 }, 'x', 2), { type: 'object', maxProperties: 1 })).toBeFalse()
+    expect(validate(hidden({}, 'x', 2), { type: 'object', minProperties: 1 })).toBeTrue()
+  })
+
+  test('the GATE refuses a non-enumerable extra (it judges LIVE objects, not JSON)', () => {
+    // the reachable case: JSON.parse never makes a non-enumerable property, but
+    // proposal.proposed is whatever the surface hands over
+    const gate = agentContract({
+      'app.o': { type: 'object', properties: { a: { type: 'number' } }, additionalProperties: false },
+    })
+    const proposed = hidden({ a: 1 }, 'sneaky', 2)
+    expect(gate.check('app.o', proposed, { root: 'app.o', proposed })).toBeInstanceOf(Error)
+  })
+
+  test('a stray `schema` key no longer overrides the whole schema in validate/filter', () => {
+    // the duck-type unwrap took `x.schema` as THE schema, so a restrictive
+    // declaration carrying `schema: true` evaluated as accept-all. Reachable
+    // from a `$schema` typo in a wire schema.
+    const sneaky = { type: 'object', additionalProperties: false, required: ['a'], properties: { a: { type: 'string' } }, schema: true } as any
+    expect(validate(42, sneaky)).toBeFalse()
+    expect(validate({ b: 1 }, sneaky)).toBeFalse()
+    expect(validate({ a: 'ok' }, sneaky)).toBeTrue()
+    expect(filter({ nope: 1 }, sneaky)).toBeInstanceOf(Error)
+    // and a REAL builder still unwraps
+    expect(validate({ a: 'ok' }, s.object({ a: s.string }))).toBeTrue()
+  })
+
+  test('prototype-chain keys are still ignored (not a regression of the 1.5.0 fix)', () => {
+    const closed = { type: 'object', properties: { a: { type: 'number' } }, additionalProperties: false }
+    const inherited = Object.assign(Object.create({ ghost: 'not mine' }), { a: 1 })
+    expect(validate(inherited, closed)).toBeTrue()
   })
 })

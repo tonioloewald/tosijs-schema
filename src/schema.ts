@@ -487,6 +487,44 @@ export const s = new Proxy(methods, {
 
 // VALIDATOR
 
+/**
+ * Own string keys of a DATA value, including NON-ENUMERABLE ones.
+ *
+ * `for..in` + `hasOwn` — what every one of these sites used to do — sees only
+ * *enumerable* own properties, so a non-enumerable own property was invisible
+ * to `additionalProperties: false` (it passed as though absent), invisible to
+ * `additionalProperties: <schema>` (never validated against anything), and
+ * uncounted by `min/maxProperties`. That is a fail-open: the check returned
+ * `true` having not looked. `JSON.parse` never produces such a property, but a
+ * live JS object can — and `agentContract` judges live objects
+ * (`proposal.proposed`), which is where it mattered.
+ *
+ * Also FASTER than `for..in` + a `hasOwnProperty` call per key (measured 0.52x
+ * to 0.81x across 10/100/1000 keys) — the per-key call dominates. Prototype
+ * keys stay excluded, as before.
+ */
+const ownKeys = (o: any): string[] => Object.getOwnPropertyNames(o)
+
+/**
+ * Unwrap a BUILDER to its plain schema — and only a builder.
+ *
+ * This was `(x as any)?.schema || x`, a duck-type, so a plain JSON Schema that
+ * happened to carry a `schema` key was silently REPLACED by that key's value:
+ * `validate(42, { type:'object', required:['a'], schema:true })` returned
+ * `true`, because the whole declaration became the boolean schema `true`. A
+ * restrictive schema evaluated as accept-all. `schema` is not a JSON Schema
+ * keyword, so nothing else flagged it, and the reachable route is the marketed
+ * one — a schema received over the wire, where a `$schema` typo produces it.
+ *
+ * A builder always carries a `validate` method (see `create` above); a JSON
+ * Schema never does. `agentContract` was hardened this way in 1.10.0; this is
+ * the same fix on the core path.
+ */
+const unwrap = (x: any): any =>
+  x != null && typeof x === 'object' && 'schema' in x && typeof x.validate === 'function'
+    ? x.schema
+    : x
+
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
 // One-time cost nudge for the expensive union (`oneOf` can't short-circuit).
@@ -603,7 +641,7 @@ export function validate(
   builderOrSchema: Base<any> | Record<string, any> | boolean,
   opts?: ValidateOptions | ErrorHandler
 ): boolean {
-  const schema = (builderOrSchema as any)?.schema || builderOrSchema
+  const schema = unwrap(builderOrSchema)
   const onError = typeof opts === 'function' ? opts : opts?.onError
   const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
 
@@ -775,8 +813,8 @@ export function validate(
       const max = s.maxProperties
       if (min !== undefined || max !== undefined) {
         let c = 0
-        for (const k in v) {
-          if (!hasOwn(v, k)) continue
+        for (const k of ownKeys(v)) {
+          void k
           c++
           if (max !== undefined && c > max) return err('Too many props')
           if (max === undefined && min !== undefined && c >= min) break
@@ -789,8 +827,7 @@ export function validate(
       }
 
       if (s.additionalProperties === false) {
-        for (const k in v) {
-          if (!hasOwn(v, k)) continue
+        for (const k of ownKeys(v)) {
           if (s.properties && hasOwn(s.properties, k)) continue
           return err(`Unexpected ${k}`)
         }
@@ -808,8 +845,7 @@ export function validate(
       }
       if (s.additionalProperties) {
         const keys: string[] = []
-        for (const k in v) {
-          if (!hasOwn(v, k)) continue
+        for (const k of ownKeys(v)) {
           if (s.properties && hasOwn(s.properties, k)) continue
           keys.push(k)
         }
@@ -885,7 +921,7 @@ export function filter(
   builderOrSchema: Base<any> | Record<string, any> | boolean,
   opts?: FilterOptions | ErrorHandler
 ): any {
-  const schema = (builderOrSchema as any)?.schema || builderOrSchema
+  const schema = unwrap(builderOrSchema)
   const onError = typeof opts === 'function' ? opts : opts?.onError
   const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
   const skipValidation = typeof opts === 'object' ? opts?.skipValidation : false

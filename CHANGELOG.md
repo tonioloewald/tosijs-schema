@@ -5,6 +5,49 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.0] — 2026-09-16
+
+**Contains BREAKING validation changes** — the deliberate sweep of the remaining
+fail-open class. Same defect family as [GHSA-3qw7-pvr3-2gpq](https://github.com/tonioloewald/tosijs-schema/security/advisories/GHSA-3qw7-pvr3-2gpq),
+narrowed across 1.5.0 / 1.8.0 / 1.9.0 / 1.10.0 — and closed here rather than
+one member per release. See README "Upgrading to 1.11.0".
+
+### Fixed — BREAKING
+
+Every item is the same shape: **the check returned `true` having not looked.**
+
+| Case | ≤ 1.10.2 | 1.11.0 |
+| --- | --- | --- |
+| a **non-enumerable** own property vs `additionalProperties: false` | passes, as though absent | **fails** (`Unexpected <key>`) |
+| a non-enumerable property under `additionalProperties: <schema>` | never validated at all | **validated** like any other key |
+| a non-enumerable property vs `min`/`maxProperties` | uncounted | **counted** |
+| `validate(x, { …, schema: true })` — a stray `schema` key | the schema became `true`: **accept-all** | the key is ignored; the real schema applies |
+
+- **Non-enumerable own properties are no longer invisible.** Every walk over a
+  data object used `for..in` + `hasOwnProperty`, which sees only *enumerable*
+  own properties — so such a key escaped the `additionalProperties: false`
+  sweep, was never type-checked under an `additionalProperties` schema, and went
+  uncounted by the property-count constraints. `JSON.parse` never produces one,
+  so the reachable case is a **live JS object** — which is exactly what
+  `agentContract` judges (`proposal.proposed`), and why the gate was the real
+  exposure.
+  - **Migration:** if a value now fails with `Unexpected <key>`, it carries a
+    non-enumerable own property that was never being checked. Strip it (
+    `filter()` already drops them), declare it, or use `.open`.
+  - **It is also faster.** `Object.getOwnPropertyNames` + an indexed loop beats
+    `for..in` + a `hasOwnProperty` call per key: measured 10–20% quicker through
+    the real validator (344ms vs 429ms for 20k validations of a 1000-key object).
+    Prototype-chain keys remain ignored, as before.
+- **A stray `schema` key no longer overrides the whole schema.** `validate` and
+  `filter` unwrapped builders by duck-typing (`x?.schema || x`), so a plain JSON
+  Schema carrying a `schema` key was silently *replaced* by that key's value —
+  `validate(42, { type:'object', required:['a'], schema:true })` returned `true`
+  because the declaration became the boolean schema `true`. Unwrapping now
+  requires an actual builder (one carrying `validate`). `agentContract` got this
+  fix in 1.10.0; this is the same fix on the core path, and it is reachable from
+  the marketed route — a `$schema` typo in a schema received over the wire.
+  - **Migration:** remove the stray `schema` key. It was never being enforced.
+
 ## [1.10.2] — 2026-09-14
 
 Housekeeping patch — no runtime behavior changes. Everything here is docs,

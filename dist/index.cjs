@@ -311,6 +311,8 @@ var s = new Proxy(methods, {
     return;
   }
 });
+var ownKeys = (o) => Object.getOwnPropertyNames(o);
+var unwrap = (x) => x != null && typeof x === "object" && ("schema" in x) && typeof x.validate === "function" ? x.schema : x;
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 var warningsEnabled = true;
 var warnedOneOfCost = false;
@@ -368,7 +370,7 @@ var ENFORCED_KEYWORDS = new Set([
 var objectKeywordsPresent = (s2) => s2.properties !== undefined || s2.required !== undefined || s2.additionalProperties !== undefined || s2.minProperties !== undefined || s2.maxProperties !== undefined;
 var arrayKeywordsPresent = (s2) => s2.items !== undefined || s2.minItems !== undefined || s2.maxItems !== undefined;
 function validate(val, builderOrSchema, opts) {
-  const schema = builderOrSchema?.schema || builderOrSchema;
+  const schema = unwrap(builderOrSchema);
   const onError = typeof opts === "function" ? opts : opts?.onError;
   const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const path = [];
@@ -490,9 +492,7 @@ function validate(val, builderOrSchema, opts) {
       const max = s2.maxProperties;
       if (min !== undefined || max !== undefined) {
         let c = 0;
-        for (const k in v) {
-          if (!hasOwn(v, k))
-            continue;
+        for (const k of ownKeys(v)) {
           c++;
           if (max !== undefined && c > max)
             return err("Too many props");
@@ -508,9 +508,7 @@ function validate(val, builderOrSchema, opts) {
             return err(`Missing ${k}`);
       }
       if (s2.additionalProperties === false) {
-        for (const k in v) {
-          if (!hasOwn(v, k))
-            continue;
+        for (const k of ownKeys(v)) {
           if (s2.properties && hasOwn(s2.properties, k))
             continue;
           return err(`Unexpected ${k}`);
@@ -529,9 +527,7 @@ function validate(val, builderOrSchema, opts) {
       }
       if (s2.additionalProperties) {
         const keys = [];
-        for (const k in v) {
-          if (!hasOwn(v, k))
-            continue;
+        for (const k of ownKeys(v)) {
           if (s2.properties && hasOwn(s2.properties, k))
             continue;
           keys.push(k);
@@ -589,7 +585,7 @@ function validate(val, builderOrSchema, opts) {
   return walk(val, schema);
 }
 function filter(data, builderOrSchema, opts) {
-  const schema = builderOrSchema?.schema || builderOrSchema;
+  const schema = unwrap(builderOrSchema);
   const onError = typeof opts === "function" ? opts : opts?.onError;
   const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const skipValidation = typeof opts === "object" ? opts?.skipValidation : false;
