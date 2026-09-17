@@ -268,6 +268,40 @@ Deliberately NOT in this sweep (scoped, not forgotten):
 - `pattern` ReDoS (below) — a different class: not a check that fails to check,
   but a check that costs unboundedly. Needs its own design decision.
 
+## NEXT: builder construction accepts a plain schema and silently goes permissive
+
+Found 2026-09-17 while proving the 1.11.0 unwrap sweep was complete (the
+"writ large" check). **Deliberately NOT fixed in 1.11.0** — it is a different
+surface (builder construction, not validation), it is a tightening, and that
+release had already been blocked twice; bolting on a fifth unreviewed change is
+exactly what produced those blockers.
+
+Same family as the unwrap fail-open — hand the API something that *looks* close
+enough and get a permissive result with no signal:
+
+```js
+s.array({ type: 'string' })        // a PLAIN schema where a builder is expected
+// => { type: 'array' }   ...no `items` at all
+validate([1, 2, 3], that)          // => true. Silently permissive.
+
+s.object({ a: { type: 'string' } })
+// => TypeError: undefined is not an object (evaluating 'p.type')
+```
+
+The types say `Base<T>`, so TypeScript callers are protected — but JS callers,
+`as any`, and anything deserializing config are not. Note the two behaviours
+disagree: `s.array` fails OPEN and silent, `s.object` throws a raw internal
+TypeError. Neither is right.
+
+Fix: one shared `assertBuilder(x, where)` used by every builder-construction
+entry point (`s.array`, `s.object`, `s.record`, `s.tuple`, `s.union`, `s.infer`),
+throwing a message that names the argument and says "pass `s.string`, not
+`{ type: 'string' }` — or use the plain schema directly with `validate()`".
+Enumerate the entry points by reading the builder factory, NOT by grepping for a
+spelling — that is the mistake that let `M.func` survive the 1.11.0 sweep.
+
+Tightening (construction that used to succeed now throws) => BREAKING => minor.
+
 ## The `pattern` ReDoS decision (scoped 2026-09-14, NOT yet implemented)
 
 Verified exponential at v1.10.2: `^(a+)+$` against a **32-byte** payload takes
