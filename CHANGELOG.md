@@ -12,6 +12,20 @@ fail-open class. Same defect family as [GHSA-3qw7-pvr3-2gpq](https://github.com/
 narrowed across 1.5.0 / 1.8.0 / 1.9.0 / 1.10.0 — and closed here rather than
 one member per release. See README "Upgrading to 1.11.0".
 
+### Fixed — security
+
+- **`format: 'email'` is no longer quadratic.** `/^\S+@\S+\.\S+$/` let `\S`
+  match both `@` and `.`, so a non-matching value made the two runs enumerate
+  every split point: **5.6s for a 120KB value, ~76s at 480KB** — now **0.1ms**.
+  It needed no control over the schema, only over the value of an ordinary
+  declared email field, and was reachable through `validate`,
+  `agentContract.check`, `M.func` (whose timeout cannot preempt a synchronous
+  regex) and the `/infer` subpath. `s.email` emits no `maxLength`, so the length
+  guard never fired. The replacement is a linear scan and **accept-set
+  identical** — differential-tested over all 2,441,406 strings of length ≤ 9
+  from `{a, @, ., space, tab}`: zero mismatches — so no schema changes meaning.
+  Present since 1.6.0.
+
 ### Fixed — BREAKING
 
 Every item is the same shape: **the check returned `true` having not looked.**
@@ -51,14 +65,13 @@ Every item is the same shape: **the check returned `true` having not looked.**
   requires an actual builder (one carrying `validate`). `agentContract` got this
   fix in 1.10.0; this is the same fix on the core path, and it is reachable from
   the marketed route — a `$schema` typo in a schema received over the wire.
-  - **Migration:** remove the stray `schema` key — in this shape it was never
-    being enforced. **But check which shape you have first.** A *wrapper*
-    (`{ schema: <the real schema> }`, no `validate` method) is the opposite
-    case: there the key held your actual schema, and it is now ignored, which
-    enforces nothing. That shape warns once per process rather than failing
-    silently; if you see the warning, pass the inner schema directly. (No
-    serialization route produces a wrapper — `JSON.stringify` of a builder
-    throws — so the stray-key shape is the reachable one.)
+  - **Migration:** remove the stray `schema` key — it was never being enforced.
+    A warning names it once per process.
+  - **A `{ schema: X }` WRAPPER is unaffected and keeps working.** That shape —
+    including the OpenAI `json_schema` envelope this README tells you to build
+    (`{ name, strict, schema: MySchema.schema }`) — is unwrapped as before. The
+    two are told apart structurally: a wrapper declares no schema keyword of its
+    own; a stray key always sits on a real schema alongside `type`/`required`/…
 - **`M.func` shares the same unwrap policy.** `src/monad.ts` read
   `inputSchema.schema` directly — a third spelling of the same unwrap, and the
   one this sweep initially missed, so `M.func(wireSchemaWithStrayKey, …)`

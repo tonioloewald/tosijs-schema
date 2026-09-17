@@ -78,7 +78,15 @@ var isFullDate = (v) => {
 };
 var RX_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 var FORMAT_VALIDATORS = {
-  email: (v) => /^\S+@\S+\.\S+$/.test(v),
+  email: (v) => {
+    if (/\s/.test(v))
+      return false;
+    const at = v.indexOf("@", 1);
+    if (at === -1)
+      return false;
+    const dot = v.indexOf(".", at + 2);
+    return dot !== -1 && dot < v.length - 1;
+  },
   uuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
   uri: (v) => {
     try {
@@ -322,16 +330,30 @@ var readProp = (o, k) => {
   }
 };
 var warnedSchemaKey = false;
+var SCHEMA_ANNOTATIONS = new Set([
+  "title",
+  "description",
+  "default",
+  "examples",
+  "deprecated",
+  "readOnly",
+  "writeOnly"
+]);
+var SCHEMA_SHAPED_KEY = (k) => k !== "schema" && (ENFORCED_KEYWORDS.has(k) || k.startsWith("$") || k.startsWith("x-") || SCHEMA_ANNOTATIONS.has(k));
 var unwrap = (x) => {
   if (x == null || typeof x !== "object" || !("schema" in x))
     return x;
   if (typeof x.validate === "function")
     return x.schema;
-  if (warningsEnabled && !warnedSchemaKey) {
-    warnedSchemaKey = true;
-    console.warn("[tosijs-schema] a non-builder object with a `schema` key was passed as a schema. " + "Treating the object itself as the schema and IGNORING that key. If `schema` holds " + "your real schema, pass it directly — otherwise nothing is enforced. " + "Silence with setWarnings(false). Warns once per process.");
+  const declaresSomething = ownKeys(x).some(SCHEMA_SHAPED_KEY);
+  if (declaresSomething) {
+    if (warningsEnabled && !warnedSchemaKey) {
+      warnedSchemaKey = true;
+      console.warn("[tosijs-schema] a schema carrying a stray `schema` key was passed. Using the " + "schema itself and IGNORING that key (did you mean `$schema`?). Silence with " + "setWarnings(false). Warns once per process.");
+    }
+    return x;
   }
-  return x;
+  return x.schema;
 };
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 var warningsEnabled = true;

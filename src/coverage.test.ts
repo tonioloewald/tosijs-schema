@@ -876,20 +876,30 @@ describe('fail-open sweep — remediation (v1.11.0)', () => {
     await expect(M.func(b, b, (d: any) => d)({ a: 'ok' })).resolves.toEqual({ a: 'ok' })
   })
 
-  test('a non-builder wrapper carrying `schema` is used AS the schema, and says so', () => {
-    // { schema: X } is the opposite shape from { type:…, schema:true }: here the
-    // key holds the REAL schema. We ignore it (the other shape is the reachable
-    // one) but must not do it silently — that would be a fail-open we authored.
+  test('the WARNING now fires for the stray-key shape, not the wrapper', () => {
+    // Corrected in the second remediation round. Originally this warned for
+    // `{ schema: X }` and used the wrapper as the schema — which made the
+    // OpenAI json_schema envelope an accept-all gate. The shapes are told
+    // apart structurally now: a wrapper declares no keyword (unwrap it,
+    // silently, it is legitimate); a stray key sits on a real schema (ignore
+    // the key, and say so, because if the caller meant the other shape
+    // nothing would be enforced).
     const warns: string[] = []
     const orig = console.warn
     console.warn = (m: string) => void warns.push(String(m))
     try {
       setWarnings(true)
-      validate('nope', { schema: { type: 'number' } } as any)
+      // wrapper — unwraps, no warning, and ENFORCES
+      expect(validate('nope', { schema: { type: 'number' } } as any)).toBeFalse()
+      expect(validate(42, { schema: { type: 'number' } } as any)).toBeTrue()
+      expect(warns.length).toBe(0)
+      // stray key on a real schema — ignored, warns once per process
+      const stray = { type: 'number', schema: true } as any
+      expect(validate('nope', stray)).toBeFalse()
       expect(warns.length).toBe(1)
       expect(warns[0]).toContain('`schema` key')
-      validate('again', { schema: { type: 'number' } } as any)
-      expect(warns.length).toBe(1) // once per process
+      validate(1, stray)
+      expect(warns.length).toBe(1)
     } finally {
       console.warn = orig
       setWarnings(false)
@@ -921,5 +931,54 @@ describe('fail-open sweep — remediation (v1.11.0)', () => {
     expect(validate(o, { type: 'object', maxProperties: 1 })).toBeFalse()
     expect(validate(o, { type: 'object', maxProperties: 2 })).toBeTrue()
     expect(validate(o, { type: 'object', minProperties: 2 })).toBeTrue()
+  })
+})
+
+describe('v1.11.0 — second remediation round', () => {
+  test('the OpenAI json_schema envelope (our own README) still ENFORCES', () => {
+    // { name, strict, schema } — JSON-serializable, and what README's
+    // "LLM / OpenAI Integration" section tells consumers to build. v1.11.0
+    // briefly treated it as the schema ITSELF, and since it declares no
+    // keyword, every applicator fell through: accept-all, silently.
+    const My = s.object({ name: s.string })
+    const envelope = JSON.parse(JSON.stringify({ name: 'extraction', strict: true, schema: My.schema }))
+    expect(validate('garbage', envelope)).toBeFalse()
+    expect(validate({ name: 'ok' }, envelope)).toBeTrue()
+    expect(filter({ name: 'ok', junk: 1 }, envelope)).toEqual({ name: 'ok' })
+  })
+
+  test('a STRAY `schema` key is still ignored, not obeyed', () => {
+    // the opposite shape: a real schema that also carries `schema` (a $schema
+    // typo). Taking that key was the 1.10.0 fail-open.
+    const stray = { type: 'object', required: ['a'], properties: { a: { type: 'string' } }, additionalProperties: false, schema: true } as any
+    expect(validate(42, stray)).toBeFalse()
+    expect(validate({ b: 1 }, stray)).toBeFalse()
+    expect(validate({ a: 'x' }, stray)).toBeTrue()
+  })
+
+  test('the three schema-argument shapes are told apart by STRUCTURE', () => {
+    const My = s.object({ n: s.number })
+    expect(validate({ n: 1 }, My)).toBeTrue()                               // builder
+    expect(validate({ n: 1 }, { schema: My.schema } as any)).toBeTrue()     // wrapper
+    expect(validate('x', { schema: My.schema } as any)).toBeFalse()         // wrapper enforces
+    expect(validate('x', { type: 'string', schema: 1 } as any)).toBeTrue()  // stray key ignored
+    expect(validate(1, { type: 'string', schema: 1 } as any)).toBeFalse()
+  })
+
+  test('format: email is LINEAR — a hostile value cannot stall the thread', () => {
+    // /^\S+@\S+\.\S+$/ was quadratic (\S matches @ and .): 5.6s at 120KB,
+    // ~76s at 480KB, needing control of the VALUE only. s.email emits no
+    // maxLength, so the length guard never fired.
+    const sch = s.object({ email: s.email })
+    const hostile = { email: 'a@'.repeat(240 * 1024) } // 480KB, never matches
+    const t = performance.now()
+    expect(validate(hostile, sch)).toBeFalse()
+    expect(performance.now() - t).toBeLessThan(250)
+    // accept-set unchanged
+    expect(validate({ email: 'a@b.co' }, sch)).toBeTrue()
+    expect(validate({ email: 'user.name+tag@sub.example.com' }, sch)).toBeTrue()
+    for (const bad of ['no-at.com', 'a@b', '@b.co', 'a@.co', 'a@b.', 'a b@c.d', '']) {
+      expect(validate({ email: bad }, sch)).toBeFalse()
+    }
   })
 })

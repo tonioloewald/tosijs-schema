@@ -59,7 +59,15 @@ var isFullDate = (v) => {
 };
 var RX_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 var FORMAT_VALIDATORS = {
-  email: (v) => /^\S+@\S+\.\S+$/.test(v),
+  email: (v) => {
+    if (/\s/.test(v))
+      return false;
+    const at = v.indexOf("@", 1);
+    if (at === -1)
+      return false;
+    const dot = v.indexOf(".", at + 2);
+    return dot !== -1 && dot < v.length - 1;
+  },
   uuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
   uri: (v) => {
     try {

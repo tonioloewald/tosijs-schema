@@ -542,29 +542,60 @@ const readProp = (o: any, k: string): any => {
  * the same fix on the core path.
  */
 let warnedSchemaKey = false
+/**
+ * Unwrap a schema argument. Three shapes arrive here and they want different
+ * things, so they are told apart by STRUCTURE rather than guessed at:
+ *
+ * 1. a BUILDER (`s.object(...)`) — carries a `validate` method. Unwrap it.
+ * 2. a JSON Schema with a STRAY `schema` key — carries real schema keywords
+ *    too (`{ type:'object', required:[...], schema:true }`, usually a `$schema`
+ *    typo). The key is noise: use the object itself and ignore it. Taking
+ *    `x.schema` here is the 1.10.0 fail-open, where a restrictive declaration
+ *    evaluated as the boolean schema `true`.
+ * 3. a WRAPPER whose `schema` IS the schema and which declares nothing itself —
+ *    `{ name:'extraction', strict:true, schema: MySchema.schema }`, the OpenAI
+ *    `json_schema` envelope THIS README tells consumers to build, and fully
+ *    JSON-serializable. Unwrap it.
+ *
+ * v1.11.0 briefly collapsed 2 and 3 into "use the object itself", which turned
+ * that envelope into an accept-all gate — it declares no keyword, so every
+ * applicator falls through and `validate` returns `true` for anything. That was
+ * a REGRESSION from 1.10.2 and the reason this is structural now: a wrapper has
+ * a `schema` key and no other recognized keyword; a stray-key schema always has
+ * both.
+ */
+// Annotation keys are legal in a schema and declare no constraint, so their
+// presence still means "this object IS a schema" for shape-detection purposes.
+// Kept local (contract.ts has its own, richer list; importing it here would
+// pull the contract layer into the core bundle).
+const SCHEMA_ANNOTATIONS: ReadonlySet<string> = new Set([
+  'title', 'description', 'default', 'examples', 'deprecated', 'readOnly', 'writeOnly',
+])
+const SCHEMA_SHAPED_KEY = (k: string): boolean =>
+  k !== 'schema' &&
+  (ENFORCED_KEYWORDS.has(k) ||
+    k.startsWith('$') ||
+    k.startsWith('x-') ||
+    SCHEMA_ANNOTATIONS.has(k))
+
 export const unwrap = (x: any): any => {
   if (x == null || typeof x !== 'object' || !('schema' in x)) return x
-  if (typeof (x as any).validate === 'function') return (x as any).schema
-  // A `schema` key on something that is NOT a builder. Two shapes reach here and
-  // they want opposite things, which is why this warns instead of guessing:
-  //   { type:'object', …, schema:true }  — a JSON Schema with a stray key. The
-  //     key is noise (often a `$schema` typo); ignoring it is right.
-  //   { schema: {type:'number'} }        — a hand-rolled wrapper whose `schema`
-  //     IS the real schema. Ignoring it means validating against a keyword-less
-  //     object, which accepts everything.
-  // Ignoring is the safer default (the first shape is the reachable one — no
-  // serialization route produces the second), but doing it SILENTLY would be a
-  // fail-open in the second shape, so say so once.
-  if (warningsEnabled && !warnedSchemaKey) {
-    warnedSchemaKey = true
-    console.warn(
-      '[tosijs-schema] a non-builder object with a `schema` key was passed as a schema. ' +
-        'Treating the object itself as the schema and IGNORING that key. If `schema` holds ' +
-        'your real schema, pass it directly — otherwise nothing is enforced. ' +
-        'Silence with setWarnings(false). Warns once per process.'
-    )
+  if (typeof (x as any).validate === 'function') return (x as any).schema // 1
+  const declaresSomething = ownKeys(x).some(SCHEMA_SHAPED_KEY)
+  if (declaresSomething) {
+    // 2 — a real schema wearing a stray key. Ignore the key, but say so once:
+    // if it turns out the caller meant shape 3, nothing would be enforced.
+    if (warningsEnabled && !warnedSchemaKey) {
+      warnedSchemaKey = true
+      console.warn(
+        '[tosijs-schema] a schema carrying a stray `schema` key was passed. Using the ' +
+          'schema itself and IGNORING that key (did you mean `$schema`?). Silence with ' +
+          'setWarnings(false). Warns once per process.'
+      )
+    }
+    return x
   }
-  return x
+  return (x as any).schema // 3
 }
 
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
