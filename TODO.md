@@ -268,41 +268,55 @@ Deliberately NOT in this sweep (scoped, not forgotten):
 - `pattern` ReDoS (below) — a different class: not a check that fails to check,
   but a check that costs unboundedly. Needs its own design decision.
 
-## NEXT: the stray-`schema`-key unwrap (3 blocked rounds — do it ALONE)
+## NEXT: the unwrap — fix the ROOT CAUSE, not the discriminator (do it ALONE)
 
-`validate(42, { type:'object', required:['a'], schema:true })` returns `true`:
-the unwrap takes `x.schema` as THE schema, so a restrictive declaration becomes
-the boolean schema `true`. Reachable from a `$schema` typo in a wire schema.
-`agentContract` refuses such a schema at construction, so gates are unaffected.
+### The root cause (analysed 2026-09-17, after 3 blocked rounds)
 
-**v1.11.0 attempted this twice and was blocked both times**, each attempt turning
-a legitimate `{ …, schema: X }` envelope into a silent accept-all — the second
-time one `description` field away from the shape it had just pinned. The unwrap
-was reverted to 1.10.2's `x?.schema ?? x` rather than shipping a third variant.
+Not "the discriminator is wrong". **`validate`'s second parameter accepts three
+shapes, and two of them are not reliably distinguishable by inspection:**
 
-The rule four independent lenses converged on — discriminate on **enforcement**,
-not on a list of keyword names:
+| shape | `.schema` | `.validate` | survives JSON | declares keywords |
+| --- | --- | --- | --- | --- |
+| builder | Y | Y | **fn is LOST** | 0 |
+| wrapper (`{name,strict,schema}`) | Y | n | yes | 0 |
+| schema + stray `schema` key | Y | n | yes | 4 |
 
-> prefer `x.schema` when (a) the outer object declares NO member of
-> `ENFORCED_KEYWORDS`, **and** (b) `x.schema` is a non-null object or a boolean.
-> Otherwise keep the outer object.
+Builder-detection was a **duck-type that dies on JSON round-trip**. Wrapper vs
+stray-key has no distinguishing feature except "declares keywords" — a heuristic
+that fails when a schema declares only UNENFORCED keywords, or an envelope
+carries an annotation. Every v1.11.0 attempt was a better guess at a distinction
+that is undecidable in general, which is why each failed the same way.
 
-Two traps, both verified:
-- Dropping the annotation/`$`/`x-` clauses without condition (b) inverts the bug:
-  `{ title:'x', schema:true }` would unwrap to the boolean schema `true` —
-  accept-all again. (b) is not optional.
-- `{ contentEncoding:'base64', schema:true }` reads as a wrapper, because its
-  only keyword is UNENFORCED. It fails open either way, so nothing is lost — but
-  it means `ENFORCED_KEYWORDS` becomes load-bearing for SHAPE DETECTION, not just
-  for the walk. CLAUDE.md's "keep these three in sync" note must be extended.
-- `{ schema: null }` must not throw — `validate` is documented as never throwing.
+**The review's converged rule (ENFORCED_KEYWORDS membership + value shape) is a
+better heuristic but still a heuristic** — it mis-reads
+`{ contentEncoding:'base64', schema:true }`, which the review noted and waved off
+as "fails open either way". Do not ship it. Stop guessing instead.
 
-Test matrix (each must ENFORCE across `validate`, `filter` AND `M.func`):
-`{name,description,strict,schema}`, `{title,schema}`, `{description,schema}`,
-`{examples,schema}`, `{$id,schema}`, `{'x-foo',schema}` — plus
-`{type:'string', title:'x', schema:true}` asserting the stray key is ignored.
+### The fix: make detection a FACT, refuse what is genuinely ambiguous
 
-**Ship it alone**, with nothing else in the release.
+Prototyped 2026-09-17 — every ambiguous shape refused, both unambiguous shapes
+correct:
+
+1. **Brand builders.** `create()` sets `[Symbol.for('tosijs-schema.builder')] = true`.
+   Detection becomes a fact, and a Symbol cannot be forged by wire data or
+   survive `JSON.stringify` — precisely the property needed.
+2. **Refuse the ambiguous case.** A NON-builder carrying a `schema` key is
+   ambiguous; do not pick a side. Fail closed (`false` + an `onError` reason —
+   `validate` must never throw): *"ambiguous: object has a `schema` key but is
+   not a builder; pass the schema itself."* Actionable, one-character fix at the
+   call site.
+3. **Update README's OpenAI example** to `validate(data, envelope.schema)`.
+
+This deletes the keyword list, the annotation list, the `$`/`x-` clauses and the
+reachability argument — there is nothing left to guess. It also resolves the
+original stray-key fail-open, because that shape is refused rather than obeyed.
+
+Breaking (a wrapper that used to validate now refuses), so: its own release, its
+own review, nothing else in it. Test matrix: builder, JSON-round-tripped builder,
+`{name,strict,schema}`, `{name,description,strict,schema}`, `{title,schema}`,
+`{$id,schema}`, `{'x-foo',schema}`, `{...schema, schema:true}`,
+`{contentEncoding:'base64', schema:true}`, `{schema:null}`, plain schema — across
+`validate`, `filter` AND `M.func`.
 
 ## NEXT: builder construction accepts a plain schema and silently goes permissive
 
