@@ -57,30 +57,14 @@ Every item is the same shape: **the check returned `true` having not looked.**
     `for..in` + a `hasOwnProperty` call per key: measured 10–20% quicker through
     the real validator (344ms vs 429ms for 20k validations of a 1000-key object).
     Prototype-chain keys remain ignored, as before.
-- **A stray `schema` key no longer overrides the whole schema.** `validate` and
-  `filter` unwrapped builders by duck-typing (`x?.schema || x`), so a plain JSON
-  Schema carrying a `schema` key was silently *replaced* by that key's value —
-  `validate(42, { type:'object', required:['a'], schema:true })` returned `true`
-  because the declaration became the boolean schema `true`. Unwrapping now
-  requires an actual builder (one carrying `validate`). `agentContract` got this
-  fix in 1.10.0; this is the same fix on the core path, and it is reachable from
-  the marketed route — a `$schema` typo in a schema received over the wire.
-  - **Migration:** remove the stray `schema` key — it was never being enforced.
-    A warning names it once per process.
-  - **A `{ schema: X }` WRAPPER is unaffected and keeps working.** That shape —
-    including the OpenAI `json_schema` envelope this README tells you to build
-    (`{ name, strict, schema: MySchema.schema }`) — is unwrapped as before. The
-    two are told apart structurally: a wrapper declares no schema keyword of its
-    own; a stray key always sits on a real schema alongside `type`/`required`/…
-- **`M.func` shares the same unwrap policy.** `src/monad.ts` read
-  `inputSchema.schema` directly — a third spelling of the same unwrap, and the
-  one this sweep initially missed, so `M.func(wireSchemaWithStrayKey, …)`
-  accepted everything. All three call sites now use one exported `unwrap`.
-- **`validate` fails closed on an UNREADABLE property instead of throwing.**
-  Reading own non-enumerable keys means accessors now run — including a throwing
-  getter and the ES poison-pill `callee` on a plain `arguments` object. `validate`
-  is documented as never throwing, so an unreadable property is refused
-  (`Unreadable <key>`) rather than propagating.
+- **Deliberately NOT changed: the builder unwrap.** 1.11.0 twice attempted to
+  stop a stray `schema` key from overriding a schema, and each attempt turned a
+  legitimate `{ …, schema: X }` envelope — including the OpenAI `json_schema`
+  envelope this README documents — into a silent accept-all. Both were caught
+  pre-release; the unwrap now ships **exactly as in 1.10.2**. The stray-key
+  limitation is therefore unchanged and is tracked for its own release.
+  `agentContract` already refuses such a schema at construction, so gates are
+  unaffected.
 
 ## [1.10.2] — 2026-09-14
 

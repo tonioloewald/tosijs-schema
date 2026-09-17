@@ -329,41 +329,14 @@ var readProp = (o, k) => {
     return UNREADABLE;
   }
 };
-var warnedSchemaKey = false;
-var SCHEMA_ANNOTATIONS = new Set([
-  "title",
-  "description",
-  "default",
-  "examples",
-  "deprecated",
-  "readOnly",
-  "writeOnly"
-]);
-var SCHEMA_SHAPED_KEY = (k) => k !== "schema" && (ENFORCED_KEYWORDS.has(k) || k.startsWith("$") || k.startsWith("x-") || SCHEMA_ANNOTATIONS.has(k));
-var unwrap = (x) => {
-  if (x == null || typeof x !== "object" || !("schema" in x))
-    return x;
-  if (typeof x.validate === "function")
-    return x.schema;
-  const declaresSomething = ownKeys(x).some(SCHEMA_SHAPED_KEY);
-  if (declaresSomething) {
-    if (warningsEnabled && !warnedSchemaKey) {
-      warnedSchemaKey = true;
-      console.warn("[tosijs-schema] a schema carrying a stray `schema` key was passed. Using the " + "schema itself and IGNORING that key (did you mean `$schema`?). Silence with " + "setWarnings(false). Warns once per process.");
-    }
-    return x;
-  }
-  return x.schema;
-};
+var unwrap = (x) => x?.schema ?? x;
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 var warningsEnabled = true;
 var warnedOneOfCost = false;
 function setWarnings(on) {
   warningsEnabled = on;
-  if (on) {
+  if (on)
     warnedOneOfCost = false;
-    warnedSchemaKey = false;
-  }
 }
 var warnExpensive = () => {
   if (!warningsEnabled || warnedOneOfCost)

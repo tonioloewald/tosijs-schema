@@ -541,62 +541,30 @@ const readProp = (o: any, k: string): any => {
  * Schema never does. `agentContract` was hardened this way in 1.10.0; this is
  * the same fix on the core path.
  */
-let warnedSchemaKey = false
 /**
- * Unwrap a schema argument. Three shapes arrive here and they want different
- * things, so they are told apart by STRUCTURE rather than guessed at:
+ * Unwrap a builder to its plain schema.
  *
- * 1. a BUILDER (`s.object(...)`) — carries a `validate` method. Unwrap it.
- * 2. a JSON Schema with a STRAY `schema` key — carries real schema keywords
- *    too (`{ type:'object', required:[...], schema:true }`, usually a `$schema`
- *    typo). The key is noise: use the object itself and ignore it. Taking
- *    `x.schema` here is the 1.10.0 fail-open, where a restrictive declaration
- *    evaluated as the boolean schema `true`.
- * 3. a WRAPPER whose `schema` IS the schema and which declares nothing itself —
- *    `{ name:'extraction', strict:true, schema: MySchema.schema }`, the OpenAI
- *    `json_schema` envelope THIS README tells consumers to build, and fully
- *    JSON-serializable. Unwrap it.
+ * This is v1.10.2's behavior, deliberately RESTORED. v1.11.0 twice tried to
+ * make it smarter — first requiring a `validate` method, then discriminating
+ * wrapper-vs-stray-key by keyword shape — and each attempt turned a legitimate
+ * envelope into an accept-all gate, because an object that declares no
+ * enforceable keyword passes everything. Three consecutive review rounds
+ * blocked here; the honest move is to ship the known behavior rather than a
+ * third variant of a rule that has not converged.
  *
- * v1.11.0 briefly collapsed 2 and 3 into "use the object itself", which turned
- * that envelope into an accept-all gate — it declares no keyword, so every
- * applicator falls through and `validate` returns `true` for anything. That was
- * a REGRESSION from 1.10.2 and the reason this is structural now: a wrapper has
- * a `schema` key and no other recognized keyword; a stray-key schema always has
- * both.
+ * Known limitation, unchanged since 1.0 and now tracked in TODO.md: a plain
+ * JSON Schema carrying a stray `schema` key (usually a `$schema` typo) is
+ * REPLACED by that key's value. `agentContract` already refuses such a schema
+ * at construction, so the gate is unaffected; the fix for the lenient path is a
+ * discriminator keyed on ENFORCEMENT (does the outer object declare anything in
+ * ENFORCED_KEYWORDS? is `x.schema` an object or boolean?) rather than on a list
+ * of keyword names, and it belongs in its own release with its own review.
+ *
+ * Exported so `validate`, `filter` and `M.func` cannot drift apart — monad.ts
+ * read `.schema` directly until 1.11.0, which is how it kept its own copy of
+ * whatever policy the others had.
  */
-// Annotation keys are legal in a schema and declare no constraint, so their
-// presence still means "this object IS a schema" for shape-detection purposes.
-// Kept local (contract.ts has its own, richer list; importing it here would
-// pull the contract layer into the core bundle).
-const SCHEMA_ANNOTATIONS: ReadonlySet<string> = new Set([
-  'title', 'description', 'default', 'examples', 'deprecated', 'readOnly', 'writeOnly',
-])
-const SCHEMA_SHAPED_KEY = (k: string): boolean =>
-  k !== 'schema' &&
-  (ENFORCED_KEYWORDS.has(k) ||
-    k.startsWith('$') ||
-    k.startsWith('x-') ||
-    SCHEMA_ANNOTATIONS.has(k))
-
-export const unwrap = (x: any): any => {
-  if (x == null || typeof x !== 'object' || !('schema' in x)) return x
-  if (typeof (x as any).validate === 'function') return (x as any).schema // 1
-  const declaresSomething = ownKeys(x).some(SCHEMA_SHAPED_KEY)
-  if (declaresSomething) {
-    // 2 — a real schema wearing a stray key. Ignore the key, but say so once:
-    // if it turns out the caller meant shape 3, nothing would be enforced.
-    if (warningsEnabled && !warnedSchemaKey) {
-      warnedSchemaKey = true
-      console.warn(
-        '[tosijs-schema] a schema carrying a stray `schema` key was passed. Using the ' +
-          'schema itself and IGNORING that key (did you mean `$schema`?). Silence with ' +
-          'setWarnings(false). Warns once per process.'
-      )
-    }
-    return x
-  }
-  return (x as any).schema // 3
-}
+export const unwrap = (x: any): any => (x as any)?.schema ?? x
 
 const hasOwn = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
@@ -611,11 +579,8 @@ let warnedOneOfCost = false
 /** Enable/disable tosijs-schema's runtime cost warnings (default on). Process-global. */
 export function setWarnings(on: boolean): void {
   warningsEnabled = on
-  if (on) {
-    // re-arm so a re-enabled process warns again
-    warnedOneOfCost = false
-    warnedSchemaKey = false
-  }
+  // re-arm so a re-enabled process warns again
+  if (on) warnedOneOfCost = false
 }
 const warnExpensive = (): void => {
   if (!warningsEnabled || warnedOneOfCost) return

@@ -835,18 +835,6 @@ describe('fail-open sweep (v1.11.0)', () => {
     expect(gate.check('app.o', proposed, { root: 'app.o', proposed })).toBeInstanceOf(Error)
   })
 
-  test('a stray `schema` key no longer overrides the whole schema in validate/filter', () => {
-    // the duck-type unwrap took `x.schema` as THE schema, so a restrictive
-    // declaration carrying `schema: true` evaluated as accept-all. Reachable
-    // from a `$schema` typo in a wire schema.
-    const sneaky = { type: 'object', additionalProperties: false, required: ['a'], properties: { a: { type: 'string' } }, schema: true } as any
-    expect(validate(42, sneaky)).toBeFalse()
-    expect(validate({ b: 1 }, sneaky)).toBeFalse()
-    expect(validate({ a: 'ok' }, sneaky)).toBeTrue()
-    expect(filter({ nope: 1 }, sneaky)).toBeInstanceOf(Error)
-    // and a REAL builder still unwraps
-    expect(validate({ a: 'ok' }, s.object({ a: s.string }))).toBeTrue()
-  })
 
   test('prototype-chain keys are still ignored (not a regression of the 1.5.0 fix)', () => {
     const closed = { type: 'object', properties: { a: { type: 'number' } }, additionalProperties: false }
@@ -860,51 +848,22 @@ describe('fail-open sweep (v1.11.0)', () => {
 // introduced or missed — the sweep is only honest if its own edges are pinned.
 // ---------------------------------------------------------------------------
 describe('fail-open sweep — remediation (v1.11.0)', () => {
-  test('M.func unwraps builders through the SAME policy as validate', async () => {
-    // the third spelling of the unwrap (a bare `.schema` read) — missed by an
-    // enumeration that grepped for `?? `/`||` rather than asking "where does a
-    // builder get unwrapped?"
-    const wire = JSON.parse(
-      '{"type":"object","properties":{"a":{"type":"string"}},"required":["a"],"schema":true}'
-    )
-    const fn = M.func(wire as any, wire as any, (d: any) => d)
-    // the stray `schema` key must NOT turn this into an accept-all gate
-    await expect(fn(42 as any)).rejects.toThrow()
-    await expect(fn({ a: 'ok' } as any)).resolves.toEqual({ a: 'ok' })
-    // a real builder still works
-    const b = s.object({ a: s.string })
-    await expect(M.func(b, b, (d: any) => d)({ a: 'ok' })).resolves.toEqual({ a: 'ok' })
+  test('M.func unwraps through the SAME shared function as validate', () => {
+    // monad.ts read `.schema` directly until 1.11.0 — a third copy of the
+    // unwrap policy, which is how it kept whatever behavior the others had
+    // moved on from. The point of the shared `unwrap` is that the three cannot
+    // drift; the POLICY itself is deliberately v1.10.2's (see its JSDoc).
+    const inner = s.object({ a: s.string })
+    // a wrapper-shaped schema unwraps identically on both paths
+    const wrapper = { schema: inner.schema } as any
+    expect(validate({ a: 'ok' }, wrapper)).toBe(validate({ a: 'ok' }, inner.schema))
+    expect(validate(42, wrapper)).toBe(validate(42, inner.schema))
+    // and a real builder still works through M.func end to end
+    return M.func(inner, inner, (d: any) => d)({ a: 'ok' }).then((r: any) => {
+      expect(r).toEqual({ a: 'ok' })
+    })
   })
 
-  test('the WARNING now fires for the stray-key shape, not the wrapper', () => {
-    // Corrected in the second remediation round. Originally this warned for
-    // `{ schema: X }` and used the wrapper as the schema — which made the
-    // OpenAI json_schema envelope an accept-all gate. The shapes are told
-    // apart structurally now: a wrapper declares no keyword (unwrap it,
-    // silently, it is legitimate); a stray key sits on a real schema (ignore
-    // the key, and say so, because if the caller meant the other shape
-    // nothing would be enforced).
-    const warns: string[] = []
-    const orig = console.warn
-    console.warn = (m: string) => void warns.push(String(m))
-    try {
-      setWarnings(true)
-      // wrapper — unwraps, no warning, and ENFORCES
-      expect(validate('nope', { schema: { type: 'number' } } as any)).toBeFalse()
-      expect(validate(42, { schema: { type: 'number' } } as any)).toBeTrue()
-      expect(warns.length).toBe(0)
-      // stray key on a real schema — ignored, warns once per process
-      const stray = { type: 'number', schema: true } as any
-      expect(validate('nope', stray)).toBeFalse()
-      expect(warns.length).toBe(1)
-      expect(warns[0]).toContain('`schema` key')
-      validate(1, stray)
-      expect(warns.length).toBe(1)
-    } finally {
-      console.warn = orig
-      setWarnings(false)
-    }
-  })
 
   test('validate never throws on an UNREADABLE property — it fails closed', () => {
     const ap = { type: 'object', additionalProperties: { type: 'number' } }
@@ -935,35 +894,8 @@ describe('fail-open sweep — remediation (v1.11.0)', () => {
 })
 
 describe('v1.11.0 — second remediation round', () => {
-  test('the OpenAI json_schema envelope (our own README) still ENFORCES', () => {
-    // { name, strict, schema } — JSON-serializable, and what README's
-    // "LLM / OpenAI Integration" section tells consumers to build. v1.11.0
-    // briefly treated it as the schema ITSELF, and since it declares no
-    // keyword, every applicator fell through: accept-all, silently.
-    const My = s.object({ name: s.string })
-    const envelope = JSON.parse(JSON.stringify({ name: 'extraction', strict: true, schema: My.schema }))
-    expect(validate('garbage', envelope)).toBeFalse()
-    expect(validate({ name: 'ok' }, envelope)).toBeTrue()
-    expect(filter({ name: 'ok', junk: 1 }, envelope)).toEqual({ name: 'ok' })
-  })
 
-  test('a STRAY `schema` key is still ignored, not obeyed', () => {
-    // the opposite shape: a real schema that also carries `schema` (a $schema
-    // typo). Taking that key was the 1.10.0 fail-open.
-    const stray = { type: 'object', required: ['a'], properties: { a: { type: 'string' } }, additionalProperties: false, schema: true } as any
-    expect(validate(42, stray)).toBeFalse()
-    expect(validate({ b: 1 }, stray)).toBeFalse()
-    expect(validate({ a: 'x' }, stray)).toBeTrue()
-  })
 
-  test('the three schema-argument shapes are told apart by STRUCTURE', () => {
-    const My = s.object({ n: s.number })
-    expect(validate({ n: 1 }, My)).toBeTrue()                               // builder
-    expect(validate({ n: 1 }, { schema: My.schema } as any)).toBeTrue()     // wrapper
-    expect(validate('x', { schema: My.schema } as any)).toBeFalse()         // wrapper enforces
-    expect(validate('x', { type: 'string', schema: 1 } as any)).toBeTrue()  // stray key ignored
-    expect(validate(1, { type: 'string', schema: 1 } as any)).toBeFalse()
-  })
 
   test('format: email is LINEAR — a hostile value cannot stall the thread', () => {
     // /^\S+@\S+\.\S+$/ was quadratic (\S matches @ and .): 5.6s at 120KB,

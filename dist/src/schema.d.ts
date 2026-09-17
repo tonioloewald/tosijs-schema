@@ -194,6 +194,44 @@ type TinySchema = typeof methods & {
     any: Base<any>;
 };
 export declare const s: TinySchema;
+/**
+ * Unwrap a BUILDER to its plain schema — and only a builder.
+ *
+ * This was `(x as any)?.schema || x`, a duck-type, so a plain JSON Schema that
+ * happened to carry a `schema` key was silently REPLACED by that key's value:
+ * `validate(42, { type:'object', required:['a'], schema:true })` returned
+ * `true`, because the whole declaration became the boolean schema `true`. A
+ * restrictive schema evaluated as accept-all. `schema` is not a JSON Schema
+ * keyword, so nothing else flagged it, and the reachable route is the marketed
+ * one — a schema received over the wire, where a `$schema` typo produces it.
+ *
+ * A builder always carries a `validate` method (see `create` above); a JSON
+ * Schema never does. `agentContract` was hardened this way in 1.10.0; this is
+ * the same fix on the core path.
+ */
+/**
+ * Unwrap a builder to its plain schema.
+ *
+ * This is v1.10.2's behavior, deliberately RESTORED. v1.11.0 twice tried to
+ * make it smarter — first requiring a `validate` method, then discriminating
+ * wrapper-vs-stray-key by keyword shape — and each attempt turned a legitimate
+ * envelope into an accept-all gate, because an object that declares no
+ * enforceable keyword passes everything. Three consecutive review rounds
+ * blocked here; the honest move is to ship the known behavior rather than a
+ * third variant of a rule that has not converged.
+ *
+ * Known limitation, unchanged since 1.0 and now tracked in TODO.md: a plain
+ * JSON Schema carrying a stray `schema` key (usually a `$schema` typo) is
+ * REPLACED by that key's value. `agentContract` already refuses such a schema
+ * at construction, so the gate is unaffected; the fix for the lenient path is a
+ * discriminator keyed on ENFORCEMENT (does the outer object declare anything in
+ * ENFORCED_KEYWORDS? is `x.schema` an object or boolean?) rather than on a list
+ * of keyword names, and it belongs in its own release with its own review.
+ *
+ * Exported so `validate`, `filter` and `M.func` cannot drift apart — monad.ts
+ * read `.schema` directly until 1.11.0, which is how it kept its own copy of
+ * whatever policy the others had.
+ */
 export declare const unwrap: (x: any) => any;
 /** Enable/disable tosijs-schema's runtime cost warnings (default on). Process-global. */
 export declare function setWarnings(on: boolean): void;
