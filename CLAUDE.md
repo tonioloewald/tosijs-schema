@@ -5,11 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Related docs (read these too)
 
 - **`AGENTS.md`** — points to shared engineering practices at [tosijs-coding-practices](https://github.com/tonioloewald/tosijs-coding-practices) (checked out beside this repo at `../tosijs-coding-practices` when available). Those are the cross-project defaults; this repo's docs win on conflict. The practices docs are living documents — suggest improvements, don't rewrite unprompted.
+- **`DECISIONS.md`** — design records and decided-against notes (with reconsider-if triggers). Read before re-opening a settled question.
+- **Open work lives on the Virta board** (https://virta.tosijs.net/host/#?virta.scope=tosijs-schema), not in `TODO.md` (a prose pointer — never add list items to it, they'd re-import as tasks). `virta brief` / `virta ls` / `virta show #n`; the `virta` MCP server is registered in `.mcp.json`. `UPSTREAM.md` still mirrors filings on repos not on the board (tosijs, tjs-lang) — never file a board task for those, it enrolls them.
 - **`CONTEXT.md`** — the detailed architecture/usage doc for this library, maintained by hand and bundled (with generated `examples.md`) into `dist/context.md` for consumers via `make-context.ts`. Keep it in sync with behavioral changes.
 
 ## Commands
 
-Use **Bun** for everything (never node/npm/pnpm/vite — see `.cursor/rules/`).
+Use **Bun** for everything (never node/npm/pnpm/vite — see `.cursor/rules/`). Deliberate exception: `smoke.ts` shells out to `npm pack`/`npm install`, because npm is what publishes and the lane must test npm's `files` packing. The build Bun is pinned in `.bun-version`; `pack` refuses any other (`check-bun`), because committed `dist/` must reproduce byte-for-byte in CI.
 
 ```sh
 bun test                        # run all tests
@@ -73,4 +75,4 @@ String `format` validators (`email`/`uri`/`date-time`/…) plus `ENFORCED_FORMAT
 
 **Pushing:** the owner's standing rule is **when in doubt, push** — `git push` (incl. tags) is fine to run once work is committed and green. The *only* reason to hold back is if a push could break a live **GitHub Pages demo** (a repo whose `main`/`gh-pages` auto-deploys a hosted site); check for that first (`.github/workflows`, `CNAME`, the Pages API) and flag it rather than pushing blind. Neither this repo nor `tosijs-coding-practices` has Pages, so pushes here are unconditionally safe.
 
-**Publishing stays human-only.** Never run `npm publish`/`bun publish` yourself — npm's 2FA/OTP flow needs the maintainer. Stop after commit + tag and hand off the publish.
+**Publishing is OIDC staged, via `.github/workflows/publish.yml`** (practice: `../tosijs-coding-practices/practices/publishing-via-oidc.md`). Never run `npm publish`/`bun publish` locally. The flow: commit + `bun run pack` + drift gate → tag `vX.Y.Z` and push → `gh workflow run publish.yml -f tag=vX.Y.Z` (it rebuilds, proves every shipped file reproduces, smoke-tests the tarball, runs release-doctor, then `npm stage publish`) → **the owner approves the staged package with 2FA** at npmjs.com → Staged Packages; the run then verifies what shipped and smoke-tests the registry copy. Agents may trigger the workflow; the approval is human-only. `-f dry_run=true` exercises everything short of staging (use it after changing the build or the workflow); `-f verify_only=true` re-checks an already-published version.
