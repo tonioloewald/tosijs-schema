@@ -17,16 +17,16 @@ reviewer leads — sanity-check before acting).
 - [x] Closed issues #1 and #2 naming v1.5.0 (2026-08-07).
 - [x] Pushed `../tosijs-coding-practices` (2026-08-07).
 - [x] Updated the KB scoreboard row to published (2026-08-07).
-- [ ] Verify tosijs's dependency pin picks up 1.5.0 (its `one-user-interface`
+- [x] Verify tosijs's dependency pin picks up 1.5.0 **DONE** (tosijs now pins `^1.6.0`, verified 2026-09-26) — (its `one-user-interface`
   contract suite passed 24/24 against this tree pre-release).
 
 ## Correctness
 
-- [ ] *(unverified)* `additionalProperties: false` sweep uses `for..in`, so
+- [x] *(unverified)* `additionalProperties: false` sweep uses `for..in`, so **DONE** (fixed in 1.11.0 — every data walk uses own-key enumeration incl. non-enumerables) —
   non-enumerable own properties escape the `Unexpected` refusal — reachable
   only via live JS objects, not JSON. Use `Object.getOwnPropertyNames` or
   document that `proposed` must be JSON-clean.
-- [ ] Implement real multi-type `type` array semantics (membership across
+- [x] Implement real multi-type `type` array semantics **DONE** (shipped in 1.6.0; verified 2026-09-14) — (membership across
   entries) and deep-equality `const`/`enum`, then relax the corresponding
   construction refusals in `agentContract`.
 
@@ -65,7 +65,7 @@ reviewer leads — sanity-check before acting).
   module-level cache keyed by pattern+flags — kills the duplicated compile
   expression (schema.ts/contract.ts) and the per-value hot-path compile.
 
-- [ ] *(unverified)* Builder-unwrap idiom in 3 places with drifted semantics
+- [x] *(unverified)* Builder-unwrap idiom in 3 places **DONE** (1.11.0 — one exported `unwrap` used by validate, filter and M.func) — with drifted semantics
   (`?? ` in contract.ts vs `||` in validate/filter). Export one `toPlain()`
   from src/schema.ts and use everywhere.
 - [ ] *(unverified)* "validate and collect reasons" duplicated in `check()`
@@ -129,7 +129,7 @@ reviewer leads — sanity-check before acting).
 - [x] Commented on tosijs#25 (type-conformance test ask + vestigial `value`
   arg) and tjs-lang#26 (both `$predicate` dialects) — 2026-08-06.
 
-- [ ] *(unverified)* filterData's anyOf branch skips sibling applicators —
+- [x] *(unverified)* filterData's anyOf branch skips sibling applicators **DONE** (duplicate of the *(confirmed by probe)* item above) — —
   filter can error where validate accepts the stripped result. Mirror
   validate's fall-through; add a test.
 - [ ] *(unverified)* filter() does 3-4 validation passes per anyOf item;
@@ -197,12 +197,14 @@ review (KB commits `50580f9`, `f8e3cac`); all three ticked:
   away from the deprecated `s.infer`.
 
 **KB write-back log** (reviewed-repo `base..sha` → KB commit):
-- v1.6.0 review (`v1.5.1..142e007`) → KB `50580f9`.
-- v1.7.0 review (`v1.6.1..894b3ff`) → KB `f8e3cac` (1.7.0 positive citation, infer
+```
+v1.6.0 review (`v1.5.1..142e007`) → KB `50580f9`.
+v1.7.0 review (`v1.6.1..894b3ff`) → KB `f8e3cac` (1.7.0 positive citation, infer
   subpath size fix).
-- v1.8.0 review (`v1.7.0..0da18e9`) → KB `58ece17` (break-frequency
+v1.8.0 review (`v1.7.0..0da18e9`) → KB `58ece17` (break-frequency
   ship-now-cannot-batch; generate-your-own-numbers + make-coverage.ts;
   decided-against-note lesson; fail-open enumerator pattern; scoreboard → 1.8.0).
+```
 
 ## ~~Decided: no `oneOf` support~~ — SUPERSEDED by v1.8.0 (2026-08-23)
 
@@ -368,16 +370,17 @@ Three facts decide the shape:
 
 So it is a scoping decision, shaped like the allowlist -> refuse -> enumerate
 pattern already in the codebase:
-- **`validate`: no change.** We cannot fix it correctly and any change is
+The decision, as prose (these are one task's design, not four tasks):
+**`validate`: no change.** We cannot fix it correctly and any change is
   breaking. Document that `pattern` runs a consumer-supplied regex against
   consumer-supplied data, neither sandboxed.
-- **`agentContract`: refuse** patterns failing a cheap static screen at
+**`agentContract`: refuse** patterns failing a cheap static screen at
   construction — the gate already refuses unenforced keywords, unenforced
   formats, invalid regexes and uncapped tuple `items`; it can afford strictness,
   and it is where untrusted schemas actually arrive.
-- **Export the screen** so consumers can lint their own schemas (the enumerate
+**Export the screen** so consumers can lint their own schemas (the enumerate
   tier, same shape as `unenforcedKeywords`).
-- **Document the false negatives.**
+**Document the false negatives.**
 
 Gate tightening + additive export = a minor. Could ride the fail-open sweep above.
 
@@ -442,7 +445,7 @@ constructor option the values a parsed-JSON config can produce.
 
 Remaining:
 
-- [ ] *(docs)* State the accepted path grammar in the `affectedRoots` JSDoc + README —
+- [x] *(docs)* State the accepted path grammar **DONE** (duplicate of the *(security/dx)* grammar item; the matcher's real grammar was documented in 1.10.0) — in the `affectedRoots` JSDoc + README —
   and specifically that an *unquoted* bracket body is an array index or
   `[idPath=value]` lookup, **never** a property key, in tosijs's grammar. Two competent
   reviewers read that opposite ways inside one review cycle, which is the evidence the
@@ -452,7 +455,7 @@ Remaining:
 - [x] *(DECIDED 2026-09-14 — NOT in describe())* `describe()` is keyed by caller-supplied root names, so any posture key could COLLIDE with a real root (a root named `unknownPath` is legal). A sibling member is the right shape but adding a required interface member breaks implementers, so it waits for a minor. Rationale recorded in the JSDoc. Original note
   contract is byte-identical whether built `'allow'` or `'refuse'`, so the remote side
   still cannot tell which `true` it will get — #10's ambiguity moved one hop out.
-- [ ] *(dx)* `affectedRoots` returns a fresh mutable array of internal root names;
+- [x] *(dx)* `affectedRoots` returns a fresh mutable array **DONE** (DECIDED 2026-09-14: fresh caller-mutable copy, documented and verified) — of internal root names;
   decide whether that shape is frozen public surface and note it in the JSDoc.
 - [ ] *(process, for the AAR — do not root-cause inline)* 1.8.0, 1.9.0, 1.9.1 and
   1.10.0 each closed an `agentContract` path fail-open found only by a review pass.
@@ -506,7 +509,7 @@ Remaining:
   "filename" and the gate dies with an opaque `renameSync ENOENT`. Parse stdout only and
   pack straight to the scratch dir (`--pack-destination`, which also kills the repo-root
   `.tgz` and the cross-filesystem rename risk).
-- [ ] *(dx)* Decide whether `describe()` should carry the gate's posture: a serialized
+- [x] *(dx)* Decide whether `describe()` should carry the gate's posture **DONE** (DECIDED 2026-09-14: not in describe() — key-collision risk; rationale in the JSDoc) —: a serialized
   contract is byte-identical whether built `'allow'` or `'refuse'`, so the remote side
   still cannot tell which `true` it will get — #10's ambiguity moved one hop out.
 - [x] *(DECIDED 2026-09-14)* `affectedRoots` returns a fresh mutable copy, now documented as safe to mutate — verified that tampering with the returned array cannot affect the gate. Original note
@@ -587,7 +590,7 @@ GO, no blockers, 281 pass. Three findings; two fixed pre-tag, one deferred.
 - [x] **[docs] Added `filter()` to the README "Upgrading to 1.9.0" note** — it
   re-validates its stripped result, so `maxProperties` now applies there too
   (over-ceiling dict → `Error` where 1.8.x returned the data).
-- [ ] *(efficiency — confirmed, deferred)* Bounded dictionaries
+- [x] *(efficiency — confirmed, deferred)* Bounded dictionaries **DONE** (KEEP-DECISION 2026-09-14: not doing it — see the recorded rationale) —
   (`additionalProperties` + `maxProperties`) now enumerate keys twice per
   `validate`: once in the count loop (`src/schema.ts`) and again to build the
   stride-sampling `keys` array. Asymptotically unchanged and cheap, but it's a

@@ -3,7 +3,7 @@
 Issues filed on other repos from findings in this one (per the shared
 practices: file, don't fix — never edit the other repo from here).
 
-- [tosijs#25](https://github.com/tonioloewald/tosijs/issues/25) — Agent
+- ✅ [tosijs#25](https://github.com/tonioloewald/tosijs/issues/25) — Agent
   surface: pin the seam guarantee that contracted-root writes always carry a
   proposal (tosijs-side test). Companion to tosijs-schema 1.5.0's fail-closed
   hardening of `agentContract.check()` (missing proposal ⇒ protocol-breach
@@ -24,7 +24,7 @@ practices: file, don't fix — never edit the other repo from here).
   the nudge is now **once-per-process** (not keyed on schema-object identity),
   so #32 is now purely about the VM's cost/fuel-metering needs, not the warning.
 
-## Resolved / no issue filed
+## RESOLVED — no issue filed
 
 - **Bun `--outfile` build glitch** (seen while verifying a standalone build during
   the 1.8.0 work): fixed upstream in Bun 1.4; no issue filed. Left here so a future
