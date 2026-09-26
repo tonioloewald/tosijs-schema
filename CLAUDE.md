@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **`AGENTS.md`** — points to shared engineering practices at [tosijs-coding-practices](https://github.com/tonioloewald/tosijs-coding-practices) (checked out beside this repo at `../tosijs-coding-practices` when available). Those are the cross-project defaults; this repo's docs win on conflict. The practices docs are living documents — suggest improvements, don't rewrite unprompted.
 - **`DECISIONS.md`** — design records and decided-against notes (with reconsider-if triggers). Read before re-opening a settled question.
-- **Open work lives on the Virta board** (https://virta.tosijs.net/host/#?virta.scope=tosijs-schema), not in `TODO.md` (a prose pointer — never add list items to it, they'd re-import as tasks). `virta brief` / `virta ls` / `virta show #n`; the `virta` MCP server is registered in `.mcp.json`. `UPSTREAM.md` still mirrors filings on repos not on the board (tosijs, tjs-lang) — never file a board task for those, it enrolls them.
+- **Open work lives on the Virta board** (https://virta.tosijs.net/host/#?virta.scope=tosijs-schema), not in `TODO.md` (a prose pointer — never add list items to it, they'd re-import as tasks). `virta brief` / `virta ls` / `virta show #n`; the `virta` MCP server is registered in `.mcp.json`. `UPSTREAM.md` mirrors filings on other repos. tjs-lang is now on the board (file there: `virta create … --project tjs-lang`); tosijs is not — never file a board task for a repo not on the board, it enrolls it. Check `virta projects` first.
 - **`CONTEXT.md`** — the detailed architecture/usage doc for this library, maintained by hand and bundled (with generated `examples.md`) into `dist/context.md` for consumers via `make-context.ts`. Keep it in sync with behavioral changes.
 
 ## Commands
@@ -27,7 +27,7 @@ bun run pack                    # full pipeline: tests + typecheck + bench + exa
 
 ## What this library is
 
-A ~8kB-gzipped (tree-shakeable) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required (`.open` / `s.object(props, { additionalProperties: true })` opts a single object into admitting unknown keys, for protocols you don't control).
+A ~9kB-gzipped (tree-shakeable) **schema-first** validation library: plain JSON Schema objects are the source of truth; TypeScript types are inferred from them (`Infer<typeof Schema>`). It is validation-only — no coercion, no `z.transform()`-style logic, ever. Strict by default: objects get `additionalProperties: false` and all keys required (`.open` / `s.object(props, { additionalProperties: true })` opts a single object into admitting unknown keys, for protocols you don't control).
 
 Public API is `index.ts` re-exporting `src/schema.ts`, `src/monad.ts`, `src/contract.ts`, and `src/infer.ts`. `sideEffects: false` + per-concern modules make named imports tree-shakeable; `inferSchema` is also a self-contained `tosijs-schema/infer` subpath (~1.5kB), built separately in `pack`. Its only runtime dependency is the tiny `src/formats.ts` (shared format predicates); keep it that way — pulling in `schema.ts` would blow up the subpath.
 

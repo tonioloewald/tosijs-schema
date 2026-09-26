@@ -7,7 +7,7 @@
  * package, so the core consuming it can stay zero-dependency.
  */
 import {
-  validate,
+  validateResolved,
   isBuilder,
   getPredicateEvaluator,
   ENFORCED_FORMATS,
@@ -573,7 +573,7 @@ export const agentContract = (
       const reasons: string[] = []
       let ok: boolean
       try {
-        ok = validate(proposal.proposed, schema, {
+        ok = validateResolved(proposal.proposed, schema, {
           strict,
           onError: (errAt, msg) => void reasons.push(`${errAt}: ${msg}`),
         })
@@ -682,7 +682,7 @@ export function checkExamples(schemaOrBuilder: SchemaLike): ExampleFinding[] {
         const reasons: string[] = []
         let ok: boolean
         try {
-          ok = validate(example, s, {
+          ok = validateResolved(example, s, {
             strict: true,
             onError: (p, m) => void reasons.push(`${p}: ${m}`),
           })
@@ -714,7 +714,7 @@ export function checkExamples(schemaOrBuilder: SchemaLike): ExampleFinding[] {
       s.$counterexamples.forEach((counter: unknown, index: number) => {
         let passes: boolean
         try {
-          passes = validate(counter, s, { strict: true })
+          passes = validateResolved(counter, s, { strict: true })
         } catch {
           passes = false // a throw is a refusal — the counterexample held
         }

@@ -62,7 +62,8 @@ __export(exports_tosijs_schema, {
   setWarnings: () => setWarnings,
   unenforcedKeywords: () => unenforcedKeywords,
   unwrap: () => unwrap,
-  validate: () => validate
+  validate: () => validate,
+  validateResolved: () => validateResolved
 });
 module.exports = __toCommonJS(exports_tosijs_schema);
 
@@ -137,7 +138,7 @@ var create = (s, optional = false) => ({
   schema: s,
   _type: null,
   _optional: optional,
-  validate: (data, opts) => validate(data, s, opts),
+  validate: (data, opts) => validateResolved(data, s, opts),
   get optional() {
     const out = { ...s };
     if (s.type !== undefined) {
@@ -212,8 +213,12 @@ function getPredicateEvaluator() {
   return predicateEvaluator;
 }
 var assertBuilder = (x, where) => {
-  if (!isBuilder(x))
-    throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? "an array" : typeof x === "object" && x ? "a plain schema" : x}`);
+  let ok = false;
+  try {
+    ok = isBuilder(x);
+  } catch {}
+  if (!ok)
+    throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? "an array" : typeof x === "object" && x ? "a plain schema" : String(x)}`);
 };
 var methods = {
   get email() {
@@ -256,7 +261,7 @@ var methods = {
   }),
   union: (schemas) => {
     if (!Array.isArray(schemas))
-      assertBuilder(schemas, "s.union([...])");
+      throw new TypeError("s.union expects an array of builders: s.union([s.string, s.number])");
     schemas.forEach((b, i) => assertBuilder(b, `s.union: schemas[${i}]`));
     return create({ anyOf: schemas.map((s) => s.schema) });
   },
@@ -268,7 +273,7 @@ var methods = {
   },
   tuple: (items) => {
     if (!Array.isArray(items))
-      assertBuilder(items, "s.tuple([...])");
+      throw new TypeError("s.tuple expects an array of builders: s.tuple([s.string, s.number])");
     items.forEach((b, i) => assertBuilder(b, `s.tuple: items[${i}]`));
     return create({
       type: "array",
@@ -426,6 +431,15 @@ var objectKeywordsPresent = (s) => s.properties !== undefined || s.required !== 
 var arrayKeywordsPresent = (s) => s.items !== undefined || s.minItems !== undefined || s.maxItems !== undefined;
 function validate(val, builderOrSchema, opts) {
   const schema = unwrap(builderOrSchema);
+  if (schema === AMBIGUOUS) {
+    const onError = typeof opts === "function" ? opts : opts?.onError;
+    if (onError)
+      onError("root", AMBIGUOUS_MESSAGE);
+    return false;
+  }
+  return validateResolved(val, schema, opts);
+}
+function validateResolved(val, schema, opts) {
   const onError = typeof opts === "function" ? opts : opts?.onError;
   const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const path = [];
@@ -434,8 +448,6 @@ function validate(val, builderOrSchema, opts) {
       onError(path.join(".") || "root", msg);
     return false;
   };
-  if (schema === AMBIGUOUS)
-    return err(AMBIGUOUS_MESSAGE);
   const walk = (v, s) => {
     if (s === true)
       return true;
@@ -444,7 +456,7 @@ function validate(val, builderOrSchema, opts) {
     if (Array.isArray(s.anyOf)) {
       let matched = false;
       for (const sub of s.anyOf) {
-        if (validate(v, sub, { strict: fullScan })) {
+        if (validateResolved(v, sub, { strict: fullScan })) {
           matched = true;
           break;
         }
@@ -456,7 +468,7 @@ function validate(val, builderOrSchema, opts) {
       warnExpensive();
       let matches = 0;
       for (const sub of s.oneOf) {
-        if (validate(v, sub, { strict: fullScan })) {
+        if (validateResolved(v, sub, { strict: fullScan })) {
           matches++;
           if (matches > 1)
             break;
@@ -666,7 +678,7 @@ function filter(data, builderOrSchema, opts) {
     };
     let valid;
     try {
-      valid = validate(filtered, schema, { onError: captureError, fullScan });
+      valid = validateResolved(filtered, schema, { onError: captureError, fullScan });
     } catch (e) {
       return new Error(`internal validation error: ${e.message}`);
     }
@@ -684,7 +696,7 @@ function filterData(data, schema, fullScan = false) {
     for (const sub of schema.anyOf) {
       const candidate = filterData(data, sub, fullScan);
       try {
-        if (validate(candidate, sub, { strict: fullScan }))
+        if (validateResolved(candidate, sub, { strict: fullScan }))
           return candidate;
       } catch {}
     }
@@ -694,7 +706,7 @@ function filterData(data, schema, fullScan = false) {
     const origMatches = [];
     for (const sub of schema.oneOf) {
       try {
-        if (validate(data, sub, { strict: fullScan }))
+        if (validateResolved(data, sub, { strict: fullScan }))
           origMatches.push(sub);
       } catch {}
       if (origMatches.length > 1)
@@ -720,7 +732,7 @@ function filterData(data, schema, fullScan = false) {
       const candidate = filterData(data, sub, fullScan);
       let ok = false;
       try {
-        ok = validate(candidate, sub, { strict: fullScan });
+        ok = validateResolved(candidate, sub, { strict: fullScan });
       } catch {}
       if (!ok)
         continue;
@@ -899,7 +911,7 @@ class M {
     if (unwrap(outputSchema) === AMBIGUOUS)
       throw new TypeError(`M.func output: ${AMBIGUOUS_MESSAGE}`);
     const wrapper = async (data) => {
-      const validIn = validate(data, unwrap(inputSchema), { fullScan: true });
+      const validIn = validateResolved(data, unwrap(inputSchema), { fullScan: true });
       if (!validIn) {
         throw new SchemaError("Input", "Anonymous", ["Input schema mismatch"]);
       }
@@ -918,7 +930,7 @@ class M {
       } finally {
         clearTimeout(timer);
       }
-      const validOut = validate(result, unwrap(outputSchema), { fullScan: true });
+      const validOut = validateResolved(result, unwrap(outputSchema), { fullScan: true });
       if (!validOut) {
         throw new SchemaError("Output", "Anonymous", ["Output schema mismatch"]);
       }
@@ -1225,7 +1237,7 @@ var agentContract = (schemas, options) => {
       const reasons = [];
       let ok;
       try {
-        ok = validate(proposal.proposed, schema, {
+        ok = validateResolved(proposal.proposed, schema, {
           strict,
           onError: (errAt, msg) => void reasons.push(`${errAt}: ${msg}`)
         });
@@ -1295,7 +1307,7 @@ function checkExamples(schemaOrBuilder) {
         const reasons = [];
         let ok;
         try {
-          ok = validate(example, s, {
+          ok = validateResolved(example, s, {
             strict: true,
             onError: (p, m) => void reasons.push(`${p}: ${m}`)
           });
@@ -1325,7 +1337,7 @@ function checkExamples(schemaOrBuilder) {
       s.$counterexamples.forEach((counter, index) => {
         let passes;
         try {
-          passes = validate(counter, s, { strict: true });
+          passes = validateResolved(counter, s, { strict: true });
         } catch {
           passes = false;
         }

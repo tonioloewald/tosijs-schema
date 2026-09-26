@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.12.0] — 2026-09-26
 
 **Contains BREAKING validation changes.** See README "Upgrading to 1.12.0".
 
@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **Migration:** a wrapper such as the OpenAI `{ name, strict, schema }`
     envelope used to unwrap; pass `envelope.schema` instead. A stray key
     (usually a `$schema` typo): delete it.
+  - The refusal applies only to the argument a caller passes. Inside a
+    schema tree a `schema` key stays an ignored unknown keyword at every depth
+    (union branches included), and a builder whose schema carries one (e.g.
+    via `.meta()`) still works everywhere.
+  - **`unwrap` (public since 1.11.0) changed contract:** it can now return the
+    internal `AMBIGUOUS` sentinel instead of a schema. If you call it, check
+    `isBuilder(x)` first or pass the schema itself.
 - **Builder combinators refuse a plain schema** (board #1391).
   `s.array({ type: 'string' })` read `.schema` off a plain object, got
   `undefined`, and silently built `{ type: 'array' }` — no `items`, so every
@@ -34,6 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `as any` and deserialized config.
   - **Migration:** pass a builder (`s.string`, not `{ type: 'string' }`), or
     drop the builder entirely and validate against the plain schema.
+
+### Added
+
+- `BUILDER` (the `Symbol.for('tosijs-schema.builder')` brand) and
+  `isBuilder(x)`. Internal helpers (`validateResolved`, `AMBIGUOUS`,
+  `AMBIGUOUS_MESSAGE`) are marked `@internal` and stripped from the
+  published types.
+
+### Size
+
+The brand, the refusal paths and the five combinator guards cost about
++0.3 kB gzipped on `validate`/`s` and +0.4 kB for the whole library
+(8.4 → 8.8 kB) — see README "Tree-shaking & bundle size".
 
 ## [1.11.0] — 2026-09-26
 

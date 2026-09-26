@@ -207,9 +207,6 @@ type TinySchema = typeof methods & {
     any: Base<any>;
 };
 export declare const s: TinySchema;
-/** @internal Sentinel: `unwrap` could not tell what it was handed. Never a schema. */
-export declare const AMBIGUOUS: symbol;
-export declare const AMBIGUOUS_MESSAGE = "ambiguous: has a `schema` key but is not a builder \u2014 pass the schema itself (e.g. envelope.schema)";
 /**
  * Resolve what `validate` / `filter` / `M.func` were handed into a schema.
  *

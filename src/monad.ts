@@ -1,4 +1,4 @@
-import { type Base, type Infer, validate, unwrap, AMBIGUOUS, AMBIGUOUS_MESSAGE } from './schema'
+import { type Base, type Infer, validateResolved, unwrap, AMBIGUOUS, AMBIGUOUS_MESSAGE } from './schema'
 
 // Errors
 
@@ -76,7 +76,7 @@ export class M<R extends Record<string, GuardedFunc<any, any>>> {
     if (unwrap(outputSchema) === AMBIGUOUS) throw new TypeError(`M.func output: ${AMBIGUOUS_MESSAGE}`)
     const wrapper = async (data: Infer<I>) => {
       // 1. Input Validation
-      const validIn = validate(data, unwrap(inputSchema), { fullScan: true })
+      const validIn = validateResolved(data, unwrap(inputSchema), { fullScan: true })
       if (!validIn) {
         throw new SchemaError('Input', 'Anonymous', ['Input schema mismatch'])
       }
@@ -100,7 +100,7 @@ export class M<R extends Record<string, GuardedFunc<any, any>>> {
       }
 
       // 3. Output Validation
-      const validOut = validate(result, unwrap(outputSchema), { fullScan: true })
+      const validOut = validateResolved(result, unwrap(outputSchema), { fullScan: true })
       if (!validOut) {
         throw new SchemaError('Output', 'Anonymous', ['Output schema mismatch'])
       }

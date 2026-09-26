@@ -1,6 +1,6 @@
 import { describe, test, expect, afterAll } from 'bun:test'
 import { s, validate, diff, filter, setWarnings, BUILDER, isBuilder } from './schema'
-import { agentContract } from './contract'
+import { agentContract, checkExamples } from './contract'
 import { M } from './monad'
 
 // oneOf validation emits a once-per-process cost warning; silence it so the
@@ -1009,8 +1009,11 @@ describe('builder construction: plain schema where a builder belongs (v1.12.0)',
   test('s.union / s.tuple name the offending index', () => {
     expect(() => s.union([s.string, plainStr])).toThrow(/s\.union: schemas\[1\]/)
     expect(() => s.tuple([plainStr] as any)).toThrow(/s\.tuple: items\[0\]/)
-    expect(() => s.union(plainStr)).toThrow(/s\.union\(\[\.\.\.\]\): expected a builder/)
-    expect(() => s.tuple(plainStr)).toThrow(/s\.tuple\(\[\.\.\.\]\): expected a builder/)
+    expect(() => s.union(plainStr)).toThrow(/s\.union expects an array of builders/)
+    expect(() => s.tuple(plainStr)).toThrow(/s\.tuple expects an array of builders/)
+    // a lone BUILDER (the likely slip) must not reach a raw `forEach` TypeError
+    expect(() => s.union(s.string as any)).toThrow(/s\.union expects an array of builders/)
+    expect(() => s.tuple(s.string as any)).toThrow(/s\.tuple expects an array of builders/)
   })
 
   test('s.record keeps its null message and refuses a plain schema', () => {
@@ -1024,6 +1027,11 @@ describe('builder construction: plain schema where a builder belongs (v1.12.0)',
     expect(() => s.array([s.string] as any)).toThrow(/not an array/)
   })
 
+  test('a throwing Proxy gets the named error, not its own', () => {
+    const hostile = new Proxy({}, { has() { throw new Error('boom') }, get() { throw new Error('boom') } })
+    expect(() => s.array(hostile as any)).toThrow(/s\.array\(items\): expected a builder/)
+  })
+
   test('real builders — incl. chained and pre-brand ones — still compose', () => {
     const legacy = { schema: { type: 'number' }, validate: () => true } as any
     const b = s.object({
@@ -1034,5 +1042,44 @@ describe('builder construction: plain schema where a builder belongs (v1.12.0)',
     })
     expect(b.validate({ a: ['x'], b: null, c: ['x', 1] })).toBeTrue()
     expect(b.validate({ a: [''], b: null, c: ['x', 1] })).toBeFalse()
+  })
+})
+
+// v1.12.0 review: the ambiguity refusal is about what a CALLER hands the public
+// entry points. Internal re-entry (union branches, filter's re-validation, a
+// builder's own .validate, M.func, agentContract, checkExamples) works on an
+// already-resolved schema, where a `schema` key is just an unknown keyword.
+describe('ambiguity refusal is root-argument-only (v1.12.0 review)', () => {
+  test('a builder whose schema carries a `schema` key works on every path', async () => {
+    const b = s.object({ a: s.string }).meta({ schema: 'x' })
+    expect(b.validate({ a: 'ok' })).toBeTrue()
+    expect(b.validate({ a: 1 })).toBeFalse()
+    expect(validate({ a: 'ok' }, b)).toBeTrue()
+    expect(filter({ a: 'ok', junk: 1 }, b)).toEqual({ a: 'ok' })
+    expect(await M.func(b, b, (d: any) => d)({ a: 'ok' })).toEqual({ a: 'ok' })
+    // the gate is stricter by design: `schema` is not an enforced keyword, so
+    // its allowlist refuses it at construction (loudly), builder or not
+    expect(() => agentContract({ r: b })).toThrow(/root\.schema/)
+  })
+
+  test('a nested `schema` key is ignored at EVERY position, not just some', () => {
+    const stray = { type: 'string', schema: true }
+    expect(validate('x', { anyOf: [stray] })).toBeTrue()
+    expect(validate(1, { anyOf: [stray] })).toBeFalse()
+    expect(validate('x', { oneOf: [stray] })).toBeTrue()
+    expect(validate({ a: 'x' }, { type: 'object', properties: { a: stray } })).toBeTrue()
+    expect(validate(['x'], { type: 'array', items: stray })).toBeTrue()
+    expect(filter('x', { anyOf: [stray] })).toBe('x')
+  })
+
+  test('checkExamples judges a nested stray-key node by its real constraints', () => {
+    const problems = checkExamples({
+      type: 'object',
+      properties: { a: { type: 'string', schema: true, examples: ['x'], $counterexamples: [5] } },
+    } as any)
+    expect(problems).toEqual([])
+    // a counterexample the node really accepts is still flagged (1.11.0 did; it must not go silent)
+    const lying = checkExamples({ type: 'string', schema: true, $counterexamples: ['ok-string'] } as any)
+    expect(lying.length).toBe(1)
   })
 })

@@ -12,8 +12,9 @@ Everything this file used to list was imported onto the board on
 2026-09-26 by `virta onboard`. Each card's Source link points at the line it
 came from, and `git log -p TODO.md` keeps the full history. Design records
 and decided-against notes moved to `DECISIONS.md`. Work filed on other repos
-is still mirrored in `UPSTREAM.md`, since tosijs and tjs-lang are not on the
-board.
+is mirrored in `UPSTREAM.md`. Check `virta projects` before filing: a repo on
+the board (tjs-lang is, as of 2026-09-26) gets a board task, and one that is
+not (tosijs) gets a GitHub issue, because a board task would enroll it.
 
 (This file is prose on purpose: a list item here would be imported as a
 task.)

@@ -23,6 +23,12 @@ practices: file, don't fix — never edit the other repo from here).
   cost warning re-spammed wire-parsed-per-request schemas is resolved in-repo —
   the nudge is now **once-per-process** (not keyed on schema-object identity),
   so #32 is now purely about the VM's cost/fuel-metering needs, not the warning.
+- [tjs-lang#58](https://github.com/tonioloewald/tjs-lang/issues/58) (board #2416) — tjs-lang keeps
+  local `x?.schema ?? x` unwraps, so tosijs-schema 1.12.0's #1390 fix (branded
+  builders; ambiguous `{schema}` shapes refused) doesn't reach tjs users, and
+  `Type('x', { name, schema })` wrappers now fail closed. Suggests switching to
+  the exported `isBuilder`. Filed 2026-09-26 from the v1.12.0 pre-release review
+  (tjs-lang's suite passes unchanged against 1.12.0).
 
 ## RESOLVED — no issue filed
 

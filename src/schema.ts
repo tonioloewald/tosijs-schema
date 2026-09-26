@@ -37,7 +37,7 @@ const create = (s: any, optional = false): any => ({
   schema: s,
   _type: null as any,
   _optional: optional,
-  validate: (data: any, opts?: any) => validate(data, s, opts),
+  validate: (data: any, opts?: any) => validateResolved(data, s, opts),
 
   // --- Modifiers ---
   get optional() {
@@ -350,7 +350,11 @@ export interface Obj<T> extends Base<T> {
  * deserialized config do not. Fail loudly, naming the argument.
  */
 const assertBuilder = (x: any, where: string): void => {
-  if (!isBuilder(x)) throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? 'an array' : typeof x === 'object' && x ? 'a plain schema' : x}`)
+  let ok = false
+  try {
+    ok = isBuilder(x)
+  } catch {} // a throwing Proxy/getter still gets the named error below
+  if (!ok) throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? 'an array' : typeof x === 'object' && x ? 'a plain schema' : String(x)}`)
 }
 
 const methods = {
@@ -397,7 +401,7 @@ const methods = {
     }) as Str,
 
   union: <T extends Base<any>[]>(schemas: T) => {
-    if (!Array.isArray(schemas)) assertBuilder(schemas, 's.union([...])')
+    if (!Array.isArray(schemas)) throw new TypeError('s.union expects an array of builders: s.union([s.string, s.number])')
     schemas.forEach((b, i) => assertBuilder(b, `s.union: schemas[${i}]`))
     return create({ anyOf: schemas.map((s) => s.schema) }) as Base<Infer<T[number]>>
   },
@@ -415,7 +419,7 @@ const methods = {
 
   // FIX: 'readonly' added to generic constraint to force tuple inference
   tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => {
-    if (!Array.isArray(items)) assertBuilder(items, 's.tuple([...])')
+    if (!Array.isArray(items)) throw new TypeError('s.tuple expects an array of builders: s.tuple([s.string, s.number])')
     items.forEach((b, i) => assertBuilder(b, `s.tuple: items[${i}]`))
     return create({
       type: 'array',
@@ -572,6 +576,7 @@ const readProp = (o: any, k: string): any => {
 /** @internal Sentinel: `unwrap` could not tell what it was handed. Never a schema. */
 export const AMBIGUOUS: symbol = Symbol('tosijs-schema.ambiguous')
 
+/** @internal */
 export const AMBIGUOUS_MESSAGE =
   'ambiguous: has a `schema` key but is not a builder — pass the schema itself (e.g. envelope.schema)'
 
@@ -720,6 +725,28 @@ export function validate(
   opts?: ValidateOptions | ErrorHandler
 ): boolean {
   const schema = unwrap(builderOrSchema)
+  if (schema === AMBIGUOUS) {
+    const onError = typeof opts === 'function' ? opts : opts?.onError
+    if (onError) onError('root', AMBIGUOUS_MESSAGE)
+    return false
+  }
+  return validateResolved(val, schema, opts)
+}
+
+/**
+ * @internal `validate` for an ALREADY-RESOLVED schema: no unwrap, so no
+ * ambiguity refusal. The refusal is about what a CALLER handed `validate`;
+ * once resolved, every node is a schema, and a `schema` key inside the tree is
+ * just an unknown keyword — ignored like any other. Every internal re-entry
+ * (union branches, filter's re-validation, a builder's own `.validate`,
+ * `agentContract`, `checkExamples`) goes through here, or the root-only
+ * refusal would fire at whichever depths happen to re-enter.
+ */
+export function validateResolved(
+  val: any,
+  schema: any,
+  opts?: ValidateOptions | ErrorHandler
+): boolean {
   const onError = typeof opts === 'function' ? opts : opts?.onError
   const fullScan = typeof opts === 'object' ? (opts?.strict ?? opts?.fullScan ?? false) : false
 
@@ -729,8 +756,6 @@ export function validate(
     if (onError) onError(path.join('.') || 'root', msg)
     return false
   }
-
-  if (schema === AMBIGUOUS) return err(AMBIGUOUS_MESSAGE)
 
   const walk = (v: any, s: any): boolean => {
     // boolean schemas (standard JSON Schema): true accepts everything,
@@ -743,7 +768,7 @@ export function validate(
       for (const sub of s.anyOf) {
         // branch trials keep strictness but stay silent — only the union as a
         // whole fails, so a passing branch never leaks sibling-branch errors
-        if (validate(v, sub, { strict: fullScan })) {
+        if (validateResolved(v, sub, { strict: fullScan })) {
           matched = true
           break
         }
@@ -761,7 +786,7 @@ export function validate(
       warnExpensive()
       let matches = 0
       for (const sub of s.oneOf) {
-        if (validate(v, sub, { strict: fullScan })) {
+        if (validateResolved(v, sub, { strict: fullScan })) {
           matches++
           if (matches > 1) break // already too many
         }
@@ -1033,7 +1058,7 @@ export function filter(
 
     let valid: boolean
     try {
-      valid = validate(filtered, schema, { onError: captureError, fullScan })
+      valid = validateResolved(filtered, schema, { onError: captureError, fullScan })
     } catch (e) {
       // filter's contract is data-or-Error — a malformed schema must not throw
       return new Error(`internal validation error: ${(e as Error).message}`)
@@ -1057,7 +1082,7 @@ function filterData(data: any, schema: any, fullScan = false): any {
     for (const sub of schema.anyOf) {
       const candidate = filterData(data, sub, fullScan)
       try {
-        if (validate(candidate, sub, { strict: fullScan })) return candidate
+        if (validateResolved(candidate, sub, { strict: fullScan })) return candidate
       } catch {
         // a malformed branch schema cannot match — try the next branch
       }
@@ -1079,7 +1104,7 @@ function filterData(data: any, schema: any, fullScan = false): any {
     const origMatches: any[] = []
     for (const sub of schema.oneOf) {
       try {
-        if (validate(data, sub, { strict: fullScan })) origMatches.push(sub)
+        if (validateResolved(data, sub, { strict: fullScan })) origMatches.push(sub)
       } catch {
         // a malformed branch schema cannot match — skip it
       }
@@ -1112,7 +1137,7 @@ function filterData(data: any, schema: any, fullScan = false): any {
       const candidate = filterData(data, sub, fullScan)
       let ok = false
       try {
-        ok = validate(candidate, sub, { strict: fullScan })
+        ok = validateResolved(candidate, sub, { strict: fullScan })
       } catch {
         // a malformed branch schema cannot match — skip it
       }
