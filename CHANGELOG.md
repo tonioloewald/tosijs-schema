@@ -5,6 +5,26 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+**Contains BREAKING validation changes.** See README "Upgrading to 1.12.0".
+
+### Fixed — BREAKING
+
+- **A stray `schema` key no longer turns a schema into accept-all** (board
+  #1390). `validate`'s second argument was unwrapped with `x?.schema ?? x`, so
+  `validate(42, { type:'object', required:['a'], schema:true })` returned
+  `true`. Two 1.11.0 attempts to tell a wrapper from a stray key by keyword
+  shape each made some legitimate wrapper accept-all instead — the two shapes
+  are indistinguishable by inspection. So: builders now carry a brand
+  (`Symbol.for('tosijs-schema.builder')`, exported as `BUILDER`, tested by
+  `isBuilder`), which JSON cannot carry; a NON-builder with a `schema` key is
+  refused as ambiguous on every path (`validate` → `false` + reason, `filter` →
+  `Error`, `M.func` → throws at construction).
+  - **Migration:** a wrapper such as the OpenAI `{ name, strict, schema }`
+    envelope used to unwrap; pass `envelope.schema` instead. A stray key
+    (usually a `$schema` typo): delete it.
+
 ## [1.11.0] — 2026-09-26
 
 **Contains BREAKING validation changes** — the deliberate sweep of the remaining

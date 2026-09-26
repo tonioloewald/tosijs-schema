@@ -8,6 +8,7 @@
  */
 import {
   validate,
+  isBuilder,
   getPredicateEvaluator,
   ENFORCED_FORMATS,
   ENFORCED_KEYWORDS,
@@ -109,16 +110,11 @@ export type SchemaLike = JSONSchema | boolean | Base<any> | Record<string, any>
  * is reachable from the marketed path — schemas received over the wire — and
  * `schema` is not a JSON Schema keyword, so nothing else flagged it.
  *
- * A builder always carries a `validate` method (see `create()` in schema.ts);
- * a JSON Schema never does. Requiring it means a stray `schema` key now
- * reaches `unenforced()` and is refused at construction, loudly.
+ * `isBuilder` (shared with schema.ts's `unwrap`) is a fact, not a duck-type:
+ * the builder brand, or a callable `validate`, neither of which JSON can carry.
+ * A stray `schema` key therefore reaches `unenforced()` and is refused at
+ * construction, loudly.
  */
-const isBuilder = (x: any): boolean =>
-  x != null &&
-  typeof x === 'object' &&
-  'schema' in x &&
-  typeof (x as any).validate === 'function'
-
 const toPlain = (schema: SchemaLike): JSONSchema | boolean =>
   (isBuilder(schema) ? (schema as any).schema : schema) as JSONSchema
 

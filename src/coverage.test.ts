@@ -1,5 +1,5 @@
 import { describe, test, expect, afterAll } from 'bun:test'
-import { s, validate, diff, filter, setWarnings } from './schema'
+import { s, validate, diff, filter, setWarnings, BUILDER, isBuilder } from './schema'
 import { agentContract } from './contract'
 import { M } from './monad'
 
@@ -850,20 +850,12 @@ describe('fail-open sweep (v1.11.0)', () => {
 describe('fail-open sweep — remediation (v1.11.0)', () => {
   test('M.func unwraps through the SAME shared function as validate', () => {
     // monad.ts read `.schema` directly until 1.11.0 — a third copy of the
-    // unwrap policy, which is how it kept whatever behavior the others had
-    // moved on from. The point of the shared `unwrap` is that the three cannot
-    // drift; the POLICY itself is deliberately v1.10.2's (see its JSDoc).
+    // unwrap policy. The shared `unwrap` keeps the three from drifting.
     const inner = s.object({ a: s.string })
-    // a wrapper-shaped schema unwraps identically on both paths
-    const wrapper = { schema: inner.schema } as any
-    expect(validate({ a: 'ok' }, wrapper)).toBe(validate({ a: 'ok' }, inner.schema))
-    expect(validate(42, wrapper)).toBe(validate(42, inner.schema))
-    // and a real builder still works through M.func end to end
     return M.func(inner, inner, (d: any) => d)({ a: 'ok' }).then((r: any) => {
       expect(r).toEqual({ a: 'ok' })
     })
   })
-
 
   test('validate never throws on an UNREADABLE property — it fails closed', () => {
     const ap = { type: 'object', additionalProperties: { type: 'number' } }
@@ -912,5 +904,88 @@ describe('v1.11.0 — second remediation round', () => {
     for (const bad of ['no-at.com', 'a@b', '@b.co', 'a@.co', 'a@b.', 'a b@c.d', '']) {
       expect(validate({ email: bad }, sch)).toBeFalse()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v1.12.0 — the unwrap, fixed at the root (board #1390). Builders are BRANDED,
+// so detection is a fact; a non-builder carrying a `schema` key is ambiguous
+// (wrapper? stray key?) and is REFUSED on every path instead of guessed at.
+// ---------------------------------------------------------------------------
+describe('unwrap: branded builders, ambiguous shapes refused (v1.12.0)', () => {
+  const inner = s.object({ a: s.string })
+  const plain = inner.schema
+  const good = { a: 'ok' }
+  const bad = { a: 42 }
+
+  // [label, second argument, expected: 'builder' | 'plain' | 'ambiguous']
+  const matrix: [string, any, 'builder' | 'plain' | 'ambiguous'][] = [
+    ['builder', inner, 'builder'],
+    ['spread builder', { ...inner }, 'builder'],
+    ['plain schema', plain, 'plain'],
+    // a builder's data fields after a trip over the wire (the builder itself
+    // can't be stringified — its chaining getters recurse — so this is what
+    // actually arrives): brand and methods gone, `schema` left
+    ['JSON-round-tripped builder', JSON.parse(JSON.stringify({ schema: plain, _type: null, _optional: false })), 'ambiguous'],
+    ['{name,strict,schema}', { name: 'x', strict: true, schema: plain }, 'ambiguous'],
+    ['{name,description,strict,schema}', { name: 'x', description: 'd', strict: true, schema: plain }, 'ambiguous'],
+    ['{title,schema}', { title: 't', schema: plain }, 'ambiguous'],
+    ['{$id,schema}', { $id: 'u', schema: plain }, 'ambiguous'],
+    ["{'x-foo',schema}", { 'x-foo': 1, schema: plain }, 'ambiguous'],
+    ['{...schema, schema:true}', { ...plain, schema: true }, 'ambiguous'],
+    ["{contentEncoding:'base64', schema:true}", { contentEncoding: 'base64', schema: true }, 'ambiguous'],
+    ['{schema:null}', { schema: null }, 'ambiguous'],
+    ['inherited schema key', Object.create({ schema: true }), 'ambiguous'],
+  ]
+
+  for (const [label, arg, kind] of matrix) {
+    test(`validate / filter / M.func: ${label} → ${kind}`, async () => {
+      if (kind === 'ambiguous') {
+        const errs: string[] = []
+        expect(validate(good, arg, (_p, m) => errs.push(m))).toBeFalse()
+        expect(errs[0]).toContain('ambiguous schema')
+        expect(filter(good, arg)).toBeInstanceOf(Error)
+        expect(filter(good, arg, { skipValidation: true })).toBeInstanceOf(Error)
+        expect(() => M.func(arg, inner, (d: any) => d)).toThrow(/M\.func input: ambiguous/)
+        expect(() => M.func(inner, arg, (d: any) => d)).toThrow(/M\.func output: ambiguous/)
+        return
+      }
+      expect(validate(good, arg)).toBeTrue()
+      expect(validate(bad, arg)).toBeFalse()
+      expect(filter({ ...good, junk: 1 }, arg)).toEqual(good)
+      expect(filter(bad, arg)).toBeInstanceOf(Error)
+      if (kind === 'builder') {
+        expect(await M.func(arg, arg, (d: any) => d)(good)).toEqual(good)
+      }
+    })
+  }
+
+  test('the ORIGINAL fail-open is closed: a stray `schema` key no longer means accept-all', () => {
+    expect(validate(42, { type: 'object', required: ['a'], schema: true } as any)).toBeFalse()
+  })
+
+  test('the brand is a registry symbol (cross-copy) that JSON cannot carry', () => {
+    expect(BUILDER).toBe(Symbol.for('tosijs-schema.builder'))
+    expect((inner as any)[BUILDER]).toBeTrue()
+    expect(JSON.stringify({ [BUILDER]: true, schema: plain })).toBe(JSON.stringify({ schema: plain }))
+    // every chained builder keeps it
+    expect(isBuilder(s.string.min(1).optional)).toBeTrue()
+    expect(isBuilder(s.object({ a: s.number }).open)).toBeTrue()
+  })
+
+  test('a pre-brand builder (callable validate + schema) is still a builder', () => {
+    const legacy = { schema: plain, validate: (d: any) => validate(d, plain) }
+    expect(isBuilder(legacy)).toBeTrue()
+    expect(validate(good, legacy as any)).toBeTrue()
+    expect(validate(bad, legacy as any)).toBeFalse()
+  })
+
+  test('non-object schemas and hostile objects never throw', () => {
+    expect(validate(1, true)).toBeTrue()
+    expect(validate(1, false)).toBeFalse()
+    const hostile = new Proxy({}, { has() { throw new Error('boom') }, get() { throw new Error('boom') } })
+    expect(() => validate(1, hostile as any)).not.toThrow()
+    expect(validate(1, hostile as any)).toBeFalse()
+    expect(filter(1, hostile as any)).toBeInstanceOf(Error)
   })
 })

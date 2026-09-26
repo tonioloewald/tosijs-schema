@@ -1,4 +1,4 @@
-import { type Base, type Infer, validate, unwrap } from './schema'
+import { type Base, type Infer, validate, unwrap, AMBIGUOUS, AMBIGUOUS_MESSAGE } from './schema'
 
 // Errors
 
@@ -69,6 +69,11 @@ export class M<R extends Record<string, GuardedFunc<any, any>>> {
     impl: (data: Infer<I>) => Promise<Infer<O>> | Infer<O>,
     timeoutMs: number = 5000
   ): GuardedFunc<Infer<I>, Infer<O>> {
+    // Refuse an ambiguous schema at CONSTRUCTION (M.func is a builder-time
+    // API, so throwing here is loud and early) rather than per call, where it
+    // could only surface as an opaque "schema mismatch".
+    if (unwrap(inputSchema) === AMBIGUOUS) throw new TypeError(`M.func input: ${AMBIGUOUS_MESSAGE}`)
+    if (unwrap(outputSchema) === AMBIGUOUS) throw new TypeError(`M.func output: ${AMBIGUOUS_MESSAGE}`)
     const wrapper = async (data: Infer<I>) => {
       // 1. Input Validation
       const validIn = validate(data, unwrap(inputSchema), { fullScan: true })

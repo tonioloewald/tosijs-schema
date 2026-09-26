@@ -21,6 +21,20 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ## Upgrading
 
+### To 1.12.0 (from 1.11.x) — no more guessing what `validate` was handed
+
+`validate`, `filter` and `M.func` take a builder **or** a plain schema. Until now any object with a `schema` key was treated as a wrapper and replaced by that key's value, so a plain schema carrying a stray `schema` key (usually a `$schema` typo) validated **everything**. Builders are now branded, so detection is a fact, and a non-builder object with a `schema` key is **refused** as ambiguous instead of guessed at.
+
+| Second argument | ≤ 1.11.0 | 1.12.0 |
+| --- | --- | --- |
+| a builder (`s.object(…)`) or a plain schema | validates | unchanged |
+| `{ type:'object', required:['a'], schema:true }` (stray key) | **accept-all** | refused |
+| a wrapper, e.g. `{ name, strict, schema }` (the OpenAI `json_schema` envelope) | unwrapped to `schema` | refused |
+
+Refused means `validate` returns `false` (with an `onError` reason naming the problem), `filter` returns an `Error`, and `M.func` throws when you construct it — never a silent pass.
+
+**Migration:** pass the schema itself — `validate(data, envelope.schema)` rather than `validate(data, envelope)`. For a stray key, delete it. Builders from another installed copy of tosijs-schema still work (the brand is a `Symbol.for` registry symbol, and pre-brand builders are recognised by their `validate` method).
+
 ### To 1.11.0 (from 1.10.x) — the fail-open sweep
 
 Four earlier releases each closed one member of this class as it was reported. This closes the rest together, so the migration is one read instead of four.
@@ -35,7 +49,6 @@ Four earlier releases each closed one member of this class as it was reported. T
 
 **Migration:** for `Unexpected <key>`, strip the hidden property (`filter()` already drops them), declare it, or use `.open`.
 
-**Not changed (known limitation):** a plain JSON Schema carrying a stray `schema` key (usually a `$schema` typo) is still replaced by that key's value, as in 1.10.2 — so `{ type: 'object', schema: true }` accepts everything. Two attempts to fix it broke legitimate `{ …, schema: X }` envelopes (incl. OpenAI's `json_schema`), so it ships unchanged and is tracked for its own release. `agentContract` already refuses such a schema at construction.
 
 On cost: the enumeration change measured **10–20% faster** than the `for..in` + per-key `hasOwnProperty` loop it replaced (a 1000-key object under `additionalProperties`). One trade-off is real, though: `maxProperties` no longer short-circuits at `max + 1`, because a correct count has to include keys `for..in` skips — so a huge object with a small declared ceiling now enumerates once instead of stopping early.
 
