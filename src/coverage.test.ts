@@ -943,7 +943,7 @@ describe('unwrap: branded builders, ambiguous shapes refused (v1.12.0)', () => {
       if (kind === 'ambiguous') {
         const errs: string[] = []
         expect(validate(good, arg, (_p, m) => errs.push(m))).toBeFalse()
-        expect(errs[0]).toContain('ambiguous schema')
+        expect(errs[0]).toContain('ambiguous: has a `schema` key')
         expect(filter(good, arg)).toBeInstanceOf(Error)
         expect(filter(good, arg, { skipValidation: true })).toBeInstanceOf(Error)
         expect(() => M.func(arg, inner, (d: any) => d)).toThrow(/M\.func input: ambiguous/)
@@ -999,7 +999,7 @@ describe('builder construction: plain schema where a builder belongs (v1.12.0)',
   const plainStr = { type: 'string' } as any
 
   test('s.array no longer builds an items-less (accept-all) array', () => {
-    expect(() => s.array(plainStr)).toThrow(/s\.array\(items\): expected a builder.*got a plain object/)
+    expect(() => s.array(plainStr)).toThrow(/s\.array\(items\): expected a builder like s\.string, not a plain schema/)
   })
 
   test('s.object names the offending property instead of a raw TypeError', () => {
@@ -1009,8 +1009,8 @@ describe('builder construction: plain schema where a builder belongs (v1.12.0)',
   test('s.union / s.tuple name the offending index', () => {
     expect(() => s.union([s.string, plainStr])).toThrow(/s\.union: schemas\[1\]/)
     expect(() => s.tuple([plainStr] as any)).toThrow(/s\.tuple: items\[0\]/)
-    expect(() => s.union(plainStr)).toThrow(/s\.union\(schemas\) expects an array/)
-    expect(() => s.tuple(plainStr)).toThrow(/s\.tuple\(items\) expects an array/)
+    expect(() => s.union(plainStr)).toThrow(/s\.union\(\[\.\.\.\]\): expected a builder/)
+    expect(() => s.tuple(plainStr)).toThrow(/s\.tuple\(\[\.\.\.\]\): expected a builder/)
   })
 
   test('s.record keeps its null message and refuses a plain schema', () => {
@@ -1019,9 +1019,9 @@ describe('builder construction: plain schema where a builder belongs (v1.12.0)',
   })
 
   test('non-objects are named by type', () => {
-    expect(() => s.array('string' as any)).toThrow(/got string/)
-    expect(() => s.array(undefined as any)).toThrow(/got undefined/)
-    expect(() => s.array([s.string] as any)).toThrow(/got an array/)
+    expect(() => s.array('string' as any)).toThrow(/not string/)
+    expect(() => s.array(undefined as any)).toThrow(/not undefined/)
+    expect(() => s.array([s.string] as any)).toThrow(/not an array/)
   })
 
   test('real builders — incl. chained and pre-brand ones — still compose', () => {

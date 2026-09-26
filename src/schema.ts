@@ -350,13 +350,7 @@ export interface Obj<T> extends Base<T> {
  * deserialized config do not. Fail loudly, naming the argument.
  */
 const assertBuilder = (x: any, where: string): void => {
-  if (isBuilder(x)) return
-  const got =
-    x === null ? 'null' : Array.isArray(x) ? 'an array' : typeof x === 'object' ? 'a plain object' : typeof x
-  throw new TypeError(
-    `${where}: expected a builder (e.g. s.string), got ${got} — ` +
-      "pass s.string, not { type: 'string' }; or use the plain schema directly with validate()"
-  )
+  if (!isBuilder(x)) throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? 'an array' : typeof x === 'object' && x ? 'a plain schema' : x}`)
 }
 
 const methods = {
@@ -403,7 +397,7 @@ const methods = {
     }) as Str,
 
   union: <T extends Base<any>[]>(schemas: T) => {
-    if (!Array.isArray(schemas)) assertBuilder(schemas, 's.union(schemas) expects an array; schemas')
+    if (!Array.isArray(schemas)) assertBuilder(schemas, 's.union([...])')
     schemas.forEach((b, i) => assertBuilder(b, `s.union: schemas[${i}]`))
     return create({ anyOf: schemas.map((s) => s.schema) }) as Base<Infer<T[number]>>
   },
@@ -421,7 +415,7 @@ const methods = {
 
   // FIX: 'readonly' added to generic constraint to force tuple inference
   tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => {
-    if (!Array.isArray(items)) assertBuilder(items, 's.tuple(items) expects an array; items')
+    if (!Array.isArray(items)) assertBuilder(items, 's.tuple([...])')
     items.forEach((b, i) => assertBuilder(b, `s.tuple: items[${i}]`))
     return create({
       type: 'array',
@@ -579,9 +573,7 @@ const readProp = (o: any, k: string): any => {
 export const AMBIGUOUS: symbol = Symbol('tosijs-schema.ambiguous')
 
 export const AMBIGUOUS_MESSAGE =
-  'ambiguous schema: object has a `schema` key but is not a builder — ' +
-  'pass the schema itself (e.g. `validate(data, envelope.schema)`), ' +
-  'or remove the stray key (often a `$schema` typo)'
+  'ambiguous: has a `schema` key but is not a builder — pass the schema itself (e.g. envelope.schema)'
 
 /**
  * Resolve what `validate` / `filter` / `M.func` were handed into a schema.

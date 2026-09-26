@@ -39,6 +39,9 @@ var __export = (target, all) => {
 // index.ts
 var exports_tosijs_schema = {};
 __export(exports_tosijs_schema, {
+  AMBIGUOUS: () => AMBIGUOUS,
+  AMBIGUOUS_MESSAGE: () => AMBIGUOUS_MESSAGE,
+  BUILDER: () => BUILDER,
   CONSTRAINT_DOMAINS: () => CONSTRAINT_DOMAINS,
   ENFORCED_FORMATS: () => ENFORCED_FORMATS,
   ENFORCED_KEYWORDS: () => ENFORCED_KEYWORDS,
@@ -53,6 +56,7 @@ __export(exports_tosijs_schema, {
   filter: () => filter,
   getPredicateEvaluator: () => getPredicateEvaluator,
   inferSchema: () => inferSchema,
+  isBuilder: () => isBuilder,
   s: () => s,
   setPredicateEvaluator: () => setPredicateEvaluator,
   setWarnings: () => setWarnings,
@@ -126,7 +130,10 @@ var compilePattern = (pattern, emoji) => {
 };
 
 // src/schema.ts
+var BUILDER = Symbol.for("tosijs-schema.builder");
+var isBuilder = (x) => x != null && typeof x === "object" && (x[BUILDER] === true || typeof x.validate === "function") && ("schema" in x);
 var create = (s, optional = false) => ({
+  [BUILDER]: true,
   schema: s,
   _type: null,
   _optional: optional,
@@ -204,6 +211,10 @@ function setPredicateEvaluator(fn) {
 function getPredicateEvaluator() {
   return predicateEvaluator;
 }
+var assertBuilder = (x, where) => {
+  if (!isBuilder(x))
+    throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? "an array" : typeof x === "object" && x ? "a plain schema" : x}`);
+};
 var methods = {
   get email() {
     return create({ type: "string", format: "email" });
@@ -243,20 +254,34 @@ var methods = {
     type: "string",
     pattern: typeof r === "string" ? r : r.source
   }),
-  union: (schemas) => create({ anyOf: schemas.map((s) => s.schema) }),
+  union: (schemas) => {
+    if (!Array.isArray(schemas))
+      assertBuilder(schemas, "s.union([...])");
+    schemas.forEach((b, i) => assertBuilder(b, `s.union: schemas[${i}]`));
+    return create({ anyOf: schemas.map((s) => s.schema) });
+  },
   enum: (vals) => create({ type: typeof vals[0], enum: vals }),
   const: (val) => create({ const: val }),
-  array: (items) => create({ type: "array", items: items.schema }),
-  tuple: (items) => create({
-    type: "array",
-    items: items.map((s) => s.schema),
-    minItems: items.length,
-    maxItems: items.length
-  }),
+  array: (items) => {
+    assertBuilder(items, "s.array(items)");
+    return create({ type: "array", items: items.schema });
+  },
+  tuple: (items) => {
+    if (!Array.isArray(items))
+      assertBuilder(items, "s.tuple([...])");
+    items.forEach((b, i) => assertBuilder(b, `s.tuple: items[${i}]`));
+    return create({
+      type: "array",
+      items: items.map((s) => s.schema),
+      minItems: items.length,
+      maxItems: items.length
+    });
+  },
   object: (props, options) => {
     const properties = {};
     const required = [];
     for (const k in props) {
+      assertBuilder(props[k], `s.object: property ${JSON.stringify(k)}`);
       properties[k] = props[k].schema;
       const p = properties[k];
       if (props[k]._optional !== true && (!Array.isArray(p.type) || !p.type.includes("null"))) {
@@ -274,6 +299,7 @@ var methods = {
     if (value == null) {
       throw new Error("s.record(valueSchema) requires a value schema — use s.record(s.any) for unconstrained values");
     }
+    assertBuilder(value, "s.record(valueSchema)");
     return create({
       type: "object",
       additionalProperties: value.schema
@@ -329,7 +355,19 @@ var readProp = (o, k) => {
     return UNREADABLE;
   }
 };
-var unwrap = (x) => x?.schema ?? x;
+var AMBIGUOUS = Symbol("tosijs-schema.ambiguous");
+var AMBIGUOUS_MESSAGE = "ambiguous: has a `schema` key but is not a builder — pass the schema itself (e.g. envelope.schema)";
+var unwrap = (x) => {
+  if (x == null || typeof x !== "object")
+    return x;
+  try {
+    if (isBuilder(x))
+      return x.schema;
+    return "schema" in x ? AMBIGUOUS : x;
+  } catch {
+    return AMBIGUOUS;
+  }
+};
 var hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 var warningsEnabled = true;
 var warnedOneOfCost = false;
@@ -396,6 +434,8 @@ function validate(val, builderOrSchema, opts) {
       onError(path.join(".") || "root", msg);
     return false;
   };
+  if (schema === AMBIGUOUS)
+    return err(AMBIGUOUS_MESSAGE);
   const walk = (v, s) => {
     if (s === true)
       return true;
@@ -607,6 +647,11 @@ function filter(data, builderOrSchema, opts) {
   const onError = typeof opts === "function" ? opts : opts?.onError;
   const fullScan = typeof opts === "object" ? opts?.strict ?? opts?.fullScan ?? false : false;
   const skipValidation = typeof opts === "object" ? opts?.skipValidation : false;
+  if (schema === AMBIGUOUS) {
+    if (onError)
+      onError("root", AMBIGUOUS_MESSAGE);
+    return new Error(`root: ${AMBIGUOUS_MESSAGE}`);
+  }
   const filtered = filterData(data, schema, fullScan);
   if (!skipValidation) {
     let errorPath = "";
@@ -849,6 +894,10 @@ class M {
     });
   }
   static func(inputSchema, outputSchema, impl, timeoutMs = 5000) {
+    if (unwrap(inputSchema) === AMBIGUOUS)
+      throw new TypeError(`M.func input: ${AMBIGUOUS_MESSAGE}`);
+    if (unwrap(outputSchema) === AMBIGUOUS)
+      throw new TypeError(`M.func output: ${AMBIGUOUS_MESSAGE}`);
     const wrapper = async (data) => {
       const validIn = validate(data, unwrap(inputSchema), { fullScan: true });
       if (!validIn) {
@@ -939,7 +988,6 @@ var createM = (r) => {
   return new M(r);
 };
 // src/contract.ts
-var isBuilder = (x) => x != null && typeof x === "object" && ("schema" in x) && typeof x.validate === "function";
 var toPlain = (schema) => isBuilder(schema) ? schema.schema : schema;
 var ANNOTATION_KEYWORDS = new Set([
   "title",

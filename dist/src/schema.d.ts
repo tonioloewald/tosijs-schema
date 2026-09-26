@@ -1,5 +1,18 @@
 import { ENFORCED_FORMATS } from './formats';
 export { ENFORCED_FORMATS };
+/**
+ * Brand carried by every builder (`create` below). `Symbol.for`, so builders
+ * from two installed copies of tosijs-schema recognise each other. Wire data
+ * cannot forge it: JSON has no symbols, and `JSON.stringify` drops it.
+ */
+export declare const BUILDER: symbol;
+/**
+ * Is `x` a builder? A FACT, not a guess: the brand, or — for builders made by
+ * a pre-1.12 copy that predates the brand — a callable `validate` beside
+ * `schema`. Neither can arrive over the wire (JSON carries no symbols and no
+ * functions), which is the property that matters.
+ */
+export declare const isBuilder: (x: any) => boolean;
 export type Infer<S> = S extends {
     _type: infer T;
 } ? T : never;
@@ -194,43 +207,25 @@ type TinySchema = typeof methods & {
     any: Base<any>;
 };
 export declare const s: TinySchema;
+/** @internal Sentinel: `unwrap` could not tell what it was handed. Never a schema. */
+export declare const AMBIGUOUS: symbol;
+export declare const AMBIGUOUS_MESSAGE = "ambiguous: has a `schema` key but is not a builder \u2014 pass the schema itself (e.g. envelope.schema)";
 /**
- * Unwrap a BUILDER to its plain schema — and only a builder.
+ * Resolve what `validate` / `filter` / `M.func` were handed into a schema.
  *
- * This was `(x as any)?.schema || x`, a duck-type, so a plain JSON Schema that
- * happened to carry a `schema` key was silently REPLACED by that key's value:
- * `validate(42, { type:'object', required:['a'], schema:true })` returned
- * `true`, because the whole declaration became the boolean schema `true`. A
- * restrictive schema evaluated as accept-all. `schema` is not a JSON Schema
- * keyword, so nothing else flagged it, and the reachable route is the marketed
- * one — a schema received over the wire, where a `$schema` typo produces it.
+ * Three shapes reach here: a builder, a plain schema, and a non-builder object
+ * carrying a `schema` key. The third is genuinely AMBIGUOUS — a wrapper
+ * (`{ name, strict, schema }`, the OpenAI `json_schema` envelope) and a plain
+ * schema with a stray `schema` key cannot be told apart by inspection. Until
+ * 1.12.0 it was unwrapped (`x?.schema ?? x`), so `{ type:'object',
+ * required:['a'], schema:true }` validated EVERYTHING; v1.11.0's attempts to
+ * discriminate by keyword shape each turned some legitimate wrapper into an
+ * accept-all instead. So we stop guessing: builders unwrap, everything else
+ * is used as-is, and the ambiguous shape returns `AMBIGUOUS`, which every
+ * caller refuses (fail closed) with `AMBIGUOUS_MESSAGE`. Never throws — an
+ * object whose property access throws is treated as ambiguous.
  *
- * A builder always carries a `validate` method (see `create` above); a JSON
- * Schema never does. `agentContract` was hardened this way in 1.10.0; this is
- * the same fix on the core path.
- */
-/**
- * Unwrap a builder to its plain schema.
- *
- * This is v1.10.2's behavior, deliberately RESTORED. v1.11.0 twice tried to
- * make it smarter — first requiring a `validate` method, then discriminating
- * wrapper-vs-stray-key by keyword shape — and each attempt turned a legitimate
- * envelope into an accept-all gate, because an object that declares no
- * enforceable keyword passes everything. Three consecutive review rounds
- * blocked here; the honest move is to ship the known behavior rather than a
- * third variant of a rule that has not converged.
- *
- * Known limitation, unchanged since 1.0 and now tracked in TODO.md: a plain
- * JSON Schema carrying a stray `schema` key (usually a `$schema` typo) is
- * REPLACED by that key's value. `agentContract` already refuses such a schema
- * at construction, so the gate is unaffected; the fix for the lenient path is a
- * discriminator keyed on ENFORCEMENT (does the outer object declare anything in
- * ENFORCED_KEYWORDS? is `x.schema` an object or boolean?) rather than on a list
- * of keyword names, and it belongs in its own release with its own review.
- *
- * Exported so `validate`, `filter` and `M.func` cannot drift apart — monad.ts
- * read `.schema` directly until 1.11.0, which is how it kept its own copy of
- * whatever policy the others had.
+ * Exported so `validate`, `filter` and `M.func` cannot drift apart.
  */
 export declare const unwrap: (x: any) => any;
 /** Enable/disable tosijs-schema's runtime cost warnings (default on). Process-global. */
