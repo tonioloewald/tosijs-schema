@@ -989,3 +989,50 @@ describe('unwrap: branded builders, ambiguous shapes refused (v1.12.0)', () => {
     expect(filter(1, hostile as any)).toBeInstanceOf(Error)
   })
 })
+
+// ---------------------------------------------------------------------------
+// v1.12.0 — builder construction refuses a plain schema (board #1391). The
+// entry points were enumerated by READING the factory: every combinator that
+// takes builders (union, array, tuple, object, record). s.infer takes data.
+// ---------------------------------------------------------------------------
+describe('builder construction: plain schema where a builder belongs (v1.12.0)', () => {
+  const plainStr = { type: 'string' } as any
+
+  test('s.array no longer builds an items-less (accept-all) array', () => {
+    expect(() => s.array(plainStr)).toThrow(/s\.array\(items\): expected a builder.*got a plain object/)
+  })
+
+  test('s.object names the offending property instead of a raw TypeError', () => {
+    expect(() => s.object({ ok: s.string, bad: plainStr })).toThrow(/s\.object: property "bad": expected a builder/)
+  })
+
+  test('s.union / s.tuple name the offending index', () => {
+    expect(() => s.union([s.string, plainStr])).toThrow(/s\.union: schemas\[1\]/)
+    expect(() => s.tuple([plainStr] as any)).toThrow(/s\.tuple: items\[0\]/)
+    expect(() => s.union(plainStr)).toThrow(/s\.union\(schemas\) expects an array/)
+    expect(() => s.tuple(plainStr)).toThrow(/s\.tuple\(items\) expects an array/)
+  })
+
+  test('s.record keeps its null message and refuses a plain schema', () => {
+    expect(() => s.record(null as any)).toThrow(/requires a value schema/)
+    expect(() => s.record(plainStr)).toThrow(/s\.record\(valueSchema\): expected a builder/)
+  })
+
+  test('non-objects are named by type', () => {
+    expect(() => s.array('string' as any)).toThrow(/got string/)
+    expect(() => s.array(undefined as any)).toThrow(/got undefined/)
+    expect(() => s.array([s.string] as any)).toThrow(/got an array/)
+  })
+
+  test('real builders — incl. chained and pre-brand ones — still compose', () => {
+    const legacy = { schema: { type: 'number' }, validate: () => true } as any
+    const b = s.object({
+      a: s.array(s.string.min(1)),
+      b: s.union([s.number, s.null]),
+      c: s.tuple([s.string, legacy]),
+      d: s.record(s.integer).optional,
+    })
+    expect(b.validate({ a: ['x'], b: null, c: ['x', 1] })).toBeTrue()
+    expect(b.validate({ a: [''], b: null, c: ['x', 1] })).toBeFalse()
+  })
+})

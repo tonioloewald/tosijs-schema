@@ -31,9 +31,11 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 | `{ type:'object', required:['a'], schema:true }` (stray key) | **accept-all** | refused |
 | a wrapper, e.g. `{ name, strict, schema }` (the OpenAI `json_schema` envelope) | unwrapped to `schema` | refused |
 
+| `s.array({ type: 'string' })` (plain schema into a combinator) | built an array with **no `items`** (any elements pass) | throws, naming the argument |
+
 Refused means `validate` returns `false` (with an `onError` reason naming the problem), `filter` returns an `Error`, and `M.func` throws when you construct it — never a silent pass.
 
-**Migration:** pass the schema itself — `validate(data, envelope.schema)` rather than `validate(data, envelope)`. For a stray key, delete it. Builders from another installed copy of tosijs-schema still work (the brand is a `Symbol.for` registry symbol, and pre-brand builders are recognised by their `validate` method).
+**Migration:** pass the schema itself — `validate(data, envelope.schema)` rather than `validate(data, envelope)`. For a stray key, delete it. For a combinator, pass a builder (`s.string`, not `{ type: 'string' }`) — `s.array`, `s.object`, `s.record`, `s.tuple` and `s.union` now throw a `TypeError` naming the offending property or index. TypeScript callers can't hit this; JS, `as any` and deserialized config could. Builders from another installed copy of tosijs-schema still work (the brand is a `Symbol.for` registry symbol, and pre-brand builders are recognised by their `validate` method).
 
 ### To 1.11.0 (from 1.10.x) — the fail-open sweep
 

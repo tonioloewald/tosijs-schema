@@ -9,7 +9,7 @@ trigger, so each one names its trigger.
 Moved here from `TODO.md` when the repo was onboarded to the board
 (2026-09-26). Older review records live in `reviews/`.
 
-## The unwrap: fix the root cause, not the discriminator (2026-09-17)
+## The unwrap: fix the root cause, not the discriminator (2026-09-17, shipped 1.12.0)
 
 Board: #1390. Analysed after three blocked 1.11.0 review rounds. 1.11.0 shipped
 with the unwrap reverted to 1.10.2 semantics.
@@ -38,7 +38,14 @@ never a throw). This deletes every keyword list and reachability argument, and
 it closes the original stray-key fail-open. It is breaking, so it gets its own
 release and its own review.
 
-## Builder construction silently accepts a plain schema (2026-09-17)
+As shipped (1.12.0), `isBuilder` accepts the brand OR a callable `validate`
+beside `schema` — the latter so builders from a pre-brand installed copy still
+work. That costs nothing: JSON can carry neither a symbol nor a function, so
+wire data still cannot pose as a builder. Shipped together with #1391 because
+that fix is the brand's second consumer; #1390 was committed first so #1391
+could be dropped if its review blocked.
+
+## Builder construction silently accepts a plain schema (2026-09-17, fixed 1.12.0)
 
 Board: #1391. `s.array({ type: 'string' })` builds `{ type: 'array' }` with no
 `items` (fails open, silently). `s.object({ a: {type:'string'} })` throws a raw
@@ -46,7 +53,10 @@ TypeError. It is the same family as the unwrap: something that *looks* close
 enough gets a permissive result. It was deliberately kept out of 1.11.0: that
 release had already been blocked twice, and bolting on more unreviewed changes
 is what produced those blocks. Fix it with one shared `assertBuilder`, finding
-the entry points by reading the factory rather than grepping.
+the entry points by reading the factory rather than grepping. Reading it found
+five: `union`, `array`, `tuple`, `object`, `record`. The original note also
+listed `s.infer`, but that takes data, not builders — grepping would have
+guarded the wrong thing.
 
 ## The `pattern` ReDoS decision (2026-09-14)
 

@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **Migration:** a wrapper such as the OpenAI `{ name, strict, schema }`
     envelope used to unwrap; pass `envelope.schema` instead. A stray key
     (usually a `$schema` typo): delete it.
+- **Builder combinators refuse a plain schema** (board #1391).
+  `s.array({ type: 'string' })` read `.schema` off a plain object, got
+  `undefined`, and silently built `{ type: 'array' }` — no `items`, so every
+  element passed. `s.object({ a: { type: 'string' } })` threw a raw internal
+  `TypeError`. `s.array`, `s.object`, `s.record`, `s.tuple` and `s.union` now
+  throw a `TypeError` naming the argument (property / index). TypeScript
+  callers were already protected by `Base<T>`; this reaches JS callers,
+  `as any` and deserialized config.
+  - **Migration:** pass a builder (`s.string`, not `{ type: 'string' }`), or
+    drop the builder entirely and validate against the plain schema.
 
 ## [1.11.0] — 2026-09-26
 

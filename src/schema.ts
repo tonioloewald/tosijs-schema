@@ -16,6 +16,18 @@ export { ENFORCED_FORMATS }
  */
 export const BUILDER: symbol = Symbol.for('tosijs-schema.builder')
 
+/**
+ * Is `x` a builder? A FACT, not a guess: the brand, or — for builders made by
+ * a pre-1.12 copy that predates the brand — a callable `validate` beside
+ * `schema`. Neither can arrive over the wire (JSON carries no symbols and no
+ * functions), which is the property that matters.
+ */
+export const isBuilder = (x: any): boolean =>
+  x != null &&
+  typeof x === 'object' &&
+  (x[BUILDER] === true || typeof x.validate === 'function') &&
+  'schema' in x
+
 // `optional` rides on the BUILDER, never inside the schema JSON — so it never
 // leaks into serialized/published output. It carries forward through every
 // chaining method (order-independent: s.any.optional.describe(x) and
@@ -329,6 +341,24 @@ export interface Obj<T> extends Base<T> {
 
 // PROXY
 
+/**
+ * Builder-construction guard (board #1391). The combinators take BUILDERS;
+ * handed a plain schema they used to read `.schema` off it and get
+ * `undefined` — `s.array({ type: 'string' })` silently built `{ type: 'array' }`
+ * with no `items` (accept-all elements), while `s.object` threw a raw internal
+ * TypeError. TypeScript's `Base<T>` catches this; JS callers, `as any` and
+ * deserialized config do not. Fail loudly, naming the argument.
+ */
+const assertBuilder = (x: any, where: string): void => {
+  if (isBuilder(x)) return
+  const got =
+    x === null ? 'null' : Array.isArray(x) ? 'an array' : typeof x === 'object' ? 'a plain object' : typeof x
+  throw new TypeError(
+    `${where}: expected a builder (e.g. s.string), got ${got} — ` +
+      "pass s.string, not { type: 'string' }; or use the plain schema directly with validate()"
+  )
+}
+
 const methods = {
   // --- First-Class Formats ---
   get email() {
@@ -372,8 +402,11 @@ const methods = {
       pattern: typeof r === 'string' ? r : r.source,
     }) as Str,
 
-  union: <T extends Base<any>[]>(schemas: T) =>
-    create({ anyOf: schemas.map((s) => s.schema) }) as Base<Infer<T[number]>>,
+  union: <T extends Base<any>[]>(schemas: T) => {
+    if (!Array.isArray(schemas)) assertBuilder(schemas, 's.union(schemas) expects an array; schemas')
+    schemas.forEach((b, i) => assertBuilder(b, `s.union: schemas[${i}]`))
+    return create({ anyOf: schemas.map((s) => s.schema) }) as Base<Infer<T[number]>>
+  },
 
   enum: <T extends string | number>(vals: T[]) =>
     create({ type: typeof vals[0], enum: vals }) as Base<T>,
@@ -381,17 +414,22 @@ const methods = {
   const: <T extends string | number | boolean | null>(val: T) =>
     create({ const: val }) as Base<T>,
 
-  array: <T>(items: Base<T>) =>
-    create({ type: 'array', items: items.schema }) as Arr<T[]>,
+  array: <T>(items: Base<T>) => {
+    assertBuilder(items, 's.array(items)')
+    return create({ type: 'array', items: items.schema }) as Arr<T[]>
+  },
 
   // FIX: 'readonly' added to generic constraint to force tuple inference
-  tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) =>
-    create({
+  tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => {
+    if (!Array.isArray(items)) assertBuilder(items, 's.tuple(items) expects an array; items')
+    items.forEach((b, i) => assertBuilder(b, `s.tuple: items[${i}]`))
+    return create({
       type: 'array',
       items: items.map((s) => s.schema),
       minItems: items.length,
       maxItems: items.length,
-    }) as Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never }>,
+    }) as Base<{ [K in keyof T]: T[K] extends Base<infer U> ? U : never }>
+  },
 
   // FIX: Wrapped return type in SmartObject<>
   object: <P extends Record<string, Base<any>>>(
@@ -401,6 +439,7 @@ const methods = {
     const properties: any = {}
     const required: string[] = []
     for (const k in props) {
+      assertBuilder(props[k], `s.object: property ${JSON.stringify(k)}`)
       properties[k] = props[k]!.schema
       // Optionality comes from the builder's _optional flag (set by
       // .optional, covers typeless builders like s.any.optional), or a
@@ -430,6 +469,7 @@ const methods = {
         's.record(valueSchema) requires a value schema — use s.record(s.any) for unconstrained values'
       )
     }
+    assertBuilder(value, 's.record(valueSchema)')
     return create({
       type: 'object',
       additionalProperties: value.schema,
@@ -534,18 +574,6 @@ const readProp = (o: any, k: string): any => {
   }
 }
 
-
-/**
- * Is `x` a builder? A FACT, not a guess: the brand, or — for builders made by
- * a pre-1.12 copy that predates the brand — a callable `validate` beside
- * `schema`. Neither can arrive over the wire (JSON carries no symbols and no
- * functions), which is the property that matters.
- */
-export const isBuilder = (x: any): boolean =>
-  x != null &&
-  typeof x === 'object' &&
-  (x[BUILDER] === true || typeof x.validate === 'function') &&
-  'schema' in x
 
 /** @internal Sentinel: `unwrap` could not tell what it was handed. Never a schema. */
 export const AMBIGUOUS: symbol = Symbol('tosijs-schema.ambiguous')
