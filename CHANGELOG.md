@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.11.0] — 2026-09-16
+## [1.11.0] — 2026-09-26
 
 **Contains BREAKING validation changes** — the deliberate sweep of the remaining
 fail-open class. Same defect family as [GHSA-3qw7-pvr3-2gpq](https://github.com/tonioloewald/tosijs-schema/security/advisories/GHSA-3qw7-pvr3-2gpq),
