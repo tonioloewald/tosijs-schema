@@ -36,7 +36,8 @@
   "files": [
     "dist",
     "CHANGELOG.md",
-    "llms.txt"
+    "llms.txt",
+    "!dist/**/.metadata_never_index"
   ],
   "devDependencies": {
     "@sinclair/typebox": "^0.34.47",
@@ -45,11 +46,12 @@
     "zod": "^4.1.12"
   },
   "scripts": {
-    "pack": "bun test && bun tsc --noEmit && bun bench.ts && bun examples.ts > examples.md && bun make-context.ts && bun build index.ts --target=node --format=cjs --outfile=dist/index.cjs && bun build src/infer.ts --target=node --format=cjs --outfile=dist/infer.cjs && bun build index.ts --sourcemap=linked --minify --outdir=dist && bun build src/infer.ts --sourcemap=linked --minify --outdir=dist && bunx tsc index.ts --declaration --emitDeclarationOnly --outDir dist --skipLibCheck && bun run show-size && bun make-coverage.ts && bun smoke.ts",
+    "pack": "bun run check-bun && rm -rf dist && bun test && bun tsc --noEmit && bun bench.ts && bun examples.ts > examples.md && bun make-context.ts && bun build index.ts --target=node --format=cjs --outfile=dist/index.cjs && bun build src/infer.ts --target=node --format=cjs --outfile=dist/infer.cjs && bun build index.ts --sourcemap=linked --minify --outdir=dist && bun build src/infer.ts --sourcemap=linked --minify --outdir=dist && bunx tsc index.ts --declaration --emitDeclarationOnly --outDir dist --skipLibCheck && bun run show-size && bun make-coverage.ts && bun smoke.ts",
     "show-size": "gzip -9 -k dist/index.js && gzip -9 -k dist/infer.js && ls -lh dist/index.js.gz dist/infer.js.gz && rm dist/index.js.gz dist/infer.js.gz",
     "typecheck": "bun tsc --noEmit",
     "make": "bun run pack",
     "prepublishOnly": "bun run pack",
-    "latest": "rm -rf node_modules && bun install"
+    "latest": "rm -rf node_modules && bun install",
+    "check-bun": "node -e \"const w=require('fs').readFileSync('.bun-version','utf8').trim(),h=process.versions.bun||require('child_process').execSync('bun --version').toString().trim();if(w!==h){console.error('Bun '+h+' but .bun-version pins '+w+' \u2014 dist/ would not reproduce in CI');process.exit(1)}\""
   }
 }

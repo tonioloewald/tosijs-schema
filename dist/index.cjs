@@ -384,8 +384,8 @@ var ENFORCED_KEYWORDS = new Set([
   "$predicate",
   "x-tjs-undefined"
 ]);
-var objectKeywordsPresent = (s2) => s2.properties !== undefined || s2.required !== undefined || s2.additionalProperties !== undefined || s2.minProperties !== undefined || s2.maxProperties !== undefined;
-var arrayKeywordsPresent = (s2) => s2.items !== undefined || s2.minItems !== undefined || s2.maxItems !== undefined;
+var objectKeywordsPresent = (s) => s.properties !== undefined || s.required !== undefined || s.additionalProperties !== undefined || s.minProperties !== undefined || s.maxProperties !== undefined;
+var arrayKeywordsPresent = (s) => s.items !== undefined || s.minItems !== undefined || s.maxItems !== undefined;
 function validate(val, builderOrSchema, opts) {
   const schema = unwrap(builderOrSchema);
   const onError = typeof opts === "function" ? opts : opts?.onError;
@@ -396,14 +396,14 @@ function validate(val, builderOrSchema, opts) {
       onError(path.join(".") || "root", msg);
     return false;
   };
-  const walk = (v, s2) => {
-    if (s2 === true)
+  const walk = (v, s) => {
+    if (s === true)
       return true;
-    if (s2 === false)
+    if (s === false)
       return err("Schema forbids value");
-    if (Array.isArray(s2.anyOf)) {
+    if (Array.isArray(s.anyOf)) {
       let matched = false;
-      for (const sub of s2.anyOf) {
+      for (const sub of s.anyOf) {
         if (validate(v, sub, { strict: fullScan })) {
           matched = true;
           break;
@@ -412,10 +412,10 @@ function validate(val, builderOrSchema, opts) {
       if (!matched)
         return err("Union mismatch");
     }
-    if (Array.isArray(s2.oneOf)) {
+    if (Array.isArray(s.oneOf)) {
       warnExpensive();
       let matches = 0;
-      for (const sub of s2.oneOf) {
+      for (const sub of s.oneOf) {
         if (validate(v, sub, { strict: fullScan })) {
           matches++;
           if (matches > 1)
@@ -425,33 +425,33 @@ function validate(val, builderOrSchema, opts) {
       if (matches !== 1)
         return err(`oneOf: matched ${matches} branches, need exactly 1`);
     }
-    if (s2.const !== undefined) {
-      if (v !== s2.const)
+    if (s.const !== undefined) {
+      if (v !== s.const)
         return err("Const mismatch");
     }
-    if (Array.isArray(s2.enum) && v !== undefined && !s2.enum.includes(v)) {
+    if (Array.isArray(s.enum) && v !== undefined && !s.enum.includes(v)) {
       return err("Enum mismatch");
     }
     if (v === null) {
-      const expectsNull = s2.type === "null" && !s2["x-tjs-undefined"];
-      const typeIncludesNull = Array.isArray(s2.type) && s2.type.includes("null");
-      return expectsNull || typeIncludesNull || !s2.type || err("Expected value, got null");
+      const expectsNull = s.type === "null" && !s["x-tjs-undefined"];
+      const typeIncludesNull = Array.isArray(s.type) && s.type.includes("null");
+      return expectsNull || typeIncludesNull || !s.type || err("Expected value, got null");
     }
     if (v === undefined) {
-      const expectsUndefined = s2.type === "null" && s2["x-tjs-undefined"];
-      const typeIncludesNull = Array.isArray(s2.type) && s2.type.includes("null");
-      return expectsUndefined || typeIncludesNull || !s2.type || err("Expected value, got undefined");
+      const expectsUndefined = s.type === "null" && s["x-tjs-undefined"];
+      const typeIncludesNull = Array.isArray(s.type) && s.type.includes("null");
+      return expectsUndefined || typeIncludesNull || !s.type || err("Expected value, got undefined");
     }
     let t;
-    if (typeof s2.type === "string") {
-      if (s2.type === "null")
+    if (typeof s.type === "string") {
+      if (s.type === "null")
         return err("Expected null");
-      if (!matchesType(v, s2.type))
-        return err(`Expected ${s2.type}`);
-      t = s2.type;
-    } else if (Array.isArray(s2.type)) {
+      if (!matchesType(v, s.type))
+        return err(`Expected ${s.type}`);
+      t = s.type;
+    } else if (Array.isArray(s.type)) {
       let hasNonNull = false;
-      for (const ty of s2.type) {
+      for (const ty of s.type) {
         if (typeof ty !== "string" || ty === "null")
           continue;
         hasNonNull = true;
@@ -461,52 +461,52 @@ function validate(val, builderOrSchema, opts) {
         }
       }
       if (hasNonNull && t === undefined) {
-        return err(`Expected ${s2.type.filter((e) => typeof e === "string" && e !== "null").join(" | ")}`);
+        return err(`Expected ${s.type.filter((e) => typeof e === "string" && e !== "null").join(" | ")}`);
       }
-      if (!hasNonNull && s2.type.includes("null"))
+      if (!hasNonNull && s.type.includes("null"))
         return err("Expected null");
     }
-    if (s2.$predicate && predicateEvaluator) {
-      if (!predicateEvaluator(s2.$predicate, v))
+    if (s.$predicate && predicateEvaluator) {
+      if (!predicateEvaluator(s.$predicate, v))
         return err("Predicate mismatch");
     }
     if (typeof v === "number") {
       if (!Number.isFinite(v))
         return err("Expected finite number");
-      if (s2.minimum !== undefined && v < s2.minimum)
+      if (s.minimum !== undefined && v < s.minimum)
         return err("Value < min");
-      if (s2.maximum !== undefined && v > s2.maximum)
+      if (s.maximum !== undefined && v > s.maximum)
         return err("Value > max");
-      if (s2.exclusiveMinimum !== undefined && v <= s2.exclusiveMinimum)
+      if (s.exclusiveMinimum !== undefined && v <= s.exclusiveMinimum)
         return err("Value <= exclusive min");
-      if (s2.exclusiveMaximum !== undefined && v >= s2.exclusiveMaximum)
+      if (s.exclusiveMaximum !== undefined && v >= s.exclusiveMaximum)
         return err("Value >= exclusive max");
-      if (s2.multipleOf !== undefined) {
-        const remainder = Math.abs(v % s2.multipleOf);
+      if (s.multipleOf !== undefined) {
+        const remainder = Math.abs(v % s.multipleOf);
         const tolerance = 0.0000000001;
-        if (remainder > tolerance && Math.abs(remainder - Math.abs(s2.multipleOf)) > tolerance)
+        if (remainder > tolerance && Math.abs(remainder - Math.abs(s.multipleOf)) > tolerance)
           return err("Value not step");
       }
     }
     if (typeof v === "string") {
-      if (s2.minLength !== undefined && v.length < s2.minLength)
+      if (s.minLength !== undefined && v.length < s.minLength)
         return err("Len < min");
-      if (s2.maxLength !== undefined && v.length > s2.maxLength)
+      if (s.maxLength !== undefined && v.length > s.maxLength)
         return err("Len > max");
-      if (s2.pattern) {
+      if (s.pattern) {
         try {
-          if (!compilePattern(s2.pattern, s2.format === "emoji").test(v))
+          if (!compilePattern(s.pattern, s.format === "emoji").test(v))
             return err("Pattern mismatch");
         } catch {
           return err("Invalid pattern");
         }
       }
-      if (s2.format && FORMAT_VALIDATORS[s2.format] && !FORMAT_VALIDATORS[s2.format](v))
+      if (s.format && FORMAT_VALIDATORS[s.format] && !FORMAT_VALIDATORS[s.format](v))
         return err("Format invalid");
     }
-    if (t === "object" || !t && typeof v === "object" && !Array.isArray(v) && objectKeywordsPresent(s2)) {
-      const min = s2.minProperties;
-      const max = s2.maxProperties;
+    if (t === "object" || !t && typeof v === "object" && !Array.isArray(v) && objectKeywordsPresent(s)) {
+      const min = s.minProperties;
+      const max = s.maxProperties;
       if (min !== undefined || max !== undefined) {
         const c = ownKeys(v).length;
         if (max !== undefined && c > max)
@@ -514,36 +514,36 @@ function validate(val, builderOrSchema, opts) {
         if (min !== undefined && c < min)
           return err("Too few props");
       }
-      if (s2.required) {
-        for (const k of s2.required)
+      if (s.required) {
+        for (const k of s.required)
           if (!hasOwn(v, k))
             return err(`Missing ${k}`);
       }
-      if (s2.additionalProperties === false) {
+      if (s.additionalProperties === false) {
         for (const k of ownKeys(v)) {
-          if (s2.properties && hasOwn(s2.properties, k))
+          if (s.properties && hasOwn(s.properties, k))
             continue;
           return err(`Unexpected ${k}`);
         }
       }
-      if (s2.properties) {
-        for (const k in s2.properties) {
+      if (s.properties) {
+        for (const k in s.properties) {
           if (hasOwn(v, k)) {
             path.push(k);
-            const val2 = readProp(v, k);
-            if (val2 === UNREADABLE)
+            const val = readProp(v, k);
+            if (val === UNREADABLE)
               return err(`Unreadable ${k}`);
-            const ok = walk(val2, s2.properties[k]);
+            const ok = walk(val, s.properties[k]);
             path.pop();
             if (!ok)
               return false;
           }
         }
       }
-      if (s2.additionalProperties) {
+      if (s.additionalProperties) {
         const keys = [];
         for (const k of ownKeys(v)) {
-          if (s2.properties && hasOwn(s2.properties, k))
+          if (s.properties && hasOwn(s.properties, k))
             continue;
           keys.push(k);
         }
@@ -553,10 +553,10 @@ function validate(val, builderOrSchema, opts) {
           const idx = step > 1 && i > len - 1 - step ? len - 1 : i;
           const k = keys[idx];
           path.push(k);
-          const val2 = readProp(v, k);
-          if (val2 === UNREADABLE)
+          const val = readProp(v, k);
+          if (val === UNREADABLE)
             return err(`Unreadable ${k}`);
-          const ok = walk(val2, s2.additionalProperties);
+          const ok = walk(val, s.additionalProperties);
           path.pop();
           if (!ok)
             return false;
@@ -566,18 +566,18 @@ function validate(val, builderOrSchema, opts) {
       }
       return true;
     }
-    if (t === "array" || !t && Array.isArray(v) && arrayKeywordsPresent(s2)) {
+    if (t === "array" || !t && Array.isArray(v) && arrayKeywordsPresent(s)) {
       const len = v.length;
-      if (s2.minItems !== undefined && len < s2.minItems)
+      if (s.minItems !== undefined && len < s.minItems)
         return err("Array too short");
-      if (s2.maxItems !== undefined && len > s2.maxItems)
+      if (s.maxItems !== undefined && len > s.maxItems)
         return err("Array too long");
-      if (s2.items === undefined)
+      if (s.items === undefined)
         return true;
-      if (Array.isArray(s2.items)) {
-        for (let i = 0;i < s2.items.length; i++) {
+      if (Array.isArray(s.items)) {
+        for (let i = 0;i < s.items.length; i++) {
           path.push(String(i));
-          if (!walk(v[i], s2.items[i])) {
+          if (!walk(v[i], s.items[i])) {
             path.pop();
             return false;
           }
@@ -589,7 +589,7 @@ function validate(val, builderOrSchema, opts) {
       for (let i = 0;i < len; i += step) {
         const idx = step > 1 && i > len - 1 - step ? len - 1 : i;
         path.push(String(idx));
-        const ok = walk(v[idx], s2.items);
+        const ok = walk(v[idx], s.items);
         path.pop();
         if (!ok)
           return false;
@@ -738,54 +738,54 @@ function diff(a, b) {
   if (a.type !== b.type)
     return { error: `Type mismatch: ${a.type} vs ${b.type}` };
   if (a.type === "object") {
-    const d2 = {};
+    const d = {};
     const keys = new Set([
       ...Object.keys(a.properties || {}),
       ...Object.keys(b.properties || {})
     ]);
-    let has2 = false;
+    let has = false;
     keys.forEach((k) => {
       const pA = a.properties?.[k], pB = b.properties?.[k];
       if (!pA) {
-        d2[k] = { error: "Added in B" };
-        has2 = true;
+        d[k] = { error: "Added in B" };
+        has = true;
       } else if (!pB) {
-        d2[k] = { error: "Removed in B" };
-        has2 = true;
+        d[k] = { error: "Removed in B" };
+        has = true;
       } else {
         const sub = diff(pA, pB);
         if (sub) {
-          d2[k] = sub;
-          has2 = true;
+          d[k] = sub;
+          has = true;
         }
       }
     });
     ["minProperties", "maxProperties"].forEach((k) => {
       if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
-        d2[k] = { from: a[k], to: b[k] };
-        has2 = true;
+        d[k] = { from: a[k], to: b[k] };
+        has = true;
       }
     });
-    return has2 ? d2 : null;
+    return has ? d : null;
   }
   if (a.type === "array") {
     if (Array.isArray(a.items) && Array.isArray(b.items)) {
       if (a.items.length !== b.items.length)
         return { error: "Tuple length mismatch" };
-      const d2 = {};
-      let has2 = false;
+      const d = {};
+      let has = false;
       for (let i = 0;i < a.items.length; i++) {
         const sub = diff(a.items[i], b.items[i]);
         if (sub) {
-          d2[i] = sub;
-          has2 = true;
+          d[i] = sub;
+          has = true;
         }
       }
-      return has2 ? { items: d2 } : null;
+      return has ? { items: d } : null;
     }
     if (!Array.isArray(a.items) && !Array.isArray(b.items)) {
-      const d2 = diff(a.items, b.items);
-      return d2 ? { items: d2 } : null;
+      const d = diff(a.items, b.items);
+      return d ? { items: d } : null;
     }
     return { error: "Array type mismatch (Tuple vs List)" };
   }
@@ -955,26 +955,26 @@ var ANNOTATION_KEYWORDS = new Set([
   "readOnly",
   "writeOnly"
 ]);
-var enforcedChildren = (s2) => {
+var enforcedChildren = (s) => {
   const kids = [];
-  if (s2.properties && typeof s2.properties === "object") {
-    for (const k of Object.keys(s2.properties)) {
-      kids.push([`properties.${k}`, s2.properties[k]]);
+  if (s.properties && typeof s.properties === "object") {
+    for (const k of Object.keys(s.properties)) {
+      kids.push([`properties.${k}`, s.properties[k]]);
     }
   }
-  if (s2.items !== undefined) {
-    if (Array.isArray(s2.items)) {
-      s2.items.forEach((item, i) => kids.push([`items.${i}`, item]));
+  if (s.items !== undefined) {
+    if (Array.isArray(s.items)) {
+      s.items.forEach((item, i) => kids.push([`items.${i}`, item]));
     } else {
-      kids.push(["items", s2.items]);
+      kids.push(["items", s.items]);
     }
   }
-  if (s2.additionalProperties !== undefined && typeof s2.additionalProperties === "object") {
-    kids.push(["additionalProperties", s2.additionalProperties]);
+  if (s.additionalProperties !== undefined && typeof s.additionalProperties === "object") {
+    kids.push(["additionalProperties", s.additionalProperties]);
   }
   for (const key of ["anyOf", "oneOf"]) {
-    if (Array.isArray(s2[key])) {
-      s2[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
+    if (Array.isArray(s[key])) {
+      s[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
     }
   }
   return kids;
@@ -1050,66 +1050,66 @@ var TYPE_DEPENDENT_KEYWORDS = [
   "enum",
   "$predicate"
 ];
-var unenforced = (s2, at = "root") => {
-  if (s2 === true || s2 === false)
+var unenforced = (s, at = "root") => {
+  if (s === true || s === false)
     return [];
-  if (s2 == null || typeof s2 !== "object" || Array.isArray(s2)) {
+  if (s == null || typeof s !== "object" || Array.isArray(s)) {
     return [`${at} (not a schema)`];
   }
   const found = [];
-  for (const key of Object.keys(s2)) {
+  for (const key of Object.keys(s)) {
     if (!ENFORCED_KEYWORDS.has(key) && !ANNOTATION_KEYWORDS.has(key) && !key.startsWith("x-")) {
       found.push(`${at}.${key}`);
     }
   }
   for (const [key, wellFormed, expected] of KEYWORD_SHAPES) {
-    if (s2[key] !== undefined && !wellFormed(s2[key])) {
+    if (s[key] !== undefined && !wellFormed(s[key])) {
       found.push(`${at}.${key} (must be ${expected})`);
     }
   }
-  if (s2.type === undefined && s2.const === undefined && s2.anyOf === undefined && s2.oneOf === undefined) {
-    const dark = TYPE_DEPENDENT_KEYWORDS.filter((key) => s2[key] !== undefined);
+  if (s.type === undefined && s.const === undefined && s.anyOf === undefined && s.oneOf === undefined) {
+    const dark = TYPE_DEPENDENT_KEYWORDS.filter((key) => s[key] !== undefined);
     if (dark.length > 0) {
       found.push(`${at} (constraints without a type — null/undefined and mismatched ` + `primitives bypass ${dark.join("/")}; add an explicit type)`);
     }
   }
-  const declaredTypes = typeof s2.type === "string" ? [s2.type] : Array.isArray(s2.type) && s2.type.every((x) => typeof x === "string") ? s2.type : null;
+  const declaredTypes = typeof s.type === "string" ? [s.type] : Array.isArray(s.type) && s.type.every((x) => typeof x === "string") ? s.type : null;
   if (declaredTypes) {
     for (const [key, domain] of CONSTRAINT_DOMAINS) {
-      if (s2[key] !== undefined && !declaredTypes.some((entry) => domain.includes(entry))) {
-        found.push(`${at}.${key} (never applies to type ${JSON.stringify(s2.type)})`);
+      if (s[key] !== undefined && !declaredTypes.some((entry) => domain.includes(entry))) {
+        found.push(`${at}.${key} (never applies to type ${JSON.stringify(s.type)})`);
       }
     }
   }
-  if (typeof s2.format === "string" && !ENFORCED_FORMATS.has(s2.format)) {
-    found.push(`${at}.format:'${s2.format}'`);
+  if (typeof s.format === "string" && !ENFORCED_FORMATS.has(s.format)) {
+    found.push(`${at}.format:'${s.format}'`);
   }
-  if (typeof s2.pattern === "string") {
+  if (typeof s.pattern === "string") {
     try {
-      compilePattern(s2.pattern, s2.format === "emoji");
+      compilePattern(s.pattern, s.format === "emoji");
     } catch {
       found.push(`${at}.pattern (invalid regex)`);
     }
   }
-  if (Array.isArray(s2.items) && s2.maxItems !== s2.items.length) {
-    found.push(`${at}.items (tuple without maxItems: ${s2.items.length})`);
+  if (Array.isArray(s.items) && s.maxItems !== s.items.length) {
+    found.push(`${at}.items (tuple without maxItems: ${s.items.length})`);
   }
-  if (isNonPrimitive(s2.const)) {
+  if (isNonPrimitive(s.const)) {
     found.push(`${at}.const (non-primitive; === comparison never matches)`);
   }
-  if (Array.isArray(s2.enum) && s2.enum.some(isNonPrimitive)) {
+  if (Array.isArray(s.enum) && s.enum.some(isNonPrimitive)) {
     found.push(`${at}.enum (non-primitive member never matches)`);
   }
-  for (const [segment, kid] of enforcedChildren(s2)) {
+  for (const [segment, kid] of enforcedChildren(s)) {
     found.push(...unenforced(kid, `${at}.${segment}`));
   }
   return found;
 };
 function unenforcedKeywords(schema) {
-  const s2 = toPlain(schema);
-  if (s2 === true || s2 === false)
+  const s = toPlain(schema);
+  if (s === true || s === false)
     return [];
-  return unenforced(s2);
+  return unenforced(s);
 }
 var agentContract = (schemas, options) => {
   const rawStrict = options?.strict;
@@ -1200,54 +1200,54 @@ var agentContract = (schemas, options) => {
     }
   };
 };
-var subschemas = (s2) => {
-  if (s2 == null || typeof s2 !== "object")
+var subschemas = (s) => {
+  if (s == null || typeof s !== "object")
     return [];
   const kids = [];
-  if (s2.properties) {
-    for (const k of Object.keys(s2.properties)) {
-      kids.push([`properties.${k}`, s2.properties[k]]);
+  if (s.properties) {
+    for (const k of Object.keys(s.properties)) {
+      kids.push([`properties.${k}`, s.properties[k]]);
     }
   }
-  if (s2.items) {
-    if (Array.isArray(s2.items)) {
-      s2.items.forEach((item, i) => kids.push([`items.${i}`, item]));
+  if (s.items) {
+    if (Array.isArray(s.items)) {
+      s.items.forEach((item, i) => kids.push([`items.${i}`, item]));
     } else {
-      kids.push(["items", s2.items]);
+      kids.push(["items", s.items]);
     }
   }
-  if (Array.isArray(s2.prefixItems)) {
-    s2.prefixItems.forEach((item, i) => kids.push([`prefixItems.${i}`, item]));
+  if (Array.isArray(s.prefixItems)) {
+    s.prefixItems.forEach((item, i) => kids.push([`prefixItems.${i}`, item]));
   }
-  if (s2.additionalProperties && typeof s2.additionalProperties === "object") {
-    kids.push(["additionalProperties", s2.additionalProperties]);
+  if (s.additionalProperties && typeof s.additionalProperties === "object") {
+    kids.push(["additionalProperties", s.additionalProperties]);
   }
   for (const key of ["anyOf", "allOf", "oneOf"]) {
-    if (Array.isArray(s2[key])) {
-      s2[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
+    if (Array.isArray(s[key])) {
+      s[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
     }
   }
-  if (s2.not)
-    kids.push(["not", s2.not]);
-  if (s2.$defs) {
-    for (const k of Object.keys(s2.$defs)) {
-      kids.push([`$defs.${k}`, s2.$defs[k]]);
+  if (s.not)
+    kids.push(["not", s.not]);
+  if (s.$defs) {
+    for (const k of Object.keys(s.$defs)) {
+      kids.push([`$defs.${k}`, s.$defs[k]]);
     }
   }
   return kids;
 };
-var hasPredicate = (s2) => s2 != null && typeof s2 === "object" && (typeof s2.$predicate === "string" || subschemas(s2).some(([, kid]) => hasPredicate(kid)));
+var hasPredicate = (s) => s != null && typeof s === "object" && (typeof s.$predicate === "string" || subschemas(s).some(([, kid]) => hasPredicate(kid)));
 function checkExamples(schemaOrBuilder) {
   const findings = [];
-  const visit = (s2, at) => {
-    if (s2 == null || typeof s2 !== "object")
+  const visit = (s, at) => {
+    if (s == null || typeof s !== "object")
       return;
-    if (Array.isArray(s2.examples)) {
-      s2.examples.forEach((example, index) => {
+    if (Array.isArray(s.examples)) {
+      s.examples.forEach((example, index) => {
         const reasons = [];
         let ok;
         try {
-          ok = validate(example, s2, {
+          ok = validate(example, s, {
             strict: true,
             onError: (p, m) => void reasons.push(`${p}: ${m}`)
           });
@@ -1263,7 +1263,7 @@ function checkExamples(schemaOrBuilder) {
             problem: "rejected",
             reasons
           });
-        } else if (getPredicateEvaluator() == null && hasPredicate(s2)) {
+        } else if (getPredicateEvaluator() == null && hasPredicate(s)) {
           findings.push({
             schemaPath: at,
             kind: "example",
@@ -1273,16 +1273,16 @@ function checkExamples(schemaOrBuilder) {
         }
       });
     }
-    if (Array.isArray(s2.$counterexamples)) {
-      s2.$counterexamples.forEach((counter, index) => {
+    if (Array.isArray(s.$counterexamples)) {
+      s.$counterexamples.forEach((counter, index) => {
         let passes;
         try {
-          passes = validate(counter, s2, { strict: true });
+          passes = validate(counter, s, { strict: true });
         } catch {
           passes = false;
         }
         if (passes) {
-          const unverifiable = getPredicateEvaluator() == null && hasPredicate(s2);
+          const unverifiable = getPredicateEvaluator() == null && hasPredicate(s);
           findings.push({
             schemaPath: at,
             kind: "counterexample",
@@ -1292,7 +1292,7 @@ function checkExamples(schemaOrBuilder) {
         }
       });
     }
-    for (const [segment, kid] of subschemas(s2)) {
+    for (const [segment, kid] of subschemas(s)) {
       visit(kid, `${at}.${segment}`);
     }
   };

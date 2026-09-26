@@ -1,0 +1,288 @@
+# Publish a tagged release to npm: OIDC trusted publishing + npm STAGED publishing.
+#
+# TEMPLATE from tosijs-coding-practices/templates/publish.yml — copy it unchanged; fixes land
+# there. Reference: practices/publishing-via-oidc.md. Proven on tosijs-ui 1.15.3 (tosijs-ui#178).
+#
+#   1. (agent)  release commit, tag, push the tag
+#   2. (anyone) Actions → Publish → Run workflow with the tag, or `gh workflow run publish.yml -f tag=vX.Y.Z`
+#   3. (this)   verify everything, then `npm stage publish` — nothing is public yet
+#   4. (human)  approve with 2FA: npmjs.com → package → Staged Packages (works from a phone)
+#   5. (this)   wait for the registry, then prove what shipped is what was built and tested
+#
+# Before tagging, run it with `dry_run` on the branch: every check, no staging, no tag to move.
+#
+# Approved after the 60-minute wait? Run it again with `verify_only` — a re-run starts over and
+# stops at "already published". npm pack is deterministic, so verify_only re-packs the tag.
+#
+# Every check runs BEFORE staging: a staged version burns its number exactly as a publish does.
+# The npm Trusted Publisher entry names this file (publish.yml) with direct `npm publish`
+# DISABLED, so this can only stage; the maintainer's approval is the go.
+#
+# Requires: bun.lock committed, .bun-version, package.json repository.url naming this repo.
+
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish, e.g. v1.15.3 or v1.16.0-beta.1 (a branch, with dry_run)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Run every check up to staging and stop. `tag` may be a branch (e.g. main) — use it BEFORE tagging'
+        required: false
+        type: boolean
+        default: false
+      verify_only:
+        description: 'Only verify an already-approved publish (use when approval came after the 60-minute wait)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # mints the OIDC token npm trusted publishing exchanges for publish rights
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Includes up to an hour waiting for the human approval in step 4.
+    timeout-minutes: 100
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.dry_run && inputs.tag || format('refs/tags/{0}', inputs.tag) }}
+          # Full history and tags: release-doctor reads both (tag/publish reconciliation, release
+          # identity, changelog freshness), and a shallow clone has neither.
+          fetch-depth: 0
+
+      # release-doctor lives in the shared practices repo (public).
+      - name: Check out tosijs-coding-practices
+        uses: actions/checkout@v4
+        with:
+          repository: tonioloewald/tosijs-coding-practices
+          path: .practices
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned: the bundler's output differs between Bun versions (1.4.0 and 1.4.2
+          # built different dist/iife.js from the same lockfile), so CI must build with
+          # the version releases are built with locally.
+          bun-version-file: .bun-version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x' # trusted publishing needs 22.14+
+          registry-url: 'https://registry.npmjs.org'
+
+      # `npm stage` needs npm 11.15.0+, newer than the runner's bundled npm.
+      - name: Upgrade npm
+        run: |
+          npm install -g npm@^11.15.0
+          npm --version
+
+      - name: Tag, version and dist-tag
+        id: meta
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          NAME=$(node -p "require('./package.json').name")
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "dry run at $TAG: the tag/version match is not checked"
+          elif [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::tag $TAG does not match package.json version $VERSION"
+            exit 1
+          fi
+          # The dist-tag comes from the version, never from a person remembering a flag:
+          # 1.16.0-beta.2 → beta, 1.16.0-rc.1 → rc, 1.16.0 → latest. npm makes the tag
+          # immutable once staged, so it has to be right here.
+          case "$VERSION" in
+            *-*)
+              PRE=${VERSION#*-}
+              DIST_TAG=${PRE%%.*}
+              case "$DIST_TAG" in
+                beta|rc|alpha) ;;
+                *)
+                  echo "::error::prerelease '$DIST_TAG' is not beta, rc or alpha — refusing to guess a dist-tag"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *) DIST_TAG=latest ;;
+          esac
+          # Straight from the registry, not npm's cache (which has served stale versions
+          # minutes after a publish).
+          LATEST_BEFORE=$(curl -fsS -H 'Cache-Control: no-cache' "https://registry.npmjs.org/$NAME" \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const d=JSON.parse(s);const has=!!(d.versions&&d.versions[process.argv[1]]);const verify=process.argv[2]==='true';const dry=process.argv[3]==='true';if(has&&dry){console.error('::warning::'+process.argv[1]+' is already published — fine for a dry run, not for a real one')}else if(has&&!verify){console.error('::error::'+process.argv[1]+' is already published — to verify it, run with verify_only');process.exit(1)}if(!has&&verify){console.error('::error::'+process.argv[1]+' is not published — nothing to verify');process.exit(1)}console.log(d['dist-tags'].latest)})" "$VERSION" "${{ inputs.verify_only }}" "${{ inputs.dry_run }}")
+          {
+            echo "version=$VERSION"
+            echo "name=$NAME"
+            echo "dist_tag=$DIST_TAG"
+            echo "latest_before=$LATEST_BEFORE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publishing $NAME@$VERSION under '$DIST_TAG' (latest is currently $LATEST_BEFORE)"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Build, then require every tracked file THAT SHIPS to be unchanged. A repo that commits its
+      # build output must reproduce it exactly, so what ships is what was tested locally; a repo
+      # that does not gets it built here from the frozen lockfile and pinned Bun. Files that do
+      # not ship (a site's ePub, a version stamp) are not this check's business.
+      - name: Build
+        run: |
+          set -euo pipefail
+          # The full build is not always called `build`: tjs-lang's is `make`, because `bun build`
+          # is a Bun BUILTIN and a `build` script makes `bun build` and `bun run build` diverge.
+          # Resolved exactly as release-doctor resolves it (build, make, build:all), so the two
+          # can never build different things.
+          BUILD=$(node -p "const s=require('./package.json').scripts||{}; s.build?'build':s.make?'make':s['build:all']?'build:all':''")
+          if [ -n "$BUILD" ]; then
+            echo "building with: bun run $BUILD"
+            bun run "$BUILD"
+          fi
+          npm pack --dry-run --json 2>/dev/null > "$RUNNER_TEMP/files.json"
+          git diff --name-only > "$RUNNER_TEMP/changed.txt"
+          node -e '
+            const fs = require("fs")
+            const shipped = new Set(JSON.parse(fs.readFileSync(process.argv[1], "utf8"))[0].files.map((f) => f.path))
+            const changed = fs.readFileSync(process.argv[2], "utf8").split("\n").filter(Boolean)
+            const bad = changed.filter((f) => shipped.has(f))
+            if (bad.length) {
+              console.error("::error::building changed files that SHIP — the committed build is stale, or Bun/dependencies differ from the release machine:\n  " + bad.join("\n  "))
+              process.exit(1)
+            }
+            console.log(`✅ build reproduces every shipped tracked file (${changed.length} unshipped file(s) differ, ignored)`)
+          ' "$RUNNER_TEMP/files.json" "$RUNNER_TEMP/changed.txt"
+
+      - name: Pack
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pack"
+          npm pack --json --pack-destination "$RUNNER_TEMP/pack" > "$RUNNER_TEMP/pack.json"
+          FILE=$(node -p "require('$RUNNER_TEMP/pack.json')[0].filename")
+          INTEGRITY=$(node -p "require('$RUNNER_TEMP/pack.json')[0].integrity")
+          echo "tarball=$RUNNER_TEMP/pack/$FILE" >> "$GITHUB_OUTPUT"
+          echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
+
+      # A tag carrying release-attestation.json vouches for a build made and tested LOCALLY
+      # (tools/attest.ts). The tarball just packed must contain exactly the files recorded
+      # there, so what is staged is what was signed off, and the suite never runs here.
+      - name: Tarball matches the attested build
+        if: ${{ !inputs.verify_only && hashFiles('release-attestation.json') != '' }}
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: bun .practices/tools/attest.ts --verify-shipped "${{ steps.pack.outputs.tarball }}"
+
+      # What an adopter's install exercises, against the exact bytes about to ship. Uses the
+      # repo's own `test-consumer` if it has one (it must print the tarball path), else a
+      # generic install + entry-point + typecheck.
+      - name: Consumer smoke test (packed tarball)
+        if: ${{ !inputs.verify_only }}
+        run: bun .practices/tools/publish-smoke.ts "${{ steps.pack.outputs.tarball }}"
+
+      # Tier 0: tests, typecheck, build, changelog entry, packaged exports, bin shebangs, …
+      # Lanes CI cannot run (e.g. live-LLM suites) are declared in package.json
+      # releaseDoctor.attestedLanes and covered by release-attestation.json (tools/attest.ts).
+      - name: release-doctor
+        if: ${{ !inputs.verify_only }}
+        env:
+          # This tag is ahead of npm by definition — it is the one being published.
+          RELEASE_DOCTOR_PUBLISHING: ${{ !inputs.dry_run && inputs.tag || '' }}
+        run: bun .practices/tools/release-doctor.ts
+
+      # ---- nothing above this line has touched the registry ----
+
+      - name: Stage
+        if: ${{ !inputs.verify_only && !inputs.dry_run }}
+        id: stage
+        run: |
+          set -euo pipefail
+          npm stage publish "${{ steps.pack.outputs.tarball }}" --tag "${{ steps.meta.outputs.dist_tag }}" | tee "$RUNNER_TEMP/stage.txt"
+          {
+            echo "## ⏳ ${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }} is STAGED — approve it"
+            echo
+            echo "Dist-tag: \`${{ steps.meta.outputs.dist_tag }}\`"
+            echo
+            echo "Approve with 2FA at npmjs.com → **Staged Packages**, or:"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/stage.txt"
+            echo '```'
+            echo
+            echo "This run waits up to 60 minutes for the approval, then verifies."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for approval
+        if: ${{ !inputs.verify_only && !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 120); do
+            if curl -fsS -H 'Cache-Control: no-cache' "https://registry.npmjs.org/${{ steps.meta.outputs.name }}" \
+              | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.exit(JSON.parse(s).versions?.[process.argv[1]]?0:1))" "${{ steps.meta.outputs.version }}"; then
+              echo "served by the registry after ~$((i * 30))s"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::not approved within 60 minutes. Approve it, then run this workflow again for the same tag with verify_only ticked — a re-run would start over and stop at 'already published'."
+          exit 1
+
+      - name: Verify what shipped
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERIFY_ONLY: ${{ inputs.verify_only }}
+        run: |
+          set -euo pipefail
+          NAME=${{ steps.meta.outputs.name }}
+          VERSION=${{ steps.meta.outputs.version }}
+          # To a FILE: the packument lists every version ever published, and passed as an
+          # argument it exceeds the OS limit ("Argument list too long").
+          curl -fsS -H 'Cache-Control: no-cache' -o "$RUNNER_TEMP/packument.json" "https://registry.npmjs.org/$NAME"
+          node -e '
+            const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
+            const [version, distTag, latestBefore, integrity] = process.argv.slice(2)
+            const fail = (m) => { console.error("::error::" + m); process.exitCode = 1 }
+            const published = d.versions[version].dist.integrity
+            if (published !== integrity)
+              fail(`published integrity ${published} is not the tarball this run built and staged (${integrity})`)
+            else console.log("✅ published bytes are identical to the staged tarball")
+            const tags = d["dist-tags"]
+            if (tags[distTag] !== version) fail(`dist-tag ${distTag} is ${tags[distTag]}, expected ${version}`)
+            else console.log(`✅ ${distTag} → ${version}`)
+            if (distTag !== "latest") {
+              if (tags.latest === version) fail(`a ${distTag} publish is \`latest\``)
+              else if (process.env.VERIFY_ONLY !== "true" && tags.latest !== latestBefore)
+                fail(`a ${distTag} publish MOVED latest: ${latestBefore} → ${tags.latest}`)
+              else console.log(`✅ latest is not the prerelease (${tags.latest})`)
+            }
+          ' "$RUNNER_TEMP/packument.json" "$VERSION" "${{ steps.meta.outputs.dist_tag }}" "${{ steps.meta.outputs.latest_before }}" "${{ steps.pack.outputs.integrity }}"
+
+      # The smoke test once more, against the tarball adopters actually download.
+      - name: Consumer smoke test (from the registry)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/registry"
+          npm pack "${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }}" --pack-destination "$RUNNER_TEMP/registry"
+          bun .practices/tools/publish-smoke.ts "$(ls "$RUNNER_TEMP"/registry/*.tgz)"
+
+      - name: Summary
+        if: ${{ !inputs.dry_run }}
+        run: |
+          {
+            echo "## ✅ ${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }} is published and verified"
+            echo
+            echo "- dist-tag \`${{ steps.meta.outputs.dist_tag }}\`"
+            echo "- published bytes identical to the tarball built and tested here (\`${{ steps.pack.outputs.integrity }}\`)"
+            echo "- consumer smoke test passed against the registry's copy"
+          } >> "$GITHUB_STEP_SUMMARY"

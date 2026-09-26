@@ -606,7 +606,7 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
 All files        |   98.98 |   98.66 |
- src/contract.ts |   97.78 |   97.66 | 164,646,648,651,660-662,693-694
+ src/contract.ts |   97.78 |   97.66 | 164,646,648,651,660-662,693-694,722
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
