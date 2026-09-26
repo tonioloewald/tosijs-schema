@@ -349,12 +349,23 @@ export interface Obj<T> extends Base<T> {
  * TypeError. TypeScript's `Base<T>` catches this; JS callers, `as any` and
  * deserialized config do not. Fail loudly, naming the argument.
  */
+// Array.isArray throws on a revoked Proxy; construction guards must not leak that
+const isArray = (x: any): boolean => {
+  try {
+    return Array.isArray(x)
+  } catch {
+    return false
+  }
+}
+
 const assertBuilder = (x: any, where: string): void => {
   let ok = false
+  let got = 'a plain schema'
   try {
     ok = isBuilder(x)
-  } catch {} // a throwing Proxy/getter still gets the named error below
-  if (!ok) throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? 'an array' : typeof x === 'object' && x ? 'a plain schema' : String(x)}`)
+    if (!ok) got = Array.isArray(x) ? 'an array' : typeof x === 'object' && x ? got : String(x)
+  } catch {} // a throwing or revoked Proxy still gets the named error below
+  if (!ok) throw new TypeError(`${where}: expected a builder like s.string, not ${got}`)
 }
 
 const methods = {
@@ -401,7 +412,7 @@ const methods = {
     }) as Str,
 
   union: <T extends Base<any>[]>(schemas: T) => {
-    if (!Array.isArray(schemas)) throw new TypeError('s.union expects an array of builders: s.union([s.string, s.number])')
+    if (!isArray(schemas)) throw new TypeError('s.union expects an array of builders: s.union([s.string, s.number])')
     schemas.forEach((b, i) => assertBuilder(b, `s.union: schemas[${i}]`))
     return create({ anyOf: schemas.map((s) => s.schema) }) as Base<Infer<T[number]>>
   },
@@ -419,7 +430,7 @@ const methods = {
 
   // FIX: 'readonly' added to generic constraint to force tuple inference
   tuple: <T extends readonly [Base<any>, ...Base<any>[]]>(items: T) => {
-    if (!Array.isArray(items)) throw new TypeError('s.tuple expects an array of builders: s.tuple([s.string, s.number])')
+    if (!isArray(items)) throw new TypeError('s.tuple expects an array of builders: s.tuple([s.string, s.number])')
     items.forEach((b, i) => assertBuilder(b, `s.tuple: items[${i}]`))
     return create({
       type: 'array',
@@ -591,8 +602,9 @@ export const AMBIGUOUS_MESSAGE =
  * required:['a'], schema:true }` validated EVERYTHING; v1.11.0's attempts to
  * discriminate by keyword shape each turned some legitimate wrapper into an
  * accept-all instead. So we stop guessing: builders unwrap, everything else
- * is used as-is, and the ambiguous shape returns `AMBIGUOUS`, which every
- * caller refuses (fail closed) with `AMBIGUOUS_MESSAGE`. Never throws — an
+ * is used as-is, and the ambiguous shape returns an opaque internal sentinel
+ * (never a schema), which every caller refuses (fail closed). If you call
+ * `unwrap` yourself, guard with `isBuilder` first or pass the schema itself. Never throws — an
  * object whose property access throws is treated as ambiguous.
  *
  * Exported so `validate`, `filter` and `M.func` cannot drift apart.

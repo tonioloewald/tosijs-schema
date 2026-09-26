@@ -212,13 +212,23 @@ function setPredicateEvaluator(fn) {
 function getPredicateEvaluator() {
   return predicateEvaluator;
 }
+var isArray = (x) => {
+  try {
+    return Array.isArray(x);
+  } catch {
+    return false;
+  }
+};
 var assertBuilder = (x, where) => {
   let ok = false;
+  let got = "a plain schema";
   try {
     ok = isBuilder(x);
+    if (!ok)
+      got = Array.isArray(x) ? "an array" : typeof x === "object" && x ? got : String(x);
   } catch {}
   if (!ok)
-    throw new TypeError(`${where}: expected a builder like s.string, not ${Array.isArray(x) ? "an array" : typeof x === "object" && x ? "a plain schema" : String(x)}`);
+    throw new TypeError(`${where}: expected a builder like s.string, not ${got}`);
 };
 var methods = {
   get email() {
@@ -260,7 +270,7 @@ var methods = {
     pattern: typeof r === "string" ? r : r.source
   }),
   union: (schemas) => {
-    if (!Array.isArray(schemas))
+    if (!isArray(schemas))
       throw new TypeError("s.union expects an array of builders: s.union([s.string, s.number])");
     schemas.forEach((b, i) => assertBuilder(b, `s.union: schemas[${i}]`));
     return create({ anyOf: schemas.map((s) => s.schema) });
@@ -272,7 +282,7 @@ var methods = {
     return create({ type: "array", items: items.schema });
   },
   tuple: (items) => {
-    if (!Array.isArray(items))
+    if (!isArray(items))
       throw new TypeError("s.tuple expects an array of builders: s.tuple([s.string, s.number])");
     items.forEach((b, i) => assertBuilder(b, `s.tuple: items[${i}]`));
     return create({

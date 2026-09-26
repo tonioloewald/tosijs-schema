@@ -28,9 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     schema tree a `schema` key stays an ignored unknown keyword at every depth
     (union branches included), and a builder whose schema carries one (e.g.
     via `.meta()`) still works everywhere.
-  - **`unwrap` (public since 1.11.0) changed contract:** it can now return the
-    internal `AMBIGUOUS` sentinel instead of a schema. If you call it, check
-    `isBuilder(x)` first or pass the schema itself.
+  - **`unwrap` (public since 1.11.0) changed contract:** for the ambiguous
+    shape it now returns an opaque internal sentinel instead of a schema. If
+    you call it, guard with `isBuilder(x)` first or pass the schema itself.
+  - **Which entry points refuse:** `validate`, `filter` and `M.func`.
+    `agentContract` already refused the shape at construction (its keyword
+    allowlist). `checkExamples` is a lint over a schema tree and treats a root
+    `schema` key as an ignored unknown keyword, as in 1.11.0. Run
+    `unenforcedKeywords()` to see it.
 - **Builder combinators refuse a plain schema** (board #1391).
   `s.array({ type: 'string' })` read `.schema` off a plain object, got
   `undefined`, and silently built `{ type: 'array' }` — no `items`, so every

@@ -218,8 +218,9 @@ export declare const s: TinySchema;
  * required:['a'], schema:true }` validated EVERYTHING; v1.11.0's attempts to
  * discriminate by keyword shape each turned some legitimate wrapper into an
  * accept-all instead. So we stop guessing: builders unwrap, everything else
- * is used as-is, and the ambiguous shape returns `AMBIGUOUS`, which every
- * caller refuses (fail closed) with `AMBIGUOUS_MESSAGE`. Never throws — an
+ * is used as-is, and the ambiguous shape returns an opaque internal sentinel
+ * (never a schema), which every caller refuses (fail closed). If you call
+ * `unwrap` yourself, guard with `isBuilder` first or pass the schema itself. Never throws — an
  * object whose property access throws is treated as ambiguous.
  *
  * Exported so `validate`, `filter` and `M.func` cannot drift apart.

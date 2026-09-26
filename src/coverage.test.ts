@@ -1027,9 +1027,15 @@ describe('builder construction: plain schema where a builder belongs (v1.12.0)',
     expect(() => s.array([s.string] as any)).toThrow(/not an array/)
   })
 
-  test('a throwing Proxy gets the named error, not its own', () => {
+  test('a throwing or revoked Proxy gets the named error, not its own', () => {
     const hostile = new Proxy({}, { has() { throw new Error('boom') }, get() { throw new Error('boom') } })
     expect(() => s.array(hostile as any)).toThrow(/s\.array\(items\): expected a builder/)
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
+    expect(() => s.array(proxy as any)).toThrow(/s\.array\(items\): expected a builder/)
+    expect(() => s.object({ a: proxy } as any)).toThrow(/s\.object: property "a": expected a builder/)
+    expect(() => s.union(proxy as any)).toThrow(/s\.union expects an array of builders/)
+    expect(() => s.tuple(proxy as any)).toThrow(/s\.tuple expects an array of builders/)
   })
 
   test('real builders — incl. chained and pre-brand ones — still compose', () => {
@@ -1070,6 +1076,28 @@ describe('ambiguity refusal is root-argument-only (v1.12.0 review)', () => {
     expect(validate({ a: 'x' }, { type: 'object', properties: { a: stray } })).toBeTrue()
     expect(validate(['x'], { type: 'array', items: stray })).toBeTrue()
     expect(filter('x', { anyOf: [stray] })).toBe('x')
+  })
+
+  test('filter strips through union branches that carry a stray key (pins the internal re-entries)', () => {
+    // reverting filterData's branch trials to the public validate() would
+    // refuse the stray-key branch: anyOf would pick the wrong one and drop
+    // data ({} instead of {a:'x'}); oneOf would miscount its matches
+    const strayObj = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false, schema: true }
+    const other = { type: 'object', properties: { b: { type: 'number' } }, additionalProperties: false }
+    expect(filter({ a: 'x', junk: 1 }, { anyOf: [strayObj, other] })).toEqual({ a: 'x' })
+    expect(filter({ a: 'x', junk: 1 }, { oneOf: [strayObj, { ...other, required: ['b'] }] })).toEqual({ a: 'x' })
+    expect(filter({ a: 'x' }, { oneOf: [strayObj, { ...strayObj, schema: undefined }] })).toBeInstanceOf(Error)
+    // oneOf's ORIGINAL-data match: {a:'x'} matches BOTH branches, so it is a
+    // oneOf violation — filter must agree with validate, not see one match
+    const both = { oneOf: [strayObj, { type: 'object' }] }
+    expect(validate({ a: 'x' }, both)).toBeFalse()
+    expect(filter({ a: 'x' }, both)).toBeInstanceOf(Error)
+    // ...and the branch-count itself, which the outer re-validation masks, is
+    // visible under skipValidation: two original matches ⇒ data untouched,
+    // not stripped down to whichever single branch a miscount would pick
+    const openStray = { type: 'object', properties: { a: { type: 'string' } }, schema: true }
+    const openK = { type: 'object', properties: { k: { type: 'number' } } }
+    expect(filter({ a: 'x', k: 1 }, { oneOf: [openStray, openK] }, { skipValidation: true })).toEqual({ a: 'x', k: 1 })
   })
 
   test('checkExamples judges a nested stray-key node by its real constraints', () => {
