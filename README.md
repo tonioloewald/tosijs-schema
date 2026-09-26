@@ -30,11 +30,12 @@ Four earlier releases each closed one member of this class as it was reported. T
 | a **non-enumerable** own property vs `additionalProperties: false` | passes as though absent | **fails** |
 | a non-enumerable property under `additionalProperties: <schema>` | never validated | **validated** |
 | a non-enumerable property vs `min`/`maxProperties` | uncounted | **counted** |
-| a stray `schema` key in a plain JSON Schema | made the whole schema **accept-all** | ignored; the real schema applies |
 
-**Who this affects:** almost nobody validating JSON — `JSON.parse` cannot produce a non-enumerable property. It affects code validating **live JS objects**, which is what `agentContract` receives, and anyone whose wire schema has a `schema` key (usually a `$schema` typo). In both cases the old behavior was that *no check happened*, so a new failure is a check that finally ran.
+**Who this affects:** almost nobody validating JSON — `JSON.parse` cannot produce a non-enumerable property. It affects code validating **live JS objects**, which is what `agentContract` receives. The old behavior was that *no check happened*, so a new failure is a check that finally ran.
 
-**Migration:** for `Unexpected <key>`, strip the hidden property (`filter()` already drops them), declare it, or use `.open`. For the schema key, delete it.
+**Migration:** for `Unexpected <key>`, strip the hidden property (`filter()` already drops them), declare it, or use `.open`.
+
+**Not changed (known limitation):** a plain JSON Schema carrying a stray `schema` key (usually a `$schema` typo) is still replaced by that key's value, as in 1.10.2 — so `{ type: 'object', schema: true }` accepts everything. Two attempts to fix it broke legitimate `{ …, schema: X }` envelopes (incl. OpenAI's `json_schema`), so it ships unchanged and is tracked for its own release. `agentContract` already refuses such a schema at construction.
 
 On cost: the enumeration change measured **10–20% faster** than the `for..in` + per-key `hasOwnProperty` loop it replaced (a 1000-key object under `additionalProperties`). One trade-off is real, though: `maxProperties` no longer short-circuits at `max + 1`, because a correct count has to include keys `for..in` skips — so a huge object with a small declared ceiling now enumerates once instead of stopping early.
 

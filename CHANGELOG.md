@@ -35,7 +35,6 @@ Every item is the same shape: **the check returned `true` having not looked.**
 | a **non-enumerable** own property vs `additionalProperties: false` | passes, as though absent | **fails** (`Unexpected <key>`) |
 | a non-enumerable property under `additionalProperties: <schema>` | never validated at all | **validated** like any other key |
 | a non-enumerable property vs `min`/`maxProperties` | uncounted | **counted** |
-| `validate(x, { …, schema: true })` — a stray `schema` key | the schema became `true`: **accept-all** | the key is ignored; the real schema applies |
 
 - **Non-enumerable own properties are no longer invisible.** Every walk over a
   data object used `for..in` + `hasOwnProperty`, which sees only *enumerable*
