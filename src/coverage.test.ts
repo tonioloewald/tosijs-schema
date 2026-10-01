@@ -1116,7 +1116,7 @@ describe('ambiguity refusal is root-argument-only (v1.12.0 review)', () => {
 // anyOf branch doesn't apply sibling applicators"). Each branch is stripped
 // against itself MERGED with its siblings: a key survives if either declares it
 // and neither forbids it. Every result below must also validate.
-describe('filter: union siblings apply (v1.12.1)', () => {
+describe('filter: union siblings apply (v1.13.0)', () => {
   const cases: [string, any, any, any][] = [
     ['anyOf beside properties/additionalProperties:false',
       { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, additionalProperties: false, anyOf: [{ required: ['a'] }, { required: ['b'] }] },
@@ -1139,6 +1139,12 @@ describe('filter: union siblings apply (v1.12.1)', () => {
     ['anyOf AND oneOf: anyOf cannot shed a key only the oneOf branch declares',
       { anyOf: [{ properties: { a: {} } }], oneOf: [{ properties: { b: {} }, required: ['b'] }] },
       { a: 1, b: 2 }, { a: 1, b: 2 }],
+    ['two unions meeting (sibling AND branch carry one): nothing valid is lost',
+      { anyOf: [{ properties: { a: {} } }], oneOf: [{ properties: { b: {} }, anyOf: [{ properties: { c: {} } }] }] },
+      { a: 1, b: 2, c: 3 }, { a: 1, b: 2, c: 3 }],
+    ['two unions meeting one level down: nothing valid is lost',
+      { properties: { x: { anyOf: [{ properties: { p: {} } }] } }, anyOf: [{ properties: { x: { anyOf: [{ properties: { q: {} } }] } } }] },
+      { x: { p: 1, q: 2 } }, { x: { p: 1, q: 2 } }],
     ['a pure union is unchanged',
       { anyOf: [{ type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false }] },
       { a: 'x', junk: 1 }, { a: 'x' }],
@@ -1150,4 +1156,17 @@ describe('filter: union siblings apply (v1.12.1)', () => {
       expect(validate(got, schema)).toBeTrue()
     })
   }
+})
+
+describe('filter with anyOf AND oneOf on INVALID data (v1.13.0, BREAKING narrow)', () => {
+  test('a key only the oneOf branch declares is no longer dropped to force a pass', () => {
+    const sch: any = {
+      anyOf: [{ properties: { a: { type: 'number' }, c: { type: 'number' } } }, { properties: { a: {}, b: {} } }],
+      oneOf: [{ properties: { c: { type: 'string' } } }],
+    }
+    const data = { a: { a: 1 }, b: 1, c: 1 }
+    expect(validate(data, sch)).toBeFalse()
+    // 1.12.0 returned { a: { a: 1 }, b: 1 } — c silently dropped. Now loud, as oneOf-only already was.
+    expect(filter(data, sch)).toBeInstanceOf(Error)
+  })
 })

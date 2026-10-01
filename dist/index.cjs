@@ -775,6 +775,9 @@ function stripSchema(rest, branch) {
     return rest;
   if (rest === true || rest == null || typeof rest !== "object")
     return branch;
+  const hasUnion = (x) => Array.isArray(x.anyOf) || Array.isArray(x.oneOf);
+  if (hasUnion(rest) && hasUnion(branch))
+    return {};
   const out = { ...rest, ...branch };
   if (rest.properties || branch.properties) {
     const props = { ...rest.properties, ...branch.properties };

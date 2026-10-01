@@ -18,10 +18,11 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 const outdir = mkdtempSync(join(tmpdir(), 'tosijs-schema-second-copy-'))
+// registered BEFORE the build/import, so a failure there can't leak the dir
+afterAll(() => rmSync(outdir, { recursive: true, force: true }))
 const built = await Bun.build({ entrypoints: [join(import.meta.dir, '..', 'index.ts')], outdir })
 if (!built.success) throw new Error('could not bundle the second copy')
 const second: typeof import('../index') = await import(built.outputs[0]!.path)
-afterAll(() => rmSync(outdir, { recursive: true, force: true }))
 
 const good = { a: 'ok' }
 const bad = { a: 42 }

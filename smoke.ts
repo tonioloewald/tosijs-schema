@@ -92,7 +92,7 @@ const checks: Array<[string, boolean]> = [
   ['1.12.0: builders are branded', isBuilder(S) && (S as any)[BUILDER] === true],
   ['1.12.0: a stray schema key is refused, not accept-all', validate(42, { type: 'object', required: ['a'], schema: true } as any) === false],
   ['1.12.0: combinators refuse a plain schema', (() => { try { s.array({ type: 'string' } as any); return false } catch { return true } })()],
-  ['1.12.1: filter honours union siblings', JSON.stringify(filter({ a: 'x', junk: 1 }, { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false, anyOf: [{ required: ['a'] }] })) === '{"a":"x"}'],
+  ['1.13.0: filter honours union siblings', JSON.stringify(filter({ a: 'x', junk: 1 }, { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false, anyOf: [{ required: ['a'] }] })) === '{"a":"x"}'],
 ]
 const bad = checks.filter(([, ok]) => !ok).map(([name]) => name)
 // throw rather than process.exit: the consumer fixture is typechecked WITHOUT
@@ -128,7 +128,7 @@ console.log('all ' + checks.length + ' runtime assertions passed')
   //    TypeScript Node backend typically runs. It refuses extensionless
   //    relative imports in a `"type": "module"` package's .d.ts, and then the
   //    consumer silently gets NO types ("has no exported member 's'"). Until
-  //    1.12.1 the declarations wrote `export * from './src/schema'`; the
+  //    1.13.0 the declarations wrote `export * from './src/schema'`; the
   //    `bundler` check above can't see that, because bundler resolution adds
   //    extensions for you.
   const tscNode = run(

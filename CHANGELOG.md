@@ -5,7 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.13.0] — 2026-10-02
+
+**Contains one narrow BREAKING change** (to `filter`, on invalid input only).
+See README "Upgrading to 1.13.0". Everything else is a fix or a loosening.
+
+### Changed — BREAKING (narrow)
+
+- **With both `anyOf` and `oneOf`, `filter` no longer drops a key the `oneOf`
+  branch declares to force invalid data through.** It returns an `Error`
+  instead, as a `oneOf`-only schema already did.
+  - Example: `anyOf: [{ properties: { a: { type: 'number' }, c: { type: 'number' } } }, { properties: { a: {}, b: {} } }]`
+    with `oneOf: [{ properties: { c: { type: 'string' } } }]` and the data
+    `{ a: { a: 1 }, b: 1, c: 1 }`. Before: `{ a: { a: 1 }, b: 1 }`, with `c`
+    silently gone. After: `Error`.
+  - Only inputs that fail `validate` are affected. A fuzz pass over ~78k
+    schemas found no valid input that newly errors. Where both versions return
+    data, 1.13.0's output keeps a superset of the keys.
+  - **Migration:** pass data that validates, or handle the `Error`. Either way
+    you were relying on a key being discarded without notice.
 
 ### Fixed
 
@@ -26,10 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   didn't declare. Each branch is now stripped against itself merged with its
   siblings. A key survives if either one declares it and neither forbids it,
   recursively through shared `properties` and `items`. The result must
-  validate against both. With both `anyOf` and `oneOf` present, `anyOf` acts as
-  a sibling of each `oneOf` branch, so it can no longer shed a key only the
-  `oneOf` branch declares. This is a loosening: inputs that errored, or lost a
-  key, now filter correctly.
+  validate against both. Where the sibling and the branch BOTH carry their own
+  `anyOf`/`oneOf`, no single strip schema can represent both, so that node is
+  left unstripped and validation decides. The worst case is a loud `Error`,
+  never a silently dropped key. With both `anyOf` and `oneOf` present, `anyOf`
+  acts as a sibling of each `oneOf` branch.
 - **`checkExamples` no longer reports `unverifiable` for a `$predicate` that
   `validate` never runs.** A predicate inside `not`, `allOf` or an unreferenced
   `$defs` made counterexamples report `unverifiable` when they are `accepted`

@@ -1001,7 +1001,7 @@ describe('agentContract — 1.9.1 review remediation', () => {
 })
 
 
-describe('checkExamples traversal + predicate reachability (v1.12.1)', () => {
+describe('checkExamples traversal + predicate reachability (v1.13.0)', () => {
   // these assert the NO-evaluator verdicts; restore whatever was registered
   let prev: any
   beforeEach(() => { prev = setPredicateEvaluator(null as any) })

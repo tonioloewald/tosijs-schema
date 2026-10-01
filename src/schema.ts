@@ -1212,6 +1212,12 @@ function filterData(data: any, schema: any, fullScan = false): any {
 function stripSchema(rest: any, branch: any): any {
   if (branch === true || branch == null || typeof branch !== 'object') return rest
   if (rest === true || rest == null || typeof rest !== 'object') return branch
+  // Two unions can't be merged into ONE strip schema (a spread would let one
+  // side's anyOf/oneOf silently replace the other's and shed its keys, on
+  // VALID data). Strip nothing at this node; validation against each side
+  // still decides, so the worst case is a loud Error, never a silent loss.
+  const hasUnion = (x: any) => Array.isArray(x.anyOf) || Array.isArray(x.oneOf)
+  if (hasUnion(rest) && hasUnion(branch)) return {}
   const out: any = { ...rest, ...branch }
   if (rest.properties || branch.properties) {
     const props: any = { ...rest.properties, ...branch.properties }
