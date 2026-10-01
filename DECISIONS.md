@@ -143,6 +143,13 @@ keys are caller-supplied root names, so any posture key could collide with a
 real root. A sibling member is the right shape, but adding a required interface
 member breaks implementers, so it waits for a minor. The rationale is in the JSDoc.
 
+`filter` REFUSES a key forbidden by `properties: { key: false }`, it doesn't strip it
+(2026-10-02, pinned in schema.test.ts "filter handles boolean schemas"). An
+undeclared extra is noise to shed. A key the author named and prohibited is a
+statement about the data, and silently removing it hides a violation the author
+asked to hear about. Reconsider if a consumer needs filter-to-sanitize over
+schemas that use `false` as a deny-list.
+
 `affectedRoots` returns a fresh copy that callers may mutate (2026-09-14). It is
 documented, and tampering with it can't affect the gate.
 

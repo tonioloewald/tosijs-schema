@@ -489,7 +489,7 @@ export const agentContract = (
   // (`a["b.c"]` is ONE key, not two levels), and the regex was quadratic on
   // unbalanced brackets — a DoS on the least-trusted input in the system. The
   // real fix is a tokenizer comparing SEGMENT ARRAYS plus a written-down
-  // grammar; that is its own change, tracked in TODO.md.
+  // grammar; that is its own change, tracked on the board ("A path TOKENIZER").
   //
   // Until then the honest posture is: this limitation is pre-existing, it is
   // documented, and `{ unknownPath: 'refuse' }` closes it for a gate that is

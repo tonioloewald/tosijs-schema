@@ -30,8 +30,15 @@ practices: file, don't fix — never edit the other repo from here).
   the exported `isBuilder`. Filed 2026-09-26 from the v1.12.0 pre-release review
   (tjs-lang's suite passes unchanged against 1.12.0).
 
-## RESOLVED — no issue filed
+## Known upstream bugs, not filed
 
-- **Bun `--outfile` build glitch** (seen while verifying a standalone build during
-  the 1.8.0 work): fixed upstream in Bun 1.4; no issue filed. Left here so a future
-  reviewer who hits the old symptom on an older Bun knows the fix is "upgrade Bun".
+- **Bun `bun build --outfile` ignores the output path when a sourcemap is
+  requested** (re-verified on Bun 1.4.2, 2026-10-02; the earlier note here
+  called it "fixed upstream in Bun 1.4", which was wrong). Minimal repro with
+  `src/a.ts` holding `export const x = 1`:
+  `bun build src/a.ts --sourcemap=linked --minify --outfile=dist/a.js` writes
+  `src/a.js` + `src/a.js.map` and nothing in `dist/`; with
+  `--sourcemap=external` it writes nothing at all; without a sourcemap it
+  writes `dist/a.js` correctly. `pack` works around it by building the infer
+  subpath with `--outdir=dist` (board: "Simplify `pack`"). Not filed on
+  oven-sh/bun yet: that is a third-party tracker, so the owner decides.
