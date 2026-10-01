@@ -30,15 +30,14 @@ practices: file, don't fix — never edit the other repo from here).
   the exported `isBuilder`. Filed 2026-09-26 from the v1.12.0 pre-release review
   (tjs-lang's suite passes unchanged against 1.12.0).
 
-## Known upstream bugs, not filed
+## Third-party upstream
 
-- **Bun `bun build --outfile` ignores the output path when a sourcemap is
-  requested** (re-verified on Bun 1.4.2, 2026-10-02; the earlier note here
-  called it "fixed upstream in Bun 1.4", which was wrong). Minimal repro with
-  `src/a.ts` holding `export const x = 1`:
-  `bun build src/a.ts --sourcemap=linked --minify --outfile=dist/a.js` writes
-  `src/a.js` + `src/a.js.map` and nothing in `dist/`; with
-  `--sourcemap=external` it writes nothing at all; without a sourcemap it
-  writes `dist/a.js` correctly. `pack` works around it by building the infer
-  subpath with `--outdir=dist` (board: "Simplify `pack`"). Not filed on
-  oven-sh/bun yet: that is a third-party tracker, so the owner decides.
+- **Bun: `bun build --outfile` ignores the output path when a sourcemap is
+  requested.** This is [oven-sh/bun#19729](https://github.com/oven-sh/bun/issues/19729),
+  open since Bun 1.2.12. A fix PR (#30884) was closed unmerged, and the
+  related #41879 is open. We commented on 2026-10-02 confirming it on 1.4.2,
+  and added a symptom the issue didn't record: with `--sourcemap=external`,
+  nothing is written at all, and both commands exit 0. (An earlier note here
+  called it "fixed upstream in Bun 1.4", which was wrong.) `pack` works around
+  it by building the infer subpath with `--outdir=dist` (board: "Simplify
+  `pack`", blocked on this).
