@@ -709,6 +709,33 @@ export const ENFORCED_KEYWORDS: ReadonlySet<string> = new Set([
   'x-tjs-undefined',
 ])
 
+/**
+ * @internal The child schema nodes `validate` actually RECURSES into, as
+ * [path-segment, node] pairs. Lives beside ENFORCED_KEYWORDS for the same
+ * anti-drift reason: contract.ts walks enforced subtrees for the gate's
+ * construction refusals, and for whether a `$predicate` can be reached. It
+ * used to keep its own copy of this list, which had already drifted from the
+ * lint walk. Keep it in step with `walk` below.
+ */
+export const enforcedSubschemas = (s: any): [string, any][] => {
+  const kids: [string, any][] = []
+  if (s == null || typeof s !== 'object') return kids
+  if (s.properties && typeof s.properties === 'object') {
+    for (const k of Object.keys(s.properties)) kids.push([`properties.${k}`, s.properties[k]])
+  }
+  if (s.items !== undefined) {
+    if (Array.isArray(s.items)) s.items.forEach((item: any, i: number) => kids.push([`items.${i}`, item]))
+    else kids.push(['items', s.items])
+  }
+  if (s.additionalProperties !== undefined && typeof s.additionalProperties === 'object') {
+    kids.push(['additionalProperties', s.additionalProperties])
+  }
+  for (const key of ['anyOf', 'oneOf'] as const) {
+    if (Array.isArray(s[key])) s[key].forEach((sub: any, i: number) => kids.push([`${key}.${i}`, sub]))
+  }
+  return kids
+}
+
 /** object-applicator keywords present — shared by validate's walk and filterData so their applicability can't drift */
 const objectKeywordsPresent = (s: any): boolean =>
   s.properties !== undefined ||

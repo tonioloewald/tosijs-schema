@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   siblings. A key survives if either one declares it and neither forbids it,
   and the result must validate against both. Both unions apply when both are
   present. This is a loosening: inputs that errored now filter.
+- **`checkExamples` no longer reports `unverifiable` for a `$predicate` that
+  `validate` never runs.** A predicate inside `not`, `allOf` or an unreferenced
+  `$defs` made counterexamples report `unverifiable` when they are `accepted`
+  whatever an evaluator says. Predicate reachability now follows only the
+  subtrees `validate` executes. The examples lint still visits every node, and
+  every branch of its walk is now tested.
 
 ## [1.12.0] — 2026-09-26
 

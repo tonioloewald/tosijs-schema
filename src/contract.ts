@@ -9,6 +9,7 @@
 import {
   validateResolved,
   isBuilder,
+  enforcedSubschemas,
   getPredicateEvaluator,
   ENFORCED_FORMATS,
   ENFORCED_KEYWORDS,
@@ -149,31 +150,6 @@ const ANNOTATION_KEYWORDS: ReadonlySet<string> = new Set([
   'writeOnly',
 ])
 
-/** child nodes validate actually recurses into (unlike checkExamples' broader subschemas walk) */
-const enforcedChildren = (s: any): [string, any][] => {
-  const kids: [string, any][] = []
-  if (s.properties && typeof s.properties === 'object') {
-    for (const k of Object.keys(s.properties)) {
-      kids.push([`properties.${k}`, s.properties[k]])
-    }
-  }
-  if (s.items !== undefined) {
-    if (Array.isArray(s.items)) {
-      s.items.forEach((item: any, i: number) => kids.push([`items.${i}`, item]))
-    } else {
-      kids.push(['items', s.items])
-    }
-  }
-  if (s.additionalProperties !== undefined && typeof s.additionalProperties === 'object') {
-    kids.push(['additionalProperties', s.additionalProperties])
-  }
-  for (const key of ['anyOf', 'oneOf'] as const) {
-    if (Array.isArray(s[key])) {
-      s[key].forEach((sub: any, i: number) => kids.push([`${key}.${i}`, sub]))
-    }
-  }
-  return kids
-}
 
 const isNonPrimitive = (x: any) => x !== null && typeof x === 'object'
 
@@ -351,7 +327,7 @@ const unenforced = (s: any, at = 'root'): string[] => {
   // multi-type arrays (`['string','number']`) are enforced with union
   // semantics since 1.6.0 — a value matching any listed type passes — so
   // they no longer fail open and are legal in a gate schema.
-  for (const [segment, kid] of enforcedChildren(s)) {
+  for (const [segment, kid] of enforcedSubschemas(s)) {
     found.push(...unenforced(kid, `${at}.${segment}`))
   }
   return found
@@ -630,49 +606,38 @@ export interface ExampleFinding {
   reasons?: string[]
 }
 
-/** child schema nodes as [path-segment, node] pairs */
+/**
+ * Child schema nodes the EXAMPLES LINT visits: everything validate recurses
+ * into, plus places examples can live that validate never executes
+ * (`prefixItems`, `allOf`, `not`, `$defs`). A node in one of those is still
+ * linted against itself, because its examples are claims about it.
+ */
 const subschemas = (s: any): [string, any][] => {
   if (s == null || typeof s !== 'object') return []
-  const kids: [string, any][] = []
-  if (s.properties) {
-    for (const k of Object.keys(s.properties)) {
-      kids.push([`properties.${k}`, s.properties[k]])
-    }
-  }
-  if (s.items) {
-    if (Array.isArray(s.items)) {
-      s.items.forEach((item: any, i: number) => kids.push([`items.${i}`, item]))
-    } else {
-      kids.push(['items', s.items])
-    }
-  }
+  const kids = enforcedSubschemas(s)
   if (Array.isArray(s.prefixItems)) {
-    s.prefixItems.forEach((item: any, i: number) =>
-      kids.push([`prefixItems.${i}`, item])
-    )
+    s.prefixItems.forEach((item: any, i: number) => kids.push([`prefixItems.${i}`, item]))
   }
-  if (s.additionalProperties && typeof s.additionalProperties === 'object') {
-    kids.push(['additionalProperties', s.additionalProperties])
-  }
-  for (const key of ['anyOf', 'allOf', 'oneOf']) {
-    if (Array.isArray(s[key])) {
-      s[key].forEach((sub: any, i: number) => kids.push([`${key}.${i}`, sub]))
-    }
-  }
-  if (s.not) kids.push(['not', s.not])
-  if (s.$defs) {
-    for (const k of Object.keys(s.$defs)) {
-      kids.push([`$defs.${k}`, s.$defs[k]])
-    }
+  if (Array.isArray(s.allOf)) s.allOf.forEach((sub: any, i: number) => kids.push([`allOf.${i}`, sub]))
+  if (s.not !== undefined) kids.push(['not', s.not])
+  if (s.$defs && typeof s.$defs === 'object') {
+    for (const k of Object.keys(s.$defs)) kids.push([`$defs.${k}`, s.$defs[k]])
   }
   return kids
 }
 
+/**
+ * Can validating against `s` RUN a `$predicate`? Only along the subtrees
+ * validate executes. A predicate in `not`, `allOf` or `$defs` never runs (they
+ * are unenforced), so it cannot make a verdict "unverifiable". Walking the
+ * lint tree here reported unverifiable for counterexamples that are accepted
+ * whatever any evaluator says.
+ */
 const hasPredicate = (s: any): boolean =>
   s != null &&
   typeof s === 'object' &&
   (typeof s.$predicate === 'string' ||
-    subschemas(s).some(([, kid]) => hasPredicate(kid)))
+    enforcedSubschemas(s).some(([, kid]) => hasPredicate(kid)))
 
 /**
  * Lint a schema's own example data, recursively: every `examples` entry must
@@ -685,6 +650,9 @@ export function checkExamples(schemaOrBuilder: SchemaLike): ExampleFinding[] {
   const findings: ExampleFinding[] = []
   const visit = (s: any, at: string) => {
     if (s == null || typeof s !== 'object') return
+    // once per node, not per passing (counter)example
+    let predicateMemo: boolean | undefined
+    const nodeHasPredicate = () => (predicateMemo ??= hasPredicate(s))
     if (Array.isArray(s.examples)) {
       s.examples.forEach((example: unknown, index: number) => {
         const reasons: string[] = []
@@ -706,7 +674,7 @@ export function checkExamples(schemaOrBuilder: SchemaLike): ExampleFinding[] {
             problem: 'rejected',
             reasons,
           })
-        } else if (getPredicateEvaluator() == null && hasPredicate(s)) {
+        } else if (getPredicateEvaluator() == null && nodeHasPredicate()) {
           // structurally fine, but the predicate half went unchecked — the
           // example is not yet PROVEN accepted
           findings.push({
@@ -728,7 +696,7 @@ export function checkExamples(schemaOrBuilder: SchemaLike): ExampleFinding[] {
         }
         if (passes) {
           const unverifiable =
-            getPredicateEvaluator() == null && hasPredicate(s)
+            getPredicateEvaluator() == null && nodeHasPredicate()
           findings.push({
             schemaPath: at,
             kind: 'counterexample',

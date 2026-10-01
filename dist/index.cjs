@@ -53,6 +53,7 @@ __export(exports_tosijs_schema, {
   checkExamples: () => checkExamples,
   createM: () => createM,
   diff: () => diff,
+  enforcedSubschemas: () => enforcedSubschemas,
   filter: () => filter,
   getPredicateEvaluator: () => getPredicateEvaluator,
   inferSchema: () => inferSchema,
@@ -437,6 +438,29 @@ var ENFORCED_KEYWORDS = new Set([
   "$predicate",
   "x-tjs-undefined"
 ]);
+var enforcedSubschemas = (s) => {
+  const kids = [];
+  if (s == null || typeof s !== "object")
+    return kids;
+  if (s.properties && typeof s.properties === "object") {
+    for (const k of Object.keys(s.properties))
+      kids.push([`properties.${k}`, s.properties[k]]);
+  }
+  if (s.items !== undefined) {
+    if (Array.isArray(s.items))
+      s.items.forEach((item, i) => kids.push([`items.${i}`, item]));
+    else
+      kids.push(["items", s.items]);
+  }
+  if (s.additionalProperties !== undefined && typeof s.additionalProperties === "object") {
+    kids.push(["additionalProperties", s.additionalProperties]);
+  }
+  for (const key of ["anyOf", "oneOf"]) {
+    if (Array.isArray(s[key]))
+      s[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
+  }
+  return kids;
+};
 var objectKeywordsPresent = (s) => s.properties !== undefined || s.required !== undefined || s.additionalProperties !== undefined || s.minProperties !== undefined || s.maxProperties !== undefined;
 var arrayKeywordsPresent = (s) => s.items !== undefined || s.minItems !== undefined || s.maxItems !== undefined;
 function validate(val, builderOrSchema, opts) {
@@ -1053,30 +1077,6 @@ var ANNOTATION_KEYWORDS = new Set([
   "readOnly",
   "writeOnly"
 ]);
-var enforcedChildren = (s) => {
-  const kids = [];
-  if (s.properties && typeof s.properties === "object") {
-    for (const k of Object.keys(s.properties)) {
-      kids.push([`properties.${k}`, s.properties[k]]);
-    }
-  }
-  if (s.items !== undefined) {
-    if (Array.isArray(s.items)) {
-      s.items.forEach((item, i) => kids.push([`items.${i}`, item]));
-    } else {
-      kids.push(["items", s.items]);
-    }
-  }
-  if (s.additionalProperties !== undefined && typeof s.additionalProperties === "object") {
-    kids.push(["additionalProperties", s.additionalProperties]);
-  }
-  for (const key of ["anyOf", "oneOf"]) {
-    if (Array.isArray(s[key])) {
-      s[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
-    }
-  }
-  return kids;
-};
 var isNonPrimitive = (x) => x !== null && typeof x === "object";
 var KEYWORD_SHAPES = [
   [
@@ -1198,7 +1198,7 @@ var unenforced = (s, at = "root") => {
   if (Array.isArray(s.enum) && s.enum.some(isNonPrimitive)) {
     found.push(`${at}.enum (non-primitive member never matches)`);
   }
-  for (const [segment, kid] of enforcedChildren(s)) {
+  for (const [segment, kid] of enforcedSubschemas(s)) {
     found.push(...unenforced(kid, `${at}.${segment}`));
   }
   return found;
@@ -1301,45 +1301,28 @@ var agentContract = (schemas, options) => {
 var subschemas = (s) => {
   if (s == null || typeof s !== "object")
     return [];
-  const kids = [];
-  if (s.properties) {
-    for (const k of Object.keys(s.properties)) {
-      kids.push([`properties.${k}`, s.properties[k]]);
-    }
-  }
-  if (s.items) {
-    if (Array.isArray(s.items)) {
-      s.items.forEach((item, i) => kids.push([`items.${i}`, item]));
-    } else {
-      kids.push(["items", s.items]);
-    }
-  }
+  const kids = enforcedSubschemas(s);
   if (Array.isArray(s.prefixItems)) {
     s.prefixItems.forEach((item, i) => kids.push([`prefixItems.${i}`, item]));
   }
-  if (s.additionalProperties && typeof s.additionalProperties === "object") {
-    kids.push(["additionalProperties", s.additionalProperties]);
-  }
-  for (const key of ["anyOf", "allOf", "oneOf"]) {
-    if (Array.isArray(s[key])) {
-      s[key].forEach((sub, i) => kids.push([`${key}.${i}`, sub]));
-    }
-  }
-  if (s.not)
+  if (Array.isArray(s.allOf))
+    s.allOf.forEach((sub, i) => kids.push([`allOf.${i}`, sub]));
+  if (s.not !== undefined)
     kids.push(["not", s.not]);
-  if (s.$defs) {
-    for (const k of Object.keys(s.$defs)) {
+  if (s.$defs && typeof s.$defs === "object") {
+    for (const k of Object.keys(s.$defs))
       kids.push([`$defs.${k}`, s.$defs[k]]);
-    }
   }
   return kids;
 };
-var hasPredicate = (s) => s != null && typeof s === "object" && (typeof s.$predicate === "string" || subschemas(s).some(([, kid]) => hasPredicate(kid)));
+var hasPredicate = (s) => s != null && typeof s === "object" && (typeof s.$predicate === "string" || enforcedSubschemas(s).some(([, kid]) => hasPredicate(kid)));
 function checkExamples(schemaOrBuilder) {
   const findings = [];
   const visit = (s, at) => {
     if (s == null || typeof s !== "object")
       return;
+    let predicateMemo;
+    const nodeHasPredicate = () => predicateMemo ??= hasPredicate(s);
     if (Array.isArray(s.examples)) {
       s.examples.forEach((example, index) => {
         const reasons = [];
@@ -1361,7 +1344,7 @@ function checkExamples(schemaOrBuilder) {
             problem: "rejected",
             reasons
           });
-        } else if (getPredicateEvaluator() == null && hasPredicate(s)) {
+        } else if (getPredicateEvaluator() == null && nodeHasPredicate()) {
           findings.push({
             schemaPath: at,
             kind: "example",
@@ -1380,7 +1363,7 @@ function checkExamples(schemaOrBuilder) {
           passes = false;
         }
         if (passes) {
-          const unverifiable = getPredicateEvaluator() == null && hasPredicate(s);
+          const unverifiable = getPredicateEvaluator() == null && nodeHasPredicate();
           findings.push({
             schemaPath: at,
             kind: "counterexample",

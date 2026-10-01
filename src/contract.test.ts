@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { s, validate, setPredicateEvaluator, ENFORCED_KEYWORDS } from './schema'
 import {
   agentContract,
@@ -1000,3 +1000,59 @@ describe('agentContract — 1.9.1 review remediation', () => {
   })
 })
 
+
+describe('checkExamples traversal + predicate reachability (v1.12.1)', () => {
+  // these assert the NO-evaluator verdicts; restore whatever was registered
+  let prev: any
+  beforeEach(() => { prev = setPredicateEvaluator(null as any) })
+  afterEach(() => { setPredicateEvaluator(prev) })
+  const lie = { type: 'number', examples: ['not a number'] }
+  test('a lying example is found in every branch of the lint walk, with its path', () => {
+    const schema: any = {
+      type: 'object',
+      properties: { p: lie },
+      additionalProperties: lie,
+      anyOf: [lie],
+      oneOf: [lie],
+      allOf: [lie],
+      not: lie,
+      prefixItems: [lie],
+      $defs: { d: lie },
+    }
+    const tuple: any = { type: 'array', items: [lie, lie], minItems: 2, maxItems: 2 }
+    const list: any = { type: 'array', items: lie }
+    const paths = [...checkExamples(schema), ...checkExamples(tuple), ...checkExamples(list)]
+      .filter((f) => f.problem === 'rejected')
+      .map((f) => f.schemaPath)
+      .sort()
+    expect(paths).toEqual([
+      'root.$defs.d', 'root.additionalProperties', 'root.allOf.0', 'root.anyOf.0',
+      'root.items', 'root.items.0', 'root.items.1', 'root.not', 'root.oneOf.0',
+      'root.prefixItems.0', 'root.properties.p',
+    ].sort())
+  })
+
+  test('a predicate on a DESCENDANT makes the parent\'s verdict unverifiable (no evaluator)', () => {
+    const schema: any = {
+      type: 'object',
+      properties: { n: { type: 'number', $predicate: 'x => x > 0' } },
+      $counterexamples: [{ n: -1 }],
+    }
+    const [f] = checkExamples(schema)
+    expect(f).toMatchObject({ schemaPath: 'root', kind: 'counterexample', problem: 'unverifiable' })
+  })
+
+  test('a predicate validate never RUNS (in not / allOf / $defs) cannot make a verdict unverifiable', () => {
+    for (const where of [
+      { not: { $predicate: 'x => false' } },
+      { allOf: [{ $predicate: 'x => false' }] },
+      { $defs: { unused: { $predicate: 'x => false' } } },
+    ]) {
+      const schema: any = { type: 'number', ...where, $counterexamples: [5] }
+      // 5 is accepted whatever any evaluator says: the predicate is unreachable
+      expect(checkExamples(schema)).toEqual([
+        { schemaPath: 'root', kind: 'counterexample', index: 0, problem: 'accepted' },
+      ])
+    }
+  })
+})
