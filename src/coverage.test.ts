@@ -1111,3 +1111,34 @@ describe('ambiguity refusal is root-argument-only (v1.12.0 review)', () => {
     expect(lying.length).toBe(1)
   })
 })
+
+// Union SIBLINGS bind during filter, as they do in validate (board: "filterData's
+// anyOf branch doesn't apply sibling applicators"). Each branch is stripped
+// against itself MERGED with its siblings: a key survives if either declares it
+// and neither forbids it. Every result below must also validate.
+describe('filter: union siblings apply (v1.12.1)', () => {
+  const cases: [string, any, any, any][] = [
+    ['anyOf beside properties/additionalProperties:false',
+      { type: 'object', properties: { a: { type: 'string' }, b: { type: 'number' } }, additionalProperties: false, anyOf: [{ required: ['a'] }, { required: ['b'] }] },
+      { a: 'x', junk: 1 }, { a: 'x' }],
+    ['oneOf beside properties/additionalProperties:false',
+      { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false, oneOf: [{ required: ['a'] }, { required: ['zz'] }] },
+      { a: 'x', junk: 1 }, { a: 'x' }],
+    ['a key only the outer declares AND one only the branch declares both survive',
+      { type: 'object', properties: { a: { type: 'string' } }, anyOf: [{ properties: { b: { type: 'number' } }, required: ['b'] }] },
+      { a: 'x', b: 1, junk: 1 }, { a: 'x', b: 1 }],
+    ["a branch's additionalProperties:false still forbids an outer key",
+      { type: 'object', properties: { a: {}, b: {} }, anyOf: [{ properties: { a: {} }, additionalProperties: false }] },
+      { a: 1, b: 2 }, { a: 1 }],
+    ['a pure union is unchanged',
+      { anyOf: [{ type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false }] },
+      { a: 'x', junk: 1 }, { a: 'x' }],
+  ]
+  for (const [name, schema, data, want] of cases) {
+    test(name, () => {
+      const got = filter(data, schema)
+      expect(got).toEqual(want)
+      expect(validate(got, schema)).toBeTrue()
+    })
+  }
+})

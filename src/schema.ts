@@ -1088,82 +1088,19 @@ function filterData(data: any, schema: any, fullScan = false): any {
     return data
   }
 
-  // anyOf (at-least-one): strip against the first branch whose stripped
-  // candidate validates — fitting the data to any one branch is correct.
-  if (Array.isArray(schema.anyOf)) {
-    for (const sub of schema.anyOf) {
-      const candidate = filterData(data, sub, fullScan)
-      try {
-        if (validateResolved(candidate, sub, { strict: fullScan })) return candidate
-      } catch {
-        // a malformed branch schema cannot match — try the next branch
-      }
-    }
-    return data
-  }
-
-  // oneOf (exactly-one): prefer the branch the ORIGINAL (unstripped) data
-  // already matches — stripping against it is lossless (a branch the data
-  // satisfies rejects no field it required). Only when NO branch matches
-  // as-is (there are genuine extras to shed) do we strip, and then we accept
-  // the result only if exactly one branch's stripped candidate validates.
-  // This never silently migrates data onto a different, narrower branch —
-  // the bug where oneOf:[{a},{a,b}] filtered {a:1,b:2} down to {a:1} by
-  // stripping b to satisfy branch 1, even though the data matched only
-  // branch 2. Anything ambiguous (0 or >1 fit) returns unstripped so the
-  // outer validate surfaces a loud Error rather than a lossy strip.
-  if (Array.isArray(schema.oneOf)) {
-    const origMatches: any[] = []
-    for (const sub of schema.oneOf) {
-      try {
-        if (validateResolved(data, sub, { strict: fullScan })) origMatches.push(sub)
-      } catch {
-        // a malformed branch schema cannot match — skip it
-      }
-      if (origMatches.length > 1) break // >1 ⇒ not oneOf-valid; result is fixed
-    }
-    if (origMatches.length === 1) return filterData(data, origMatches[0], fullScan)
-    if (origMatches.length > 1) return data // matches >1 branch: not oneOf-valid
-    // no branch matches as-is (genuine extras to shed) → strip against each
-    // branch and, among the candidates that validate, keep the one that
-    // RETAINS THE MOST data. Never shed a field a valid interpretation keeps
-    // (that was the blocker: preferring a narrower branch dropped `b`). A tie
-    // at the top is genuinely ambiguous → return unstripped so the outer
-    // validate reports a loud Error instead of an arbitrary lossy strip.
-    // recursive node count, not just top-level keys — a deeper strip that keeps
-    // a nested field must outscore a shallower one, or `filter` over-rejects
-    // oneOf inputs whose branches differ only in NESTED structure (two strips
-    // tie on top-level size, fall through to the ambiguous-Error arm, and a
-    // uniquely-less-lossy result is refused). Genuinely disjoint strips still
-    // tie here → Error, so the no-silent-data-loss guarantee is unchanged.
-    const size = (x: any): number => {
-      if (x === null || typeof x !== 'object') return 0
-      let n = 0
-      for (const k in x) if (hasOwn(x, k)) n += 1 + size((x as any)[k])
-      return n
-    }
-    let best: any = null
-    let bestScore = -1
-    let tie = false
-    for (const sub of schema.oneOf) {
-      const candidate = filterData(data, sub, fullScan)
-      let ok = false
-      try {
-        ok = validateResolved(candidate, sub, { strict: fullScan })
-      } catch {
-        // a malformed branch schema cannot match — skip it
-      }
-      if (!ok) continue
-      const score = size(candidate)
-      if (score > bestScore) {
-        best = candidate
-        bestScore = score
-        tie = false
-      } else if (score === bestScore) {
-        tie = true
-      }
-    }
-    return best !== null && !tie ? best : data
+  // Unions. Their SIBLING keywords are AND-ed with them, exactly as validate
+  // applies them (properties / additionalProperties beside an anyOf still
+  // bind). Returning straight from the union arm ignored the siblings, so
+  // filter refused ("Unexpected junk") data whose stripped form validate
+  // accepts. Each branch is now stripped against the branch MERGED with its
+  // siblings (a key survives if either declares it) and must validate against
+  // both. Both unions apply when both are present.
+  if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
+    const { anyOf, oneOf, ...rest } = schema
+    let out = data
+    if (Array.isArray(anyOf)) out = filterAnyOf(out, anyOf, rest, fullScan)
+    if (Array.isArray(oneOf)) out = filterOneOf(out, oneOf, rest, fullScan)
+    return out
   }
 
   const t = schema.type
@@ -1230,6 +1167,104 @@ function filterData(data: any, schema: any, fullScan = false): any {
 
   // For primitives, just return the value
   return data
+}
+
+// What to KEEP when stripping against `branch` AND its union siblings: a key
+// that either one declares and NEITHER forbids (additionalProperties: false
+// with the key undeclared). Validation against each separately still decides
+// whether the result is acceptable — this only decides what is not shed.
+function stripSchema(rest: any, branch: any): any {
+  if (branch === true || branch == null || typeof branch !== 'object') return rest
+  const out: any = { ...rest, ...branch }
+  if (rest.properties || branch.properties) {
+    const props: any = { ...rest.properties, ...branch.properties }
+    for (const side of [rest, branch]) {
+      if (side.additionalProperties !== false) continue
+      for (const k of Object.keys(props)) if (!side.properties || !hasOwn(side.properties, k)) delete props[k]
+    }
+    out.properties = props
+  }
+  out.additionalProperties =
+    rest.additionalProperties === false || branch.additionalProperties === false
+      ? false
+      : (branch.additionalProperties ?? rest.additionalProperties)
+  if (out.additionalProperties === undefined) delete out.additionalProperties
+  return out
+}
+
+const fitsBoth = (v: any, rest: any, branch: any, fullScan: boolean): boolean => {
+  try {
+    return (
+      validateResolved(v, branch, { strict: fullScan }) &&
+      validateResolved(v, rest, { strict: fullScan })
+    )
+  } catch {
+    return false // a malformed branch schema cannot match
+  }
+}
+
+// anyOf (at-least-one): strip against the first branch whose stripped
+// candidate validates — fitting the data to any one branch is correct.
+function filterAnyOf(data: any, branches: any[], rest: any, fullScan: boolean): any {
+  for (const sub of branches) {
+    const candidate = filterData(data, stripSchema(rest, sub), fullScan)
+    if (fitsBoth(candidate, rest, sub, fullScan)) return candidate
+  }
+  return data
+}
+
+// oneOf (exactly-one): prefer the branch the ORIGINAL (unstripped) data
+// already matches — stripping against it is lossless (a branch the data
+// satisfies rejects no field it required). Only when NO branch matches
+// as-is (there are genuine extras to shed) do we strip, and then we accept
+// the result only if exactly one branch's stripped candidate validates.
+// This never silently migrates data onto a different, narrower branch —
+// the bug where oneOf:[{a},{a,b}] filtered {a:1,b:2} down to {a:1} by
+// stripping b to satisfy branch 1, even though the data matched only
+// branch 2. Anything ambiguous (0 or >1 fit) returns unstripped so the
+// outer validate surfaces a loud Error rather than a lossy strip.
+function filterOneOf(data: any, branches: any[], rest: any, fullScan: boolean): any {
+  const origMatches: any[] = []
+  for (const sub of branches) {
+    if (fitsBoth(data, rest, sub, fullScan)) origMatches.push(sub)
+    if (origMatches.length > 1) break // >1 ⇒ not oneOf-valid; result is fixed
+  }
+  if (origMatches.length === 1) return filterData(data, stripSchema(rest, origMatches[0]), fullScan)
+  if (origMatches.length > 1) return data // matches >1 branch: not oneOf-valid
+  // no branch matches as-is (genuine extras to shed) → strip against each
+  // branch and, among the candidates that validate, keep the one that
+  // RETAINS THE MOST data. Never shed a field a valid interpretation keeps
+  // (that was the blocker: preferring a narrower branch dropped `b`). A tie
+  // at the top is genuinely ambiguous → return unstripped so the outer
+  // validate reports a loud Error instead of an arbitrary lossy strip.
+  // recursive node count, not just top-level keys — a deeper strip that keeps
+  // a nested field must outscore a shallower one, or `filter` over-rejects
+  // oneOf inputs whose branches differ only in NESTED structure (two strips
+  // tie on top-level size, fall through to the ambiguous-Error arm, and a
+  // uniquely-less-lossy result is refused). Genuinely disjoint strips still
+  // tie here → Error, so the no-silent-data-loss guarantee is unchanged.
+  const size = (x: any): number => {
+    if (x === null || typeof x !== 'object') return 0
+    let n = 0
+    for (const k in x) if (hasOwn(x, k)) n += 1 + size((x as any)[k])
+    return n
+  }
+  let best: any = null
+  let bestScore = -1
+  let tie = false
+  for (const sub of branches) {
+    const candidate = filterData(data, stripSchema(rest, sub), fullScan)
+    if (!fitsBoth(candidate, rest, sub, fullScan)) continue
+    const score = size(candidate)
+    if (score > bestScore) {
+      best = candidate
+      bestScore = score
+      tie = false
+    } else if (score === bestScore) {
+      tie = true
+    }
+  }
+  return best !== null && !tie ? best : data
 }
 
 // DIFF

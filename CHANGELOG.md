@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`filter` honours the sibling keywords of `anyOf` / `oneOf`.** A union
+  beside `properties` / `additionalProperties` returned straight from the
+  union arm, so `filter` refused (`Unexpected junk`) data whose stripped form
+  `validate` accepts, and an open outer schema could lose a key the branch
+  didn't declare. Each branch is now stripped against itself merged with its
+  siblings. A key survives if either one declares it and neither forbids it,
+  and the result must validate against both. Both unions apply when both are
+  present. This is a loosening: inputs that errored now filter.
+
 ## [1.12.0] — 2026-09-26
 
 **Contains BREAKING validation changes.** See README "Upgrading to 1.12.0".
