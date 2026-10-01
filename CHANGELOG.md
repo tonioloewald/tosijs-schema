@@ -25,14 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `validate` accepts, and an open outer schema could lose a key the branch
   didn't declare. Each branch is now stripped against itself merged with its
   siblings. A key survives if either one declares it and neither forbids it,
-  and the result must validate against both. Both unions apply when both are
-  present. This is a loosening: inputs that errored now filter.
+  recursively through shared `properties` and `items`. The result must
+  validate against both. With both `anyOf` and `oneOf` present, `anyOf` acts as
+  a sibling of each `oneOf` branch, so it can no longer shed a key only the
+  `oneOf` branch declares. This is a loosening: inputs that errored, or lost a
+  key, now filter correctly.
 - **`checkExamples` no longer reports `unverifiable` for a `$predicate` that
   `validate` never runs.** A predicate inside `not`, `allOf` or an unreferenced
   `$defs` made counterexamples report `unverifiable` when they are `accepted`
   whatever an evaluator says. Predicate reachability now follows only the
   subtrees `validate` executes. The examples lint still visits every node, and
-  every branch of its walk is now tested.
+  every branch of its walk is now tested. The order of `checkExamples` findings
+  changed and is documented as not part of the contract. Key on `schemaPath`
+  and `index`.
 
 ## [1.12.0] — 2026-09-26
 

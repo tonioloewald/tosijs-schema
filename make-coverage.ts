@@ -126,7 +126,10 @@ const version = (await Bun.file('package.json').json()).version
     new RegExp(`^export (?:declare )?(?:const|function|class|let|var) ${n}\\b`, 'm').test(decls)
   const undocumented = Object.keys(mod)
     .filter(declared)
-    .filter((n) => !new RegExp(`\\b${n}\\b`).test(docs))
+    // CODE form only — `name` in backticks, or name( / name. / name< anywhere
+    // (incl. fenced examples): a bare word would let prose
+    // ("filter the data", "validate it") satisfy the gate for short names
+    .filter((n) => !new RegExp(`\`${n}\\b|\\b${n}[(.<]`).test(docs))
   if (undocumented.length) {
     throw new Error(
       `make-coverage: public runtime export(s) not mentioned in README.md or CONTEXT.md: ` +

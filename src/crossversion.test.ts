@@ -9,11 +9,11 @@
 //               query-string re-import of src/: coverage would report that second
 //               instance under the same path and clobber the real numbers.)
 //   1.11.0    — the last pre-brand release, from npm (devDependency alias)
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, afterAll } from 'bun:test'
 import { s, validate, filter, isBuilder, BUILDER } from './schema'
 import { M } from './monad'
 import * as old from 'tosijs-schema-1-11'
-import { mkdtempSync } from 'fs'
+import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -21,6 +21,7 @@ const outdir = mkdtempSync(join(tmpdir(), 'tosijs-schema-second-copy-'))
 const built = await Bun.build({ entrypoints: [join(import.meta.dir, '..', 'index.ts')], outdir })
 if (!built.success) throw new Error('could not bundle the second copy')
 const second: typeof import('../index') = await import(built.outputs[0]!.path)
+afterAll(() => rmSync(outdir, { recursive: true, force: true }))
 
 const good = { a: 'ok' }
 const bad = { a: 42 }

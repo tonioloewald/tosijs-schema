@@ -1125,14 +1125,18 @@ function filterData(data: any, schema: any, fullScan = false): any {
   // bind). Returning straight from the union arm ignored the siblings, so
   // filter refused ("Unexpected junk") data whose stripped form validate
   // accepts. Each branch is now stripped against the branch MERGED with its
-  // siblings (a key survives if either declares it) and must validate against
-  // both. Both unions apply when both are present.
+  // siblings (a key survives if either declares it — recursively, through
+  // shared properties and items) and must validate against both.
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
     const { anyOf, oneOf, ...rest } = schema
-    let out = data
-    if (Array.isArray(anyOf)) out = filterAnyOf(out, anyOf, rest, fullScan)
-    if (Array.isArray(oneOf)) out = filterOneOf(out, oneOf, rest, fullScan)
-    return out
+    // With both, anyOf is just another SIBLING of oneOf: each oneOf branch's
+    // strip schema keeps the anyOf, so filterData recurses into it with the
+    // oneOf branch merged in. Running them in sequence let anyOf shed keys
+    // only the oneOf branch declares.
+    if (Array.isArray(oneOf)) {
+      return filterOneOf(data, oneOf, Array.isArray(anyOf) ? { ...rest, anyOf } : rest, fullScan)
+    }
+    return filterAnyOf(data, anyOf, rest, fullScan)
   }
 
   const t = schema.type
@@ -1207,14 +1211,29 @@ function filterData(data: any, schema: any, fullScan = false): any {
 // whether the result is acceptable — this only decides what is not shed.
 function stripSchema(rest: any, branch: any): any {
   if (branch === true || branch == null || typeof branch !== 'object') return rest
+  if (rest === true || rest == null || typeof rest !== 'object') return branch
   const out: any = { ...rest, ...branch }
   if (rest.properties || branch.properties) {
     const props: any = { ...rest.properties, ...branch.properties }
+    // a key BOTH declare merges recursively — otherwise the branch's node
+    // replaces the sibling's wholesale and its nested keys are shed
+    if (rest.properties && branch.properties) {
+      for (const k of Object.keys(branch.properties)) {
+        if (hasOwn(rest.properties, k)) props[k] = stripSchema(rest.properties[k], branch.properties[k])
+      }
+    }
     for (const side of [rest, branch]) {
       if (side.additionalProperties !== false) continue
       for (const k of Object.keys(props)) if (!side.properties || !hasOwn(side.properties, k)) delete props[k]
     }
     out.properties = props
+  }
+  if (
+    rest.items && branch.items &&
+    typeof rest.items === 'object' && typeof branch.items === 'object' &&
+    !Array.isArray(rest.items) && !Array.isArray(branch.items)
+  ) {
+    out.items = stripSchema(rest.items, branch.items)
   }
   out.additionalProperties =
     rest.additionalProperties === false || branch.additionalProperties === false

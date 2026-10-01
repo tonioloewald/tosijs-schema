@@ -728,12 +728,10 @@ function filterData(data, schema, fullScan = false) {
   }
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
     const { anyOf, oneOf, ...rest } = schema;
-    let out = data;
-    if (Array.isArray(anyOf))
-      out = filterAnyOf(out, anyOf, rest, fullScan);
-    if (Array.isArray(oneOf))
-      out = filterOneOf(out, oneOf, rest, fullScan);
-    return out;
+    if (Array.isArray(oneOf)) {
+      return filterOneOf(data, oneOf, Array.isArray(anyOf) ? { ...rest, anyOf } : rest, fullScan);
+    }
+    return filterAnyOf(data, anyOf, rest, fullScan);
   }
   const t = schema.type;
   const asObject = (t === "object" || !t && objectKeywordsPresent(schema)) && typeof data === "object" && !Array.isArray(data);
@@ -775,9 +773,17 @@ function filterData(data, schema, fullScan = false) {
 function stripSchema(rest, branch) {
   if (branch === true || branch == null || typeof branch !== "object")
     return rest;
+  if (rest === true || rest == null || typeof rest !== "object")
+    return branch;
   const out = { ...rest, ...branch };
   if (rest.properties || branch.properties) {
     const props = { ...rest.properties, ...branch.properties };
+    if (rest.properties && branch.properties) {
+      for (const k of Object.keys(branch.properties)) {
+        if (hasOwn(rest.properties, k))
+          props[k] = stripSchema(rest.properties[k], branch.properties[k]);
+      }
+    }
     for (const side of [rest, branch]) {
       if (side.additionalProperties !== false)
         continue;
@@ -786,6 +792,9 @@ function stripSchema(rest, branch) {
           delete props[k];
     }
     out.properties = props;
+  }
+  if (rest.items && branch.items && typeof rest.items === "object" && typeof branch.items === "object" && !Array.isArray(rest.items) && !Array.isArray(branch.items)) {
+    out.items = stripSchema(rest.items, branch.items);
   }
   out.additionalProperties = rest.additionalProperties === false || branch.additionalProperties === false ? false : branch.additionalProperties ?? rest.additionalProperties;
   if (out.additionalProperties === undefined)

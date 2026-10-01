@@ -162,7 +162,8 @@ export interface ExampleFinding {
 /**
  * Lint a schema's own example data, recursively: every `examples` entry must
  * be accepted by the node that carries it, every `$counterexamples` entry
- * must be refused. Returns findings (empty = the spec doesn't lie). Runs
+ * must be refused. Returns findings (empty = the spec doesn't lie); their
+ * ORDER is not part of the contract (key on `schemaPath` + `index`). Runs
  * strict — an example a full scan would refuse is a lie even if sampling
  * might miss it.
  */
