@@ -432,6 +432,8 @@ const clean = filter(dirtyData, schema, { skipValidation: true })
 // Skip validation, just filter
 ```
 
+`skipValidation` makes `filter` best-effort. Where it can't fit the data to a union branch (`anyOf` / `oneOf`), it leaves that part unstripped, and nothing tells you. Without `skipValidation`, that same case comes back as an `Error`. Validate the result yourself if it matters.
+
 ## Diff
 
 Detect schema changes:
