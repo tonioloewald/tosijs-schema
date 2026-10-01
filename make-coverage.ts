@@ -59,7 +59,9 @@ if (!overall) throw new Error('make-coverage: could not read All-files line cove
 
 // --- gzipped bundle size (matches `gzip -9`) ---
 const idxBytes = await Bun.file('dist/index.js').bytes()
-const gzKb = (gzipSync(idxBytes, { level: 9 }).length / 1024).toFixed(1)
+const gzBytes: Record<string, number> = {}
+gzBytes.everything = gzipSync(idxBytes, { level: 9 }).length
+const gzKb = (gzBytes.everything / 1024).toFixed(1)
 
 // --- PER-IMPORT sizes, measured the way a consumer's bundler would see them.
 // Tree-shakeability is a marketed feature, and these four rows were
@@ -89,6 +91,7 @@ const perImport: Record<string, string> = {}
         )
       }
       const bytes = gzipSync(await Bun.file(outFile).bytes(), { level: 9 }).length
+      gzBytes[name] = bytes
       perImport[name] = (bytes / 1024).toFixed(1)
     }
   } finally {
@@ -98,14 +101,34 @@ const perImport: Record<string, string> = {}
 
 // the /infer subpath is its own bundle with its own budget — measure the
 // artifact we actually publish, not a shim through the main entry
-const inferKb = (
-  gzipSync(await Bun.file('dist/infer.js').bytes(), { level: 9 }).length / 1024
-).toFixed(1)
+gzBytes.infer = gzipSync(await Bun.file('dist/infer.js').bytes(), { level: 9 }).length
+const inferKb = (gzBytes.infer / 1024).toFixed(1)
 
 // Stamp the package VERSION, not a wall-clock date — a date would make the
 // drift gate (regenerate + `git diff` clean) go dirty the day after release
 // with no code change. Version only moves on a bump, exactly like llms.txt.
 const version = (await Bun.file('package.json').json()).version
+
+// --- size DELTA against the last release's baseline (practices releasing.md
+// "Track bundle size"). The README rows above are rounded to 0.1 kB and only
+// show drift if someone reads the diff — 1.12.0 grew ~0.4 kB that way. The
+// baseline is RELEASE-scoped, not commit-scoped: `pack` only reads it, so the
+// delta accumulates across a release's commits; `--record-sizes` rewrites it
+// at release time (after the final pack, before tagging).
+{
+  const baseFile = 'dist-sizes.json'
+  const base = (await Bun.file(baseFile).exists()) ? await Bun.file(baseFile).json() : null
+  const rows = Object.entries(gzBytes).map(([name, now]) => {
+    const was = base?.gz?.[name]
+    const delta = was == null ? '(new)' : `${now - was >= 0 ? '+' : ''}${now - was} B (${((100 * (now - was)) / was).toFixed(1)}%)`
+    return `  ${name.padEnd(14)} ${String(now).padStart(6)} B gz   ${delta}`
+  })
+  console.log(`sizes vs ${base ? `v${base.version} baseline` : 'NO baseline (run with --record-sizes at release)'}:\n${rows.join('\n')}`)
+  if (process.argv.includes('--record-sizes')) {
+    await Bun.write(baseFile, JSON.stringify({ version, gz: gzBytes }, null, 2) + '\n')
+    console.log(`recorded ${baseFile} as the v${version} baseline`)
+  }
+}
 
 // --- edits ---
 const replaceBlock = (text: string, name: string, body: string, file: string): string => {
