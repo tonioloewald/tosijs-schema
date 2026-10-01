@@ -37,8 +37,8 @@ else is a fix or a loosening. `validate` is unchanged.
 
 ### Size
 
-`filter` +314 B gzipped (4655 → 4969 B) for the union-sibling handling; the
-whole library +323 B (9066 → 9389 B). `validate`, `s`, `diff` and the
+`filter` +318 B gzipped (4655 → 4973 B) for the union-sibling handling; the
+whole library +329 B (9066 → 9395 B). `validate`, `s`, `diff` and the
 `/infer` subpath are within ±3 B, and `agentContract` is −81 B. `filter` over
 a bare `anyOf`/`oneOf` keeps 1.12.0's per-row cost through a fast path.
 

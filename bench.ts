@@ -318,6 +318,18 @@ console.log(`   [Array 10k] filter (skipValidation): ${fmt(f2_end - f2_start)}`)
 console.log(`   [Array 10k] filter (fullScan):       ${fmt(f3_end - f3_start)}`)
 console.log(`   Filtered ${filtered instanceof Error ? 'ERROR' : filtered.length} items`)
 
+// union filter: a bare anyOf/oneOf takes a fast path (1.13.0) — without a
+// printed row, losing it was a 35-65% slowdown nobody would have seen
+const UA = { type: 'object', properties: { kind: { const: 'a' }, x: { type: 'number' } }, required: ['kind', 'x'], additionalProperties: false }
+const UB = { type: 'object', properties: { kind: { const: 'b' }, y: { type: 'string' } }, required: ['kind', 'y'], additionalProperties: false }
+const unionRows = new Array(FILTER_SIZE).fill(null).map((_, i) => (i % 2 ? { kind: 'a', x: i, junk: 1 } : { kind: 'b', y: 's', junk: 1 }))
+for (const u of ['anyOf', 'oneOf'] as const) {
+  const schema = { type: 'array', items: { [u]: [UA, UB] } }
+  const t0 = performance.now()
+  filter(unionRows, schema, { strict: true })
+  console.log(`   [Array 10k] filter ${u} (strict):      ${fmt(performance.now() - t0)}`)
+}
+
 // --- RUNTIME SCHEMA BENCHMARK ---
 console.log(`\n\n🔄 RUNTIME SCHEMA BENCHMARK 🔄`)
 console.log(`   (Validating against a schema received as plain JSON at runtime)`)

@@ -726,6 +726,8 @@ function filterData(data, schema, fullScan = false) {
   if (data === null || data === undefined) {
     return data;
   }
+  if (schema === null || typeof schema !== "object")
+    return data;
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
     const { anyOf, oneOf, ...siblings } = schema;
     const rest = Object.keys(siblings).length ? siblings : null;

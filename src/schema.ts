@@ -1119,6 +1119,10 @@ function filterData(data: any, schema: any, fullScan = false): any {
   if (data === null || data === undefined) {
     return data
   }
+  // boolean schemas strip nothing (validation decides), and a malformed
+  // non-object schema (null in a branch list off the wire) must not throw —
+  // filter's contract is data-or-Error
+  if (schema === null || typeof schema !== 'object') return data
 
   // Unions. Their SIBLING keywords are AND-ed with them, exactly as validate
   // applies them (properties / additionalProperties beside an anyOf still

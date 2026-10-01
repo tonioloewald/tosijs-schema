@@ -1182,3 +1182,27 @@ describe('filter with anyOf AND oneOf on INVALID data (v1.13.0, BREAKING narrow)
     expect(filter(data, sch)).toBeInstanceOf(Error)
   })
 })
+
+describe('filter: the bare-union fast path behaves like the sibling path (v1.13.0)', () => {
+  const branches: any[] = [
+    { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false },
+    { type: 'object', properties: { b: { type: 'number' } }, additionalProperties: false },
+  ]
+  const datas: any[] = [{ a: 'x', junk: 1 }, { b: 2, junk: 1 }, { a: 1 }, 'scalar', null]
+  for (const u of ['anyOf', 'oneOf'] as const) {
+    for (const extra of [[], [true], [false], [null], [{}]] as any[][]) {
+      test(`${u} with [${extra.map((x) => JSON.stringify(x)).join(',')}] extra branch`, () => {
+        const bare = { [u]: [...branches, ...extra] }
+        const annotated = { ...bare, description: 'an annotation makes it a sibling path' }
+        for (const d of datas) {
+          // never throws (malformed `null` branches included)
+          const a = filter(d, bare)
+          const b = filter(d, annotated)
+          expect(a instanceof Error).toBe(b instanceof Error)
+          if (!(a instanceof Error)) expect(a).toEqual(b)
+          expect(() => filter(d, bare, { skipValidation: true })).not.toThrow()
+        }
+      })
+    }
+  }
+})
