@@ -628,7 +628,7 @@ All files        |   99.28 |   98.85 |
  src/schema.ts   |   98.67 |   96.60 | 389-395,540,1227-1228,1242,1262-1263,1286-1295,1298-1299
 ```
 
-329 tests, 1150 assertions.
+335 tests, 1177 assertions.
 <!-- /coverage:readme -->
 
 ## License

@@ -61,7 +61,7 @@ String `format` validators (`email`/`uri`/`date-time`/…) plus `ENFORCED_FORMAT
 
 ### Tests
 
-- `src/schema.test.ts`, `src/coverage.test.ts` — validator behavior; `src/any.test.ts` — `s.any`; `src/monad.test.ts` — pipelines; `src/predicate.test.ts` — `$predicate`; `src/contract.test.ts` — `agentContract`, `checkExamples`, `$`-key passthrough; `src/infer.test.ts` — `inferSchema` (incl. the accept-your-own-sample property).
+- `src/schema.test.ts`, `src/coverage.test.ts` — validator behavior; `src/any.test.ts` — `s.any`; `src/monad.test.ts` — pipelines; `src/predicate.test.ts` — `$predicate`; `src/contract.test.ts` — `agentContract`, `checkExamples`, `$`-key passthrough; `src/infer.test.ts` — `inferSchema` (incl. the accept-your-own-sample property). `src/crossversion.test.ts` — builders crossing installed copies (the npm 1.11.0 release via the `tosijs-schema-1-11` devDependency alias, and a second module instance of this tree via a query-string import — not `dist/`, which `pack` deletes before testing).
 - `src/inference.types.ts` — compile-time-only type inference tests (tsc, not bun).
 - High coverage is a marketed feature (schemas are data flowing through tested code) — keep it that way.
 
@@ -70,6 +70,8 @@ String `format` validators (`email`/`uri`/`date-time`/…) plus `ENFORCED_FORMAT
 `bun run pack` is the prepublish gate (runs everything, regenerates `examples.md` and `dist/context.md`, builds ESM + CJS + declarations into `dist/`, incl. the `tosijs-schema/infer` subpath). Before a minor/major bump, run the `pre-release-review` skill (part of the shared practices process). Update `CHANGELOG.md` and `llms.txt` with every release.
 
 **Versioning threshold (this repo):** a validator getting *stricter* is treated as **breaking** even though semver's letter calls it additive — it fails a consumer's next install. This project carries breaking changes in **minor** bumps, but every one must be CHANGELOG'd as BREAKING with a before→after migration note (the CHANGELOG ships in the tarball, so it's reachable from what a consumer installed). Loosening / new API is a **patch by default** (per the shared practice: additive work does not earn a minor just for enlarging the public API — a minor is a *coherent body* of work, or a break). This line previously read "ordinary minor", which was the inflation failure releasing.md names; 1.8.1 (a loosening) had already shipped as a patch, so the doc was out of step with both the KB and our own behavior. Deprecate before removing. See README "Versioning & stability".
+
+**Size baseline:** `pack` prints each entry point's gzipped delta against `dist-sizes.json` (the LAST RELEASE's sizes, not the last commit's — so the delta accumulates across a release). Quote it in the CHANGELOG entry, then run `bun run record-sizes` after the final pack, before tagging, so the new release becomes the baseline (commit it).
 
 **Drift gate:** after the final `bun run pack`, `git status --porcelain` must be empty before tagging — if it isn't, a generated artifact (examples.md, dist/, COVERAGE numbers, llms.txt version) is stale in the commit.
 

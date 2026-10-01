@@ -42,6 +42,7 @@
   "devDependencies": {
     "@sinclair/typebox": "^0.34.47",
     "@types/bun": "latest",
+    "tosijs-schema-1-11": "npm:tosijs-schema@1.11.0",
     "typescript": "^5",
     "zod": "^4.1.12"
   },
@@ -52,6 +53,7 @@
     "make": "bun run pack",
     "prepublishOnly": "bun run pack",
     "latest": "rm -rf node_modules && bun install",
-    "check-bun": "node -e \"const w=require('fs').readFileSync('.bun-version','utf8').trim(),h=process.versions.bun||require('child_process').execSync('bun --version').toString().trim();if(w!==h){console.error('Bun '+h+' but .bun-version pins '+w+' \u2014 dist/ would not reproduce in CI');process.exit(1)}\""
+    "record-sizes": "bun make-coverage.ts --record-sizes",
+    "check-bun": "node -e \"const w=require('fs').readFileSync('.bun-version','utf8').trim(),h=process.versions.bun||require('child_process').execSync('bun --version').toString().trim();if(w!==h){console.error('Bun '+h+' but .bun-version pins '+w+' — dist/ would not reproduce in CI');process.exit(1)}\""
   }
 }

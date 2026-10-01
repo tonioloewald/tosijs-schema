@@ -45,6 +45,14 @@ wire data still cannot pose as a builder. Shipped together with #1391 because
 that fix is the brand's second consumer; #1390 was committed first so #1391
 could be dropped if its review blocked.
 
+**Keep the pre-brand duck-type (decided 2026-10-01).** `src/crossversion.test.ts`
+tests real copies: the npm 1.11.0 release (devDependency alias) and a second
+module instance of this tree. Both halves of `isBuilder` are load-bearing:
+dropping the duck-type breaks 1.11.0 builders, and dropping the brand breaks a
+second copy's method-stripped builder. Reconsider if pre-1.12 copies can no
+longer appear beside a current one, i.e. at the next major, or when no
+ecosystem consumer's range admits <1.12.
+
 ## Builder construction silently accepts a plain schema (2026-09-17, fixed 1.12.0)
 
 Board: #1391. `s.array({ type: 'string' })` builds `{ type: 'array' }` with no
