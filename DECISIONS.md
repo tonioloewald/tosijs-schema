@@ -150,6 +150,13 @@ statement about the data, and silently removing it hides a violation the author
 asked to hear about. Reconsider if a consumer needs filter-to-sanitize over
 schemas that use `false` as a deny-list.
 
+The deprecated `s.infer` keeps its own classification and doesn't delegate to
+`inferSchema` (2026-10-02). Delegating would change its output (`inferSchema`
+unifies every element and leaves objects open; `s.infer` samples the first
+element and closes objects), which is a silent behavior change to a deprecated
+API. It stays as-is, marked `@deprecated` in JSDoc (the house convention), and
+gets removed at the next major.
+
 `affectedRoots` returns a fresh copy that callers may mutate (2026-09-14). It is
 documented, and tampering with it can't affect the gate.
 

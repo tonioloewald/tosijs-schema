@@ -8,7 +8,7 @@
 // (non-zero exit) if a test fails or a target region can't be found, so a
 // silent no-op can't let the docs drift again.
 import { gzipSync } from 'bun'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -108,6 +108,32 @@ const inferKb = (gzBytes.infer / 1024).toFixed(1)
 // drift gate (regenerate + `git diff` clean) go dirty the day after release
 // with no code change. Version only moves on a bump, exactly like llms.txt.
 const version = (await Bun.file('package.json').json()).version
+
+// --- doc/API sync gate (board: "Nothing gates doc/API sync"). Every RUNTIME
+// export a consumer can import must be mentioned in the shipped agent docs
+// (CONTEXT.md, which becomes dist/context.md) or the README, unless it is
+// @internal (then --stripInternal removed its declaration). A stale
+// CONTEXT/llms.txt once described a pre-#10 AgentContract and nothing noticed;
+// types are left to the .d.ts, which documents them by construction.
+{
+  const mod = await import(join(repoDir, 'dist/index.js'))
+  const decls = readdirSync(join(repoDir, 'dist/src'))
+    .filter((f) => f.endsWith('.d.ts'))
+    .map((f) => readFileSync(join(repoDir, 'dist/src', f), 'utf8'))
+    .join('\n')
+  const docs = ['README.md', 'CONTEXT.md'].map((f) => readFileSync(join(repoDir, f), 'utf8')).join('\n')
+  const declared = (n: string) =>
+    new RegExp(`^export (?:declare )?(?:const|function|class|let|var) ${n}\\b`, 'm').test(decls)
+  const undocumented = Object.keys(mod)
+    .filter(declared)
+    .filter((n) => !new RegExp(`\\b${n}\\b`).test(docs))
+  if (undocumented.length) {
+    throw new Error(
+      `make-coverage: public runtime export(s) not mentioned in README.md or CONTEXT.md: ` +
+        `${undocumented.join(', ')} — document them, or mark them @internal`
+    )
+  }
+}
 
 // --- size DELTA against the last release's baseline (practices releasing.md
 // "Track bundle size"). The README rows above are rounded to 0.1 kB and only
