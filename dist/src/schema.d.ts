@@ -251,6 +251,11 @@ export interface FilterOptions {
     strict?: boolean;
     /** @deprecated Use `strict` instead. */
     fullScan?: boolean;
+    /**
+     * Strip without validating the result. Best-effort: where no union branch
+     * fits, that part comes back UNSTRIPPED and nothing says so (without this
+     * flag the same case is an Error). Validate the result yourself if it matters.
+     */
     skipValidation?: boolean;
 }
 export declare function filter(data: any, builderOrSchema: Base<any> | Record<string, any> | boolean, opts?: FilterOptions | ErrorHandler): any;

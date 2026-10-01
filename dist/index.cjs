@@ -702,60 +702,14 @@ function filterData(data, schema, fullScan = false) {
   if (data === null || data === undefined) {
     return data;
   }
-  if (Array.isArray(schema.anyOf)) {
-    for (const sub of schema.anyOf) {
-      const candidate = filterData(data, sub, fullScan);
-      try {
-        if (validateResolved(candidate, sub, { strict: fullScan }))
-          return candidate;
-      } catch {}
-    }
-    return data;
-  }
-  if (Array.isArray(schema.oneOf)) {
-    const origMatches = [];
-    for (const sub of schema.oneOf) {
-      try {
-        if (validateResolved(data, sub, { strict: fullScan }))
-          origMatches.push(sub);
-      } catch {}
-      if (origMatches.length > 1)
-        break;
-    }
-    if (origMatches.length === 1)
-      return filterData(data, origMatches[0], fullScan);
-    if (origMatches.length > 1)
-      return data;
-    const size = (x) => {
-      if (x === null || typeof x !== "object")
-        return 0;
-      let n = 0;
-      for (const k in x)
-        if (hasOwn(x, k))
-          n += 1 + size(x[k]);
-      return n;
-    };
-    let best = null;
-    let bestScore = -1;
-    let tie = false;
-    for (const sub of schema.oneOf) {
-      const candidate = filterData(data, sub, fullScan);
-      let ok = false;
-      try {
-        ok = validateResolved(candidate, sub, { strict: fullScan });
-      } catch {}
-      if (!ok)
-        continue;
-      const score = size(candidate);
-      if (score > bestScore) {
-        best = candidate;
-        bestScore = score;
-        tie = false;
-      } else if (score === bestScore) {
-        tie = true;
-      }
-    }
-    return best !== null && !tie ? best : data;
+  if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
+    const { anyOf, oneOf, ...rest } = schema;
+    let out = data;
+    if (Array.isArray(anyOf))
+      out = filterAnyOf(out, anyOf, rest, fullScan);
+    if (Array.isArray(oneOf))
+      out = filterOneOf(out, oneOf, rest, fullScan);
+    return out;
   }
   const t = schema.type;
   const asObject = (t === "object" || !t && objectKeywordsPresent(schema)) && typeof data === "object" && !Array.isArray(data);
@@ -793,6 +747,80 @@ function filterData(data, schema, fullScan = false) {
     return data;
   }
   return data;
+}
+function stripSchema(rest, branch) {
+  if (branch === true || branch == null || typeof branch !== "object")
+    return rest;
+  const out = { ...rest, ...branch };
+  if (rest.properties || branch.properties) {
+    const props = { ...rest.properties, ...branch.properties };
+    for (const side of [rest, branch]) {
+      if (side.additionalProperties !== false)
+        continue;
+      for (const k of Object.keys(props))
+        if (!side.properties || !hasOwn(side.properties, k))
+          delete props[k];
+    }
+    out.properties = props;
+  }
+  out.additionalProperties = rest.additionalProperties === false || branch.additionalProperties === false ? false : branch.additionalProperties ?? rest.additionalProperties;
+  if (out.additionalProperties === undefined)
+    delete out.additionalProperties;
+  return out;
+}
+var fitsBoth = (v, rest, branch, fullScan) => {
+  try {
+    return validateResolved(v, branch, { strict: fullScan }) && validateResolved(v, rest, { strict: fullScan });
+  } catch {
+    return false;
+  }
+};
+function filterAnyOf(data, branches, rest, fullScan) {
+  for (const sub of branches) {
+    const candidate = filterData(data, stripSchema(rest, sub), fullScan);
+    if (fitsBoth(candidate, rest, sub, fullScan))
+      return candidate;
+  }
+  return data;
+}
+function filterOneOf(data, branches, rest, fullScan) {
+  const origMatches = [];
+  for (const sub of branches) {
+    if (fitsBoth(data, rest, sub, fullScan))
+      origMatches.push(sub);
+    if (origMatches.length > 1)
+      break;
+  }
+  if (origMatches.length === 1)
+    return filterData(data, stripSchema(rest, origMatches[0]), fullScan);
+  if (origMatches.length > 1)
+    return data;
+  const size = (x) => {
+    if (x === null || typeof x !== "object")
+      return 0;
+    let n = 0;
+    for (const k in x)
+      if (hasOwn(x, k))
+        n += 1 + size(x[k]);
+    return n;
+  };
+  let best = null;
+  let bestScore = -1;
+  let tie = false;
+  for (const sub of branches) {
+    const candidate = filterData(data, stripSchema(rest, sub), fullScan);
+    if (!fitsBoth(candidate, rest, sub, fullScan))
+      continue;
+    const score = size(candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+      tie = false;
+    } else if (score === bestScore) {
+      tie = true;
+    }
+  }
+  return best !== null && !tie ? best : data;
 }
 function diff(a, b) {
   if (JSON.stringify(a) === JSON.stringify(b))
