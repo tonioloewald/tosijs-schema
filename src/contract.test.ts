@@ -7,6 +7,7 @@ import {
   KEYWORD_SHAPES,
   CONSTRAINT_DOMAINS,
 } from './contract'
+import { unsampledBadArray } from './test-helpers'
 
 const orderSchema = {
   type: 'object',
@@ -98,8 +99,7 @@ describe('agentContract — the blessed seam adapter', () => {
     const gate = agentContract({
       'app.nums': { type: 'array', items: { type: 'number' } },
     })
-    const proposed: any[] = Array.from({ length: 500 }, (_, i) => i)
-    proposed[3] = 'bad'
+    const proposed = unsampledBadArray()
     expect(
       gate.check('app.nums', proposed, { root: 'app.nums', proposed })
     ).toBeInstanceOf(Error)
@@ -675,8 +675,7 @@ describe('checkExamples — the spec proves itself at definition time', () => {
   })
 
   test('lint runs strict: a lying example at an unsampled index is caught', () => {
-    const items: any[] = Array.from({ length: 500 }, (_, i) => i)
-    items[3] = 'bad'
+    const items = unsampledBadArray()
     const schema = {
       type: 'array',
       items: { type: 'number' },
@@ -941,8 +940,7 @@ describe('agentContract — 1.9.1 review remediation', () => {
     expect(() => agentContract({ 'a.b': S }, { strict: false, unknownPath: 'refuse' })).not.toThrow()
     expect(() => agentContract({ 'a.b': S }, {})).not.toThrow()
     // and the default posture is still the strict one
-    const big: any[] = Array.from({ length: 300 }, (_, i) => i)
-    big[5] = 'bad'
+    const big = unsampledBadArray()
     const g = agentContract({ 'a.nums': { type: 'array', items: { type: 'number' } } })
     expect(g.check('a.nums', big, { root: 'a.nums', proposed: big })).toBeInstanceOf(Error)
   })

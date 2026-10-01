@@ -1,4 +1,5 @@
 [test]
 # src/crossversion.test.ts bundles a second copy of this tree into a temp dir;
-# it is a test fixture, not code under test, so keep it out of the coverage table
-coveragePathIgnorePatterns = ["**/tosijs-schema-second-copy-*/**"]
+# it is a test fixture, not code under test, so keep it out of the coverage table.
+# src/test-helpers.ts: shared test fixtures, likewise not code under test.
+coveragePathIgnorePatterns = ["**/tosijs-schema-second-copy-*/**", "src/test-helpers.ts"]

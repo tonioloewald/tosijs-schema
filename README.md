@@ -622,15 +622,15 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 ```
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
-All files        |   99.28 |   98.85 |
+All files        |   99.29 |   98.84 |
  src/contract.ts |   97.73 |   97.63 | 160,642,644,647,656-658,689-690,718
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   98.67 |   96.60 | 389-395,540,1227-1228,1242,1262-1263,1286-1295,1298-1299
+ src/schema.ts   |   98.73 |   96.56 | 389-395,540,1169-1170,1206,1282,1302-1303,1326-1335,1338-1339
 ```
 
-335 tests, 1177 assertions.
+340 tests, 1187 assertions.
 <!-- /coverage:readme -->
 
 ## License

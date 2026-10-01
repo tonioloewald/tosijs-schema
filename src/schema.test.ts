@@ -9,6 +9,7 @@ import {
   ENFORCED_KEYWORDS,
   type Infer,
 } from './schema'
+import { unsampledBadArray } from './test-helpers'
 
 // oneOf emits a one-time cost warning; keep it out of test output except where
 // a test explicitly asserts it.
@@ -722,8 +723,7 @@ describe('Algebra', () => {
     // a bad element at an unsampled index inside a union-typed array must be
     // caught under strict — pins option propagation across the inline union
     const schema = { type: 'array', items: { type: ['string', 'number'] } }
-    const big: any[] = Array.from({ length: 500 }, (_, i) => i)
-    big[3] = { not: 'a scalar' } // neither string nor number, at a sampled-past index
+    const big = unsampledBadArray({ not: 'a scalar' }) // neither string nor number
     expect(validate(big, schema)).toBeTrue() // sampled: legitimately missed
     expect(validate(big, schema, { strict: true })).toBeFalse()
   })
@@ -801,8 +801,7 @@ describe('Algebra', () => {
 
   test('strict mode propagates into union branches (no sampling gap)', () => {
     const Union = s.union([s.array(s.number)])
-    const big: any[] = Array.from({ length: 500 }, (_, i) => i)
-    big[3] = 'bad' // an index stride sampling skips
+    const big = unsampledBadArray()
     expect(validate(big, Union.schema)).toBeTrue() // sampled: legitimately missed
     expect(validate(big, Union.schema, { strict: true })).toBeFalse()
   })
