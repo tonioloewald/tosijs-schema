@@ -7,23 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.13.0] — 2026-10-02
 
-**Contains one narrow BREAKING change** (to `filter`, on invalid input only).
-See README "Upgrading to 1.13.0". Everything else is a fix or a loosening.
+**Contains two narrow BREAKING changes to `filter`'s output**, both when the
+schema has an `anyOf`/`oneOf`. See README "Upgrading to 1.13.0". Everything
+else is a fix or a loosening. `validate` is unchanged.
 
 ### Changed — BREAKING (narrow)
 
+- **A union's sibling `properties` now strip like any object's.** `filter`
+  used to return straight from the union arm and ignore the schema's own
+  `properties`. Now that it honours them (see Fixed), it also applies
+  `filter`'s usual rule: with `additionalProperties` unset, keys no side
+  declares are stripped. This happens even on data that `validate` accepts,
+  exactly as for an object without a union.
+  - Example: `{ type: 'object', properties: { a: {}, b: {} }, anyOf: [{ required: ['a'] }, { required: ['b'] }] }`
+    with `{ a: 1, z: 2 }`. Before: `{ a: 1, z: 2 }`. After: `{ a: 1 }`.
+  - **Migration:** to keep undeclared keys, declare them, or set
+    `additionalProperties: true` (`.open` on a builder), which keeps extras
+    everywhere `filter` runs.
 - **With both `anyOf` and `oneOf`, `filter` no longer drops a key the `oneOf`
   branch declares to force invalid data through.** It returns an `Error`
-  instead, as a `oneOf`-only schema already did.
+  instead, as a `oneOf`-only schema already did. Only data that fails
+  `validate` is affected.
   - Example: `anyOf: [{ properties: { a: { type: 'number' }, c: { type: 'number' } } }, { properties: { a: {}, b: {} } }]`
     with `oneOf: [{ properties: { c: { type: 'string' } } }]` and the data
     `{ a: { a: 1 }, b: 1, c: 1 }`. Before: `{ a: { a: 1 }, b: 1 }`, with `c`
     silently gone. After: `Error`.
-  - Only inputs that fail `validate` are affected. A fuzz pass over ~78k
-    schemas found no valid input that newly errors. Where both versions return
-    data, 1.13.0's output keeps a superset of the keys.
   - **Migration:** pass data that validates, or handle the `Error`. Either way
     you were relying on a key being discarded without notice.
+
+### Size
+
+`filter` +314 B gzipped (4655 → 4969 B) for the union-sibling handling; the
+whole library +323 B (9066 → 9389 B). `validate`, `s`, `diff` and the
+`/infer` subpath are within ±3 B, and `agentContract` is −81 B. `filter` over
+a bare `anyOf`/`oneOf` keeps 1.12.0's per-row cost through a fast path.
 
 ### Fixed
 

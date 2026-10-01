@@ -1158,6 +1158,18 @@ describe('filter: union siblings apply (v1.13.0)', () => {
   }
 })
 
+describe('filter: a union\'s sibling properties strip like any object\'s (v1.13.0, BREAKING narrow)', () => {
+  test('undeclared keys are stripped on VALID data when additionalProperties is unset', () => {
+    const sch: any = { type: 'object', properties: { a: {}, b: {} }, anyOf: [{ required: ['a'] }, { required: ['b'] }] }
+    expect(validate({ a: 1, z: 2 }, sch)).toBeTrue()
+    expect(filter({ a: 1, z: 2 }, sch)).toEqual({ a: 1 }) // 1.12.0: { a: 1, z: 2 }
+    // the same rule an object without a union always had
+    expect(filter({ a: 1, z: 2 }, { type: 'object', properties: { a: {}, b: {} } })).toEqual({ a: 1 })
+    // and the documented way to keep them
+    expect(filter({ a: 1, z: 2 }, { ...sch, additionalProperties: true })).toEqual({ a: 1, z: 2 })
+  })
+})
+
 describe('filter with anyOf AND oneOf on INVALID data (v1.13.0, BREAKING narrow)', () => {
   test('a key only the oneOf branch declares is no longer dropped to force a pass', () => {
     const sch: any = {

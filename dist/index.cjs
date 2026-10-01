@@ -727,9 +727,10 @@ function filterData(data, schema, fullScan = false) {
     return data;
   }
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
-    const { anyOf, oneOf, ...rest } = schema;
+    const { anyOf, oneOf, ...siblings } = schema;
+    const rest = Object.keys(siblings).length ? siblings : null;
     if (Array.isArray(oneOf)) {
-      return filterOneOf(data, oneOf, Array.isArray(anyOf) ? { ...rest, anyOf } : rest, fullScan);
+      return filterOneOf(data, oneOf, Array.isArray(anyOf) ? { ...siblings, anyOf } : rest, fullScan);
     }
     return filterAnyOf(data, anyOf, rest, fullScan);
   }
@@ -771,10 +772,10 @@ function filterData(data, schema, fullScan = false) {
   return data;
 }
 function stripSchema(rest, branch) {
-  if (branch === true || branch == null || typeof branch !== "object")
-    return rest;
   if (rest === true || rest == null || typeof rest !== "object")
     return branch;
+  if (branch === true || branch == null || typeof branch !== "object")
+    return rest;
   const hasUnion = (x) => Array.isArray(x.anyOf) || Array.isArray(x.oneOf);
   if (hasUnion(rest) && hasUnion(branch))
     return {};
@@ -806,7 +807,7 @@ function stripSchema(rest, branch) {
 }
 var fitsBoth = (v, rest, branch, fullScan) => {
   try {
-    return validateResolved(v, branch, { strict: fullScan }) && validateResolved(v, rest, { strict: fullScan });
+    return validateResolved(v, branch, { strict: fullScan }) && (rest === null || validateResolved(v, rest, { strict: fullScan }));
   } catch {
     return false;
   }

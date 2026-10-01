@@ -24,9 +24,14 @@ Pin an exact version (or use a lockfile) if you cannot absorb a validation chang
 
 ### To 1.13.0 (from 1.12.x) — `filter` and unions
 
-`filter` now applies the keywords beside an `anyOf`/`oneOf`, as `validate` always has, so data it used to refuse or strip wrongly now filters correctly. One narrow case is stricter. With **both** `anyOf` and `oneOf`, invalid data that `filter` used to "fix" by discarding a key the `oneOf` branch declares now comes back as an `Error`, matching `oneOf`-only schemas. Only data that fails `validate` is affected.
+`filter` now applies the keywords beside an `anyOf`/`oneOf`, as `validate` always has, so data it used to refuse or strip wrongly now filters correctly. That changes its output in two narrow ways when a schema has a union. `validate` is unchanged.
 
-**Migration:** none for valid data. For invalid data, handle the `Error`. The old result had silently dropped a field.
+| Case | ≤ 1.12.x | 1.13.0 |
+| --- | --- | --- |
+| a union beside `properties`, `additionalProperties` unset, data with an undeclared key | key kept | key **stripped**, the same as for an object without a union |
+| both `anyOf` and `oneOf`, invalid data, a key only the `oneOf` branch declares | key silently dropped, data returned | **`Error`**, as `oneOf`-only schemas already did |
+
+**Migration:** to keep undeclared keys, declare them or set `additionalProperties: true` (`.open`). For the second row, handle the `Error`, since the old result had silently dropped a field.
 
 Also new: types resolve under `moduleResolution: "nodenext"`. Before this release a TypeScript Node project got no types at all.
 
@@ -496,7 +501,7 @@ Import only what you use. The package is `sideEffects: false` and each concern i
 | `inferSchema` (from `tosijs-schema/infer`) | just inference | **~1.5 kB** |
 | `validate` | the validator | ~4.0 kB |
 | `s` (builder) | builder + validator | ~3.9 kB |
-| `filter` | validator + filter | ~4.8 kB |
+| `filter` | validator + filter | ~4.9 kB |
 | `diff` | validator + schema diff | ~4.3 kB |
 | `agentContract` | validator + contract layer | ~5.7 kB |
 | everything | the whole library | ~9.2 kB |
@@ -644,10 +649,10 @@ All files        |   99.76 |   99.18 |
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
- src/schema.ts   |   98.80 |   96.70 | 389-395,540,1200-1201,1258,1334,1354-1355,1378-1387,1390-1391
+ src/schema.ts   |   98.80 |   96.70 | 389-395,540,1203-1204,1261,1337,1357-1358,1381-1390,1393-1394
 ```
 
-349 tests, 1204 assertions.
+350 tests, 1208 assertions.
 <!-- /coverage:readme -->
 
 ## License

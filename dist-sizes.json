@@ -1,12 +1,12 @@
 {
-  "version": "1.12.0",
+  "version": "1.13.0",
   "gz": {
-    "everything": 9066,
-    "validate": 4068,
-    "s": 3946,
-    "filter": 4655,
-    "diff": 4357,
-    "agentContract": 5938,
+    "everything": 9389,
+    "validate": 4071,
+    "s": 3943,
+    "filter": 4969,
+    "diff": 4356,
+    "agentContract": 5857,
     "infer": 1581
   }
 }

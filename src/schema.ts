@@ -1128,13 +1128,16 @@ function filterData(data: any, schema: any, fullScan = false): any {
   // siblings (a key survives if either declares it — recursively, through
   // shared properties and items) and must validate against both.
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
-    const { anyOf, oneOf, ...rest } = schema
+    const { anyOf, oneOf, ...siblings } = schema
+    // fast path: a bare union has no siblings to merge or re-validate, so
+    // each branch is used as-is (1.12.0's per-row cost) — `null` means none
+    const rest = Object.keys(siblings).length ? siblings : null
     // With both, anyOf is just another SIBLING of oneOf: each oneOf branch's
     // strip schema keeps the anyOf, so filterData recurses into it with the
     // oneOf branch merged in. Running them in sequence let anyOf shed keys
     // only the oneOf branch declares.
     if (Array.isArray(oneOf)) {
-      return filterOneOf(data, oneOf, Array.isArray(anyOf) ? { ...rest, anyOf } : rest, fullScan)
+      return filterOneOf(data, oneOf, Array.isArray(anyOf) ? { ...siblings, anyOf } : rest, fullScan)
     }
     return filterAnyOf(data, anyOf, rest, fullScan)
   }
@@ -1210,8 +1213,8 @@ function filterData(data: any, schema: any, fullScan = false): any {
 // with the key undeclared). Validation against each separately still decides
 // whether the result is acceptable — this only decides what is not shed.
 function stripSchema(rest: any, branch: any): any {
-  if (branch === true || branch == null || typeof branch !== 'object') return rest
   if (rest === true || rest == null || typeof rest !== 'object') return branch
+  if (branch === true || branch == null || typeof branch !== 'object') return rest
   // Two unions can't be merged into ONE strip schema (a spread would let one
   // side's anyOf/oneOf silently replace the other's and shed its keys, on
   // VALID data). Strip nothing at this node; validation against each side
@@ -1253,7 +1256,7 @@ const fitsBoth = (v: any, rest: any, branch: any, fullScan: boolean): boolean =>
   try {
     return (
       validateResolved(v, branch, { strict: fullScan }) &&
-      validateResolved(v, rest, { strict: fullScan })
+      (rest === null || validateResolved(v, rest, { strict: fullScan }))
     )
   } catch {
     return false // a malformed branch schema cannot match
