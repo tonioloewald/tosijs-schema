@@ -5,14 +5,17 @@
 #
 #   1. (agent)  release commit, tag, push the tag
 #   2. (anyone) Actions → Publish → Run workflow with the tag, or `gh workflow run publish.yml -f tag=vX.Y.Z`
-#   3. (this)   verify everything, then `npm stage publish` — nothing is public yet
+#   3. (build)  check everything and pack, read-only; hand the tarball to the stage job
+#      (stage)  the ONLY job holding the OIDC credential, running no repo or practices code:
+#               re-derive name/version/integrity from the tarball, `npm stage publish` it
 #   4. (human)  approve with 2FA: npmjs.com → package → Staged Packages (works from a phone)
-#   5. (this)   wait for the registry, then prove what shipped is what was built and tested
+#   5. (verify) read-only: wait for the registry, prove what shipped is what was staged
 #
 # Before tagging, run it with `dry_run` on the branch: every check, no staging, no tag to move.
 #
 # Approved after the 60-minute wait? Run it again with `verify_only` — a re-run starts over and
-# stops at "already published". npm pack is deterministic, so verify_only re-packs the tag.
+# stops at "already published". npm pack is deterministic, so verify_only re-packs the tag. Its
+# build reports the dependency audit rather than failing on it: what shipped cannot change.
 #
 # Every check runs BEFORE staging: a staged version burns its number exactly as a publish does.
 # The npm Trusted Publisher entry names this file (publish.yml) with direct `npm publish`
@@ -40,24 +43,35 @@ on:
         type: boolean
         default: false
 
+# Default for every job: read-only. ONLY the stage job is granted id-token: write, and it runs no
+# repo code and no practices code (practices #1083). Building, testing and packing execute the
+# repo's own toolchain and devDependencies, and the practices tools at their current HEAD; none of
+# that may run while an npm publish credential can be minted.
 permissions:
   contents: read
-  id-token: write # mints the OIDC token npm trusted publishing exchanges for publish rights
 
 concurrency:
   group: publish
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # Everything that EXECUTES CODE, read-only. Its product is one tarball, handed to the stage job
+  # as an artifact. A compromised step here can still change WHAT gets staged (the maintainer's
+  # 2FA approval is the gate on that), but it can no longer stage, publish or reach a token.
+  build:
     runs-on: ubuntu-latest
-    # Includes up to an hour waiting for the human approval in step 4.
-    timeout-minutes: 100
+    timeout-minutes: 40
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      version: ${{ steps.meta.outputs.version }}
+      dist_tag: ${{ steps.meta.outputs.dist_tag }}
+      latest_before: ${{ steps.meta.outputs.latest_before }}
+      integrity: ${{ steps.pack.outputs.integrity }}
     env:
       TAG: ${{ inputs.tag }}
     steps:
       - name: Check out the tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.dry_run && inputs.tag || format('refs/tags/{0}', inputs.tag) }}
           # Full history and tags: release-doctor reads both (tag/publish reconciliation, release
@@ -66,28 +80,21 @@ jobs:
 
       # release-doctor lives in the shared practices repo (public).
       - name: Check out tosijs-coding-practices
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: tonioloewald/tosijs-coding-practices
           path: .practices
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           # Pinned: the bundler's output differs between Bun versions (1.4.0 and 1.4.2
           # built different dist/iife.js from the same lockfile), so CI must build with
           # the version releases are built with locally.
           bun-version-file: .bun-version
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.x' # trusted publishing needs 22.14+
-          registry-url: 'https://registry.npmjs.org'
-
-      # `npm stage` needs npm 11.15.0+, newer than the runner's bundled npm.
-      - name: Upgrade npm
-        run: |
-          npm install -g npm@^11.15.0
-          npm --version
+          node-version: '22.x'
 
       - name: Tag, version and dist-tag
         id: meta
@@ -138,13 +145,26 @@ jobs:
       # that does not gets it built here from the frozen lockfile and pinned Bun. Files that do
       # not ship (a site's ePub, a version stamp) are not this check's business.
       - name: Build
+        env:
+          # verify_only checks bytes that are ALREADY published, so a gate whose verdict can change
+          # after publication must not decide it: an advisory announced the day after a release
+          # made that release impossible to verify (tosijs v1.10.5, practices #2469). The build
+          # still runs, because a repo that does not commit its build output needs it to
+          # reproduce the tarball; the tosijs-ui/site dependency audit only REPORTS here.
+          TOSIJS_AUDIT: ${{ inputs.verify_only && 'warn' || '' }}
         run: |
           set -euo pipefail
           # The full build is not always called `build`: tjs-lang's is `make`, because `bun build`
           # is a Bun BUILTIN and a `build` script makes `bun build` and `bun run build` diverge.
           # Resolved exactly as release-doctor resolves it (build, make, build:all), so the two
           # can never build different things.
-          BUILD=$(node -p "const s=require('./package.json').scripts||{}; s.build?'build':s.make?'make':s['build:all']?'build:all':''")
+          # A repo whose PACKAGE is not its main build declares it: releaseDoctor.build (e.g.
+          # tosijs-platform, whose `build` is a site bundle and whose package is `build:lib`).
+          BUILD=$(node -p "const p=require('./package.json'),s=p.scripts||{},d=(p.releaseDoctor||{}).build; d||(s.build?'build':s.make?'make':s['build:all']?'build:all':'')")
+          if [ -n "$BUILD" ] && ! node -e "process.exit((require('./package.json').scripts||{})[process.argv[1]]?0:1)" "$BUILD"; then
+            echo "::error::releaseDoctor.build names '$BUILD', which is not a script"
+            exit 1
+          fi
           if [ -n "$BUILD" ]; then
             echo "building with: bun run $BUILD"
             bun run "$BUILD"
@@ -174,6 +194,19 @@ jobs:
           echo "tarball=$RUNNER_TEMP/pack/$FILE" >> "$GITHUB_OUTPUT"
           echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
 
+      # The ONLY thing that crosses into the stage job, uploaded the moment it exists: nothing
+      # that runs after this (the smoke test, an unlocked extra install, release-doctor at the
+      # practices HEAD) can change the bytes that get staged. The stage job re-hashes them AND
+      # checks them against the hash this Pack step recorded, which no later step can rewrite.
+      - name: Hand the tarball to the stage job
+        if: ${{ !inputs.verify_only && !inputs.dry_run }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-tarball
+          path: ${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 3
+
       # A tag carrying release-attestation.json vouches for a build made and tested LOCALLY
       # (tools/attest.ts). The tarball just packed must contain exactly the files recorded
       # there, so what is staged is what was signed off, and the suite never runs here.
@@ -190,6 +223,22 @@ jobs:
         if: ${{ !inputs.verify_only }}
         run: bun .practices/tools/publish-smoke.ts "${{ steps.pack.outputs.tarball }}"
 
+      # A repo with a second package tree (tosijs-platform's npm-managed functions/) names the
+      # script that installs it for its test lane: package.json releaseDoctor.install.
+      # Deliberately AFTER Pack and its upload: the tarball has left this job, and the stage job
+      # checks it against Pack's recorded hash, so an unlocked install's dependencies cannot
+      # change what ships. This job holds no publish credential (only the stage job does).
+      - name: Extra install (releaseDoctor.install)
+        if: ${{ !inputs.verify_only }}
+        run: |
+          set -euo pipefail
+          SETUP=$(node -p "(require('./package.json').releaseDoctor||{}).install||''")
+          if [ -z "$SETUP" ]; then echo "none declared"; exit 0; fi
+          node -e "process.exit((require('./package.json').scripts||{})[process.argv[1]]?0:1)" "$SETUP" \
+            || { echo "::error::releaseDoctor.install names '$SETUP', which is not a script"; exit 1; }
+          echo "extra install: bun run $SETUP"
+          bun run "$SETUP"
+
       # Tier 0: tests, typecheck, build, changelog entry, packaged exports, bin shebangs, …
       # Lanes CI cannot run (e.g. live-LLM suites) are declared in package.json
       # releaseDoctor.attestedLanes and covered by release-attestation.json (tools/attest.ts).
@@ -200,18 +249,118 @@ jobs:
           RELEASE_DOCTOR_PUBLISHING: ${{ !inputs.dry_run && inputs.tag || '' }}
         run: bun .practices/tools/release-doctor.ts
 
-      # ---- nothing above this line has touched the registry ----
+  # ---- nothing above this line has touched the registry ----
 
-      - name: Stage
-        if: ${{ !inputs.verify_only && !inputs.dry_run }}
-        id: stage
+  # The only job that can mint an npm credential. No checkout, no repo code, no practices code:
+  # node and npm from the runner image, and the tarball. Everything it acts on is derived here,
+  # from the tarball itself, never from the build job's outputs, which ran repo code.
+  stage:
+    needs: build
+    if: ${{ !inputs.verify_only && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    # Includes up to an hour waiting for the human approval.
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      id-token: write # mints the OIDC token npm trusted publishing exchanges for publish rights
+    outputs:
+      approved: ${{ steps.wait.outputs.approved }}
+      verification: ${{ steps.wait.outputs.verification }}
+      integrity: ${{ steps.derive.outputs.integrity }}
+      name: ${{ steps.derive.outputs.name }}
+      version: ${{ steps.derive.outputs.version }}
+      dist_tag: ${{ steps.derive.outputs.dist_tag }}
+    env:
+      TAG: ${{ inputs.tag }}
+      # The hash the build job's Pack step recorded. A later build step can't rewrite a step's
+      # outputs, so this is the packed bytes' identity even if something after Pack tampered.
+      PACKED_INTEGRITY: ${{ needs.build.outputs.integrity }}
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x' # trusted publishing needs 22.14+
+          registry-url: 'https://registry.npmjs.org'
+
+      # `npm stage` needs npm 11.15.0+, newer than the runner's bundled npm. Pinned EXACTLY:
+      # this job holds the publish credential, so nothing in it floats.
+      - name: Upgrade npm
+        run: |
+          npm install -g npm@11.21.0
+          npm --version
+
+      - name: Receive the tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: package-tarball
+          path: ${{ runner.temp }}/stage
+
+      # Name, version, dist-tag and integrity, from the BYTES about to be staged. The build job
+      # reported the same facts, but through GITHUB_OUTPUT, which any of its steps could write.
+      - name: Derive what is being staged, from the tarball
+        id: derive
         run: |
           set -euo pipefail
-          npm stage publish "${{ steps.pack.outputs.tarball }}" --tag "${{ steps.meta.outputs.dist_tag }}" | tee "$RUNNER_TEMP/stage.txt"
+          shopt -s nullglob
+          FILES=("$RUNNER_TEMP"/stage/*.tgz)
+          if [ "${#FILES[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one tarball from the build job, got ${#FILES[@]}"
+            exit 1
+          fi
+          TARBALL=${FILES[0]}
+          tar -xzf "$TARBALL" -C "$RUNNER_TEMP/stage" package/package.json
+          PKG="$RUNNER_TEMP/stage/package/package.json"
+          NAME=$(node -p "require(process.argv[1]).name" "$PKG")
+          VERSION=$(node -p "require(process.argv[1]).version" "$PKG")
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::the tarball is $NAME@$VERSION, but the tag being published is $TAG"
+            exit 1
+          fi
+          # The dist-tag comes from the version, never from a person remembering a flag:
+          # 1.16.0-beta.2 → beta, 1.16.0-rc.1 → rc, 1.16.0 → latest. npm makes the tag
+          # immutable once staged, so it has to be right here.
+          case "$VERSION" in
+            *-*)
+              PRE=${VERSION#*-}
+              DIST_TAG=${PRE%%.*}
+              case "$DIST_TAG" in
+                beta|rc|alpha) ;;
+                *)
+                  echo "::error::prerelease '$DIST_TAG' is not beta, rc or alpha — refusing to guess a dist-tag"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *) DIST_TAG=latest ;;
+          esac
+          INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | base64 -w0)"
+          # The bytes received must be the bytes PACKED. Without this, a step that ran after Pack
+          # could swap the tarball, and verify would still report "identical to what was staged".
+          if [ "$INTEGRITY" != "$PACKED_INTEGRITY" ]; then
+            echo "::error::the tarball received ($INTEGRITY) is not the one the build packed ($PACKED_INTEGRITY) — refusing to stage"
+            exit 1
+          fi
           {
-            echo "## ⏳ ${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }} is STAGED — approve it"
+            echo "tarball=$TARBALL"
+            echo "name=$NAME"
+            echo "version=$VERSION"
+            echo "dist_tag=$DIST_TAG"
+            echo "integrity=$INTEGRITY"
+          } >> "$GITHUB_OUTPUT"
+          echo "staging $NAME@$VERSION under '$DIST_TAG' ($INTEGRITY)"
+
+      - name: Stage
+        env:
+          TARBALL: ${{ steps.derive.outputs.tarball }}
+          NAME: ${{ steps.derive.outputs.name }}
+          VERSION: ${{ steps.derive.outputs.version }}
+          DIST_TAG: ${{ steps.derive.outputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          npm stage publish "$TARBALL" --tag "$DIST_TAG" | tee "$RUNNER_TEMP/stage.txt"
+          {
+            echo "## ⏳ $NAME@$VERSION is STAGED — approve it"
             echo
-            echo "Dist-tag: \`${{ steps.meta.outputs.dist_tag }}\`"
+            echo "Dist-tag: \`$DIST_TAG\`"
             echo
             echo "Approve with 2FA at npmjs.com → **Staged Packages**, or:"
             echo
@@ -222,39 +371,129 @@ jobs:
             echo "This run waits up to 60 minutes for the approval, then verifies."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # A timeout is NOT a failure: the version is staged and simply not approved yet (approval
+      # often comes later, from a phone). It ends green with a warning and a summary saying
+      # "run verify_only after approving"; the verification steps then skip. A red run here
+      # emailed the maintainer a CI failure for something that had gone exactly right.
+      #
+      # But green must not read as VERIFIED (practices #2495): the timeout annotation is titled
+      # "Verification owed" and the job output `verification` says owed, so the outcome is
+      # distinguishable from a run that checked the published bytes. And an hour in which the
+      # registry never answered is an outage, not "not approved yet": that is red.
       - name: Wait for approval
-        if: ${{ !inputs.verify_only && !inputs.dry_run }}
+        id: wait
+        env:
+          NAME: ${{ steps.derive.outputs.name }}
+          VERSION: ${{ steps.derive.outputs.version }}
         run: |
           set -euo pipefail
+          REACHED=0
           for i in $(seq 1 120); do
-            if curl -fsS -H 'Cache-Control: no-cache' "https://registry.npmjs.org/${{ steps.meta.outputs.name }}" \
-              | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.exit(JSON.parse(s).versions?.[process.argv[1]]?0:1))" "${{ steps.meta.outputs.version }}"; then
-              echo "served by the registry after ~$((i * 30))s"
-              exit 0
+            if curl -fsS -H 'Cache-Control: no-cache' -o "$RUNNER_TEMP/packument.json" "https://registry.npmjs.org/$NAME"; then
+              REACHED=$((REACHED + 1))
+              if node -e "process.exit(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).versions?.[process.argv[2]]?0:1)" "$RUNNER_TEMP/packument.json" "$VERSION"; then
+                echo "listed by the registry after ~$((i * 30))s"
+                echo "approved=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
             fi
             sleep 30
           done
-          echo "::error::not approved within 60 minutes. Approve it, then run this workflow again for the same tag with verify_only ticked — a re-run would start over and stop at 'already published'."
+          if [ "$REACHED" -eq 0 ]; then
+            echo "::error::the registry did not answer once in 60 minutes, so this run cannot say whether $NAME@$VERSION was approved. Check npmjs.com, then run verify_only for this tag."
+            exit 1
+          fi
+          echo "approved=false" >> "$GITHUB_OUTPUT"
+          echo "verification=owed" >> "$GITHUB_OUTPUT"
+          echo "::warning title=Verification owed::$NAME@$VERSION is staged but was not approved within 60 minutes, so NOTHING has been verified. Approve it, then run this workflow again for the same tag with verify_only ticked (a re-run would start over and stop at 'already published')."
+          {
+            echo "## ⏸ $NAME@$VERSION is staged, awaiting approval — verification owed"
+            echo
+            echo "Nothing is published yet and nothing has been verified. After approving on npmjs.com, run:"
+            echo
+            echo '```'
+            # $TAG (job env), never the inputs.tag EXPRESSION inline: an expression is pasted
+            # into the script before bash runs it (comments included), so a crafted tag would
+            # be code, not text.
+            echo "gh workflow run publish.yml -f tag=$TAG -f verify_only=true"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Read-only again: checking the registry, and the smoke test (which runs practices code and
+  # installs the package), never need the publish credential. Runs after an approval the stage
+  # job saw, or on its own for verify_only.
+  verify:
+    needs: [build, stage]
+    if: ${{ always() && !inputs.dry_run && needs.build.result == 'success' && (inputs.verify_only || needs.stage.outputs.approved == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # From the stage job, which derived them from the bytes it staged; the build job (which
+      # ran repo code) stands in only for verify_only, where nothing was staged in this run.
+      NAME: ${{ needs.stage.outputs.name || needs.build.outputs.name }}
+      VERSION: ${{ needs.stage.outputs.version || needs.build.outputs.version }}
+      DIST_TAG: ${{ needs.stage.outputs.dist_tag || needs.build.outputs.dist_tag }}
+      LATEST_BEFORE: ${{ needs.build.outputs.latest_before }}
+      # What was STAGED, hashed by the stage job from the bytes it staged. For verify_only there
+      # is no stage job, and the build job's re-pack of the tag stands in (npm pack is
+      # deterministic, so it reproduces the published shasum).
+      INTEGRITY: ${{ needs.stage.outputs.integrity || needs.build.outputs.integrity }}
+      VERIFY_ONLY: ${{ inputs.verify_only }}
+    steps:
+      # The repo too: the smoke test reads its package.json and runs its own `test-consumer`
+      # script when it has one. Safe here: this job holds no credential.
+      - name: Check out the tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ format('refs/tags/{0}', inputs.tag) }}
+
+      - name: Check out tosijs-coding-practices
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: tonioloewald/tosijs-coding-practices
+          path: .practices
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # The packument lists a version before the CDN serves its tarball: tosijs 1.10.6 was listed
+      # ~220s before /-/tosijs-1.10.6.tgz stopped returning 404, and the registry smoke test
+      # (npm pack name@version) failed in between (practices #2495). Wait for the file itself.
+      - name: Wait for the tarball to be served
+        run: |
+          set -euo pipefail
+          TARBALL=$(curl -fsS -H 'Cache-Control: no-cache' "https://registry.npmjs.org/$NAME/$VERSION" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).dist.tarball))")
+          for i in $(seq 1 40); do
+            if curl -fsSI -o /dev/null "$TARBALL"; then
+              echo "tarball served after ~$(((i - 1) * 15))s: $TARBALL"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::$TARBALL was still not served 10 minutes after the version was listed."
           exit 1
 
       - name: Verify what shipped
-        if: ${{ !inputs.dry_run }}
-        env:
-          VERIFY_ONLY: ${{ inputs.verify_only }}
         run: |
           set -euo pipefail
-          NAME=${{ steps.meta.outputs.name }}
-          VERSION=${{ steps.meta.outputs.version }}
           # To a FILE: the packument lists every version ever published, and passed as an
           # argument it exceeds the OS limit ("Argument list too long").
           curl -fsS -H 'Cache-Control: no-cache' -o "$RUNNER_TEMP/packument.json" "https://registry.npmjs.org/$NAME"
           node -e '
             const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
-            const [version, distTag, latestBefore, integrity] = process.argv.slice(2)
+            const { VERSION: version, DIST_TAG: distTag, LATEST_BEFORE: latestBefore, INTEGRITY: integrity } = process.env
             const fail = (m) => { console.error("::error::" + m); process.exitCode = 1 }
             const published = d.versions[version].dist.integrity
             if (published !== integrity)
-              fail(`published integrity ${published} is not the tarball this run built and staged (${integrity})`)
+              fail(`published integrity ${published} is not the tarball that was staged (${integrity})`)
             else console.log("✅ published bytes are identical to the staged tarball")
             const tags = d["dist-tags"]
             if (tags[distTag] !== version) fail(`dist-tag ${distTag} is ${tags[distTag]}, expected ${version}`)
@@ -265,24 +504,22 @@ jobs:
                 fail(`a ${distTag} publish MOVED latest: ${latestBefore} → ${tags.latest}`)
               else console.log(`✅ latest is not the prerelease (${tags.latest})`)
             }
-          ' "$RUNNER_TEMP/packument.json" "$VERSION" "${{ steps.meta.outputs.dist_tag }}" "${{ steps.meta.outputs.latest_before }}" "${{ steps.pack.outputs.integrity }}"
+          ' "$RUNNER_TEMP/packument.json"
 
       # The smoke test once more, against the tarball adopters actually download.
       - name: Consumer smoke test (from the registry)
-        if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/registry"
-          npm pack "${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }}" --pack-destination "$RUNNER_TEMP/registry"
+          npm pack "$NAME@$VERSION" --pack-destination "$RUNNER_TEMP/registry"
           bun .practices/tools/publish-smoke.ts "$(ls "$RUNNER_TEMP"/registry/*.tgz)"
 
       - name: Summary
-        if: ${{ !inputs.dry_run }}
         run: |
           {
-            echo "## ✅ ${{ steps.meta.outputs.name }}@${{ steps.meta.outputs.version }} is published and verified"
+            echo "## ✅ $NAME@$VERSION is published and verified"
             echo
-            echo "- dist-tag \`${{ steps.meta.outputs.dist_tag }}\`"
-            echo "- published bytes identical to the tarball built and tested here (\`${{ steps.pack.outputs.integrity }}\`)"
+            echo "- dist-tag \`$DIST_TAG\`"
+            echo "- published bytes identical to the tarball that was staged (\`$INTEGRITY\`)"
             echo "- consumer smoke test passed against the registry's copy"
           } >> "$GITHUB_STEP_SUMMARY"
