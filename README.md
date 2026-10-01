@@ -531,6 +531,12 @@ Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith
 
 **Know the grammar it matches.** A path matches a root when it equals the root or continues it with `.` or `[`, so **any spelling of the subtree under a root matches** (`app.x`, `app[0].x`, `app["x"]`, `app.0.x` all match root `app`). The gap is in the **root's own spelling**: a multi-segment root (`app.billing`) is recognized only when the path spells those segments identically, so `app["billing"].rate` reads as *uncontracted*. A leading bracket (`["app"].x`) and a JSON Pointer (`/app/billing/rate`) also read as uncontracted. So if any contracted root has more than one segment, or your applier accepts alternate notations, use **`{ unknownPath: 'refuse' }`** — it closes every spelling regardless. (A canonicalizing matcher was built for 1.10.0 and reverted — see the CHANGELOG; the real fix is a tokenizer, tracked separately.)
 
+**What a check costs, and how to call it.** `check()` validates the whole proposed root, strictly, on every call, so each write is O(size of the root). Two consequences:
+- **Send one proposal per transaction, not one per path.** A surface that applies N field writes to one root and checks each one separately pays O(N × root size) to say the same thing N times. Assemble the new root once, then `check` it once.
+- **Contract fine-grained roots.** `app.order` is cheaper to judge per write than `app`, and a huge root that rarely changes as a whole is the case `{ strict: false }` exists for (sampled validation: O(1) on arrays and dictionaries over 97 items, at the cost of exhaustiveness).
+
+**`describe()` output carries this library's extension keys.** The plain-JSON contract keeps `$predicate`, `$counterexamples`, `$inferred` and any `x-*` keys, so a remote reader sees everything the gate enforces. Most JSON Schema tools ignore unknown keywords, but Ajv's default `strict` mode throws on them. Construct it with `new Ajv({ strict: false })` (or `strictSchema: false`), or strip `$`-prefixed keys before handing the contract to a strict validator. Stripping `$predicate` means that validator won't enforce what the gate does.
+
 **The gate fails closed.** Schemas are deep-copied at construction and again out of `describe()`, so mutating either the original schema object or `describe()`'s return value cannot change what `check()` enforces. Construction validates every schema key against an **allowlist** — the `ENFORCED_KEYWORDS` set `validate` actually implements, plus annotations (`title`, `description`, `default`, `examples`, `$counterexamples`, …) and `x-*` extensions. Anything else — `allOf`/`not`/`$ref`, unimplemented spec keywords, even typos like `minumum` — is refused with an `Error`: a constraint that ships in `describe()` as "what's legal" but is never enforced would be a silent hole; express such constraints via `$predicate` instead. Value-level holes are refused too: `format` outside `ENFORCED_FORMATS`, invalid `pattern` regexes, tuple `items` without an exact `maxItems` cap, non-primitive `const`/`enum` members, and multi-type arrays. Boolean schemas are legal and enforced (`properties: { key: false }` forbids the key). Protocol breaches fail closed as well: any write touching a contracted root — at it, under it, or above it — without a proposal for that exact root, a mismatched `proposal.root`, and ancestor writes spanning several contracted roots are all refused with an `Error` naming the breach.
 
 ### Examples as tests
@@ -613,7 +619,7 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 | Decision | Rationale |
 |----------|-----------|
 | Stride sampling (97) | Prime number, checks ~1% of large collections, always verifies first/last |
-| `maxProperties` enforced in every mode (v1.9.0) | The check short-circuits at `max+1`, so it's O(min(N, max+1)) — only schemas that declare it pay, bounded by the declared ceiling |
+| `maxProperties` enforced in every mode (v1.9.0) | O(N) in own keys, counting non-enumerable ones too (v1.11.0 — the earlier `max+1` short-circuit can't see keys `for..in` skips); only schemas that declare a count keyword pay it |
 | `additionalProperties: false` enforced (since v1.5.0) | Unknown keys are refused; previously a falsy-check bug skipped this — use `filter()` for lenient intake that strips extras instead |
 
 ## Test Coverage

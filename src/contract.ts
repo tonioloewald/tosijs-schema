@@ -34,6 +34,14 @@ export interface ContractProposal {
  * (its keys also tell the surface which roots are contracted).
  */
 export interface AgentContract {
+  /**
+   * Judge a write by the WHOLE root it would produce. Validates that root
+   * strictly on every call, so cost is O(root size) per call. Send ONE
+   * proposal per transaction: N per-path checks of one root cost
+   * O(N × root size) to say the same thing N times. Contract fine-grained
+   * roots, and reserve `{ strict: false }` for huge roots that are rarely
+   * written whole.
+   */
   check(path: string, value: any, proposal?: ContractProposal): true | Error
   /**
    * The serializable per-root contract. Its keys are exactly the contracted
@@ -79,7 +87,7 @@ export interface AgentContract {
    * So the exposure is: a multi-segment root, plus an applier that accepts a
    * respelling of it. `{ unknownPath: 'refuse' }` closes that regardless of
    * spelling. Making the matcher grammar-complete needs a tokenizer, not more
-   * string rewriting — see TODO.md.
+   * string rewriting — tracked on the board ("A path TOKENIZER").
    *
    * Returns a FRESH array each call, safe for the caller to mutate or sort —
    * it is a copy of internal root names, never the gate's own state, so nothing
