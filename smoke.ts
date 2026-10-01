@@ -111,7 +111,7 @@ console.log('all ' + checks.length + ' runtime assertions passed')
   //    drifts underneath it reports failures the repo can't reproduce — the
   //    check's own scope becoming a silent parameter, which is the class this
   //    lane exists to catch. Forward-compat against newer tsc is a separate,
-  //    NON-blocking question (see TODO.md).
+  //    NON-blocking question (checked by hand per release; see the board).
   const tsc = run(
     //    `--target es2020` is our declared consumer baseline, and it must be
     //    explicit: tsc's DEFAULT target is ES5, whose lib has no `ReadonlySet`,
@@ -123,6 +123,20 @@ console.log('all ' + checks.length + ' runtime assertions passed')
   )
   if (!tsc.ok) fail('published .d.ts does not typecheck from outside', tsc.out)
   else console.log('  ✓ published .d.ts typechecks from outside (skipLibCheck off)')
+
+  //    ...and under Node's own ESM resolution (`nodenext`), which is what a
+  //    TypeScript Node backend typically runs. It refuses extensionless
+  //    relative imports in a `"type": "module"` package's .d.ts, and then the
+  //    consumer silently gets NO types ("has no exported member 's'"). Until
+  //    1.12.1 the declarations wrote `export * from './src/schema'`; the
+  //    `bundler` check above can't see that, because bundler resolution adds
+  //    extensions for you.
+  const tscNode = run(
+    [join(repo, 'node_modules/.bin/tsc'), '--noEmit', '--strict', '--target', 'es2020', '--module', 'nodenext', '--moduleResolution', 'nodenext', 'use.ts'],
+    dir
+  )
+  if (!tscNode.ok) fail('published .d.ts does not resolve under moduleResolution nodenext', tscNode.out)
+  else console.log('  ✓ published .d.ts typechecks under moduleResolution nodenext too')
 
   // 5. DECLARATION EMIT from a consumer that RE-EXPORTS our types.
   //    `--noEmit` above is not this check. A published library must emit its own

@@ -6,7 +6,7 @@
  * The seam is structural — this module depends on nothing outside the
  * package, so the core consuming it can stay zero-dependency.
  */
-import { type JSONSchema, type Base } from './schema';
+import { type JSONSchema, type Base } from './schema.js';
 /**
  * Supplied by the surface when a write lands at or under a contracted root:
  * the root path and the HYPOTHETICAL whole-root value the write would

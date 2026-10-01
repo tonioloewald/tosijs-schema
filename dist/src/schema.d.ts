@@ -1,4 +1,4 @@
-import { ENFORCED_FORMATS } from './formats';
+import { ENFORCED_FORMATS } from './formats.js';
 export { ENFORCED_FORMATS };
 /**
  * Brand carried by every builder (`create` below). `Symbol.for`, so builders

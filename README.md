@@ -13,6 +13,7 @@ A **schema-first** validation library. Define schemas, infer TypeScript types, v
 
 - **Tightening** (enforcing something previously ignored, closing a hole) is called out as **BREAKING** in the [CHANGELOG](./CHANGELOG.md) with a migration note, and lands in a release the changelog marks as breaking. This project carries breaking changes in **minor** bumps (it is past 1.0 but still fast-moving); the changelog is the source of truth for what broke, not the version letter.
 - **Loosening** (accepting more, a new opt-in) and **new API** are **patches by default** — a new export or a small additive feature does not earn a minor just for being technically additive. A **minor** is a *coherent body* of work landing together (what the patches were building toward), or a breaking change.
+- **Adding a required member to an exported interface a consumer might implement** (e.g. `AgentContract`) is **breaking** for implementers, whose code stops compiling, even though callers only gain an API. Such members ship optional first, or in a breaking release. (1.9.1 added a required `AgentContract.affectedRoots` in a patch, which is the case that taught this.)
 - We **deprecate before we remove**, and keep a migration table in the CHANGELOG — which ships in the npm tarball, so it's reachable from what you installed.
 
 **Why we break toward correctness rather than hold compatibility:** a schema validator that accepts data the spec rejects — or that leaves a declared constraint unenforced — is wrong in a way that quietly corrupts everything downstream (schemas that don't travel, gates that don't gate). We'd rather refuse that data loudly, in a documented release, than carry the incorrectness forward. The one distinction we hold: a **fail-open** fix (the old behavior was a hole) is never softened with a "legacy-loose" option — that would just be an opt-in to the bug; a **spec-conformance** tightening is the kind we'd consider a flag for if there were ever demand.
@@ -307,6 +308,8 @@ If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable i
 ```bash
 npm install tosijs-schema
 ```
+
+Needs an ES2020 runtime (any current browser, Node 14+, Bun, Deno). The published types use `ReadonlySet`, so a TypeScript consumer needs `lib` ES2015 or later, which every non-ES5 `target` already includes. The release smoke test typechecks a consumer at `target: es2020` with `skipLibCheck` off.
 
 ## Quick Start
 

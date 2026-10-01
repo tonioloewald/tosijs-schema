@@ -8,7 +8,7 @@
  * builder/validator/contract, so `import { inferSchema } from 'tosijs-schema'`
  * (or the `tosijs-schema/infer` subpath) stays ~1.3kB.
  */
-import type { JSONSchema } from './schema';
+import type { JSONSchema } from './schema.js';
 export interface InferOptions {
     /**
      * Sniff string `format` (`date-time`, `date`, `email`, `uri`). Off by

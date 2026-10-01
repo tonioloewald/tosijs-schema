@@ -1,4 +1,4 @@
-import { type Base, type Infer, validateResolved, unwrap, AMBIGUOUS, AMBIGUOUS_MESSAGE } from './schema'
+import { type Base, type Infer, validateResolved, unwrap, AMBIGUOUS, AMBIGUOUS_MESSAGE } from './schema.js'
 
 // Errors
 

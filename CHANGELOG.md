@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Types now resolve under `moduleResolution: "nodenext"` / `"node16"`.** The
+  published declarations used extensionless relative imports
+  (`export * from './src/schema'`), which Node's ESM resolution refuses in a
+  `"type": "module"` package, so a TypeScript Node project got no types at all
+  (`Module "tosijs-schema" has no exported member 's'`). `bundler` resolution
+  hid it, because it adds extensions for you. Shipped source now writes `.js`
+  extensions, and the release smoke test typechecks a consumer under `nodenext`
+  as well as `bundler`. Verified on TypeScript 5.9.2 and 7.0.2, and for a
+  CommonJS consumer under `nodenext`. Present in every release until now.
+
 - **`filter` honours the sibling keywords of `anyOf` / `oneOf`.** A union
   beside `properties` / `additionalProperties` returned straight from the
   union arm, so `filter` refused (`Unexpected junk`) data whose stripped form

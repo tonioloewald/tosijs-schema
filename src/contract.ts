@@ -15,8 +15,8 @@ import {
   ENFORCED_KEYWORDS,
   type JSONSchema,
   type Base,
-} from './schema'
-import { compilePattern } from './formats'
+} from './schema.js'
+import { compilePattern } from './formats.js'
 
 /**
  * Supplied by the surface when a write lands at or under a contracted root:

@@ -1,4 +1,4 @@
-import { type Base, type Infer } from './schema';
+import { type Base, type Infer } from './schema.js';
 export declare class SchemaError extends Error {
     kind: 'Input' | 'Output';
     functionName: string;

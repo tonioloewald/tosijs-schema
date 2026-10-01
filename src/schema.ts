@@ -4,7 +4,7 @@ import {
   FORMAT_VALIDATORS as FMT,
   ENFORCED_FORMATS,
   compilePattern,
-} from './formats'
+} from './formats.js'
 
 // re-export so existing consumers of `ENFORCED_FORMATS` from 'tosijs-schema' keep working
 export { ENFORCED_FORMATS }
