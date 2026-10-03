@@ -35,7 +35,9 @@ practices: file, don't fix — never edit the other repo from here).
 - **Bun: `bun build --outfile` ignores the output path when a sourcemap is
   requested.** This is [oven-sh/bun#19729](https://github.com/oven-sh/bun/issues/19729),
   open since Bun 1.2.12. A fix PR (#30884) was closed unmerged, and the
-  related #41879 is open. We commented on 2026-10-02 confirming it on 1.4.2,
+  fix is #41879 ("fixes #19729", with tests for `--outfile` × linked/external;
+  open, awaiting review). We commented there on 2026-10-03 noting our
+  workaround and that we'd drop it once the fix lands. We commented on 2026-10-02 confirming it on 1.4.2,
   and added a symptom the issue didn't record: with `--sourcemap=external`,
   nothing is written at all, and both commands exit 0. (An earlier note here
   called it "fixed upstream in Bun 1.4", which was wrong.) `pack` works around
