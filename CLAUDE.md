@@ -9,6 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Open work lives on the Virta board** (https://virta.tosijs.net/host/#?virta.scope=tosijs-schema), not in `TODO.md` (a prose pointer — never add list items to it, they'd re-import as tasks). `virta brief` / `virta ls` / `virta show #n`; the `virta` MCP server is registered in `.mcp.json`. `UPSTREAM.md` mirrors filings on other repos. tjs-lang is now on the board (file there: `virta create … --project tjs-lang`); tosijs is not — never file a board task for a repo not on the board, it enrolls it. Check `virta projects` first.
 - **`CONTEXT.md`** — the detailed architecture/usage doc for this library, maintained by hand and bundled (with generated `examples.md`) into `dist/context.md` for consumers via `make-context.ts`. Keep it in sync with behavioral changes.
 
+Not applicable: Rollout #2556 (Prettier never touches markdown) — this repo has no Prettier (no config, no dependency, no script), so there is no config for the markdown `requirePragma` override to live in.
+
 ## Commands
 
 Use **Bun** for everything (never node/npm/pnpm/vite — see `.cursor/rules/`). Deliberate exception: `smoke.ts` shells out to `npm pack`/`npm install`, because npm is what publishes and the lane must test npm's `files` packing. The build Bun is pinned in `.bun-version`; `pack` refuses any other (`check-bun`), because committed `dist/` must reproduce byte-for-byte in CI.

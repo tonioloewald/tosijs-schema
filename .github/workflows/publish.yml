@@ -50,6 +50,12 @@ on:
 permissions:
   contents: read
 
+# The practices tools this workflow runs (release-doctor, attest, publish-smoke), pinned to a
+# commit so the YAML and the tools it runs always move together (practices #1616, #1752).
+# Bumping it is a template change: every repo re-copies, and the notice reopens adoption.
+env:
+  PRACTICES_REF: 26e8c001f81839354b3ecd4e32bc2e5aaeb330c8
+
 concurrency:
   group: publish
   cancel-in-progress: false
@@ -83,6 +89,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: tonioloewald/tosijs-coding-practices
+          ref: ${{ env.PRACTICES_REF }}
           path: .practices
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -210,6 +217,19 @@ jobs:
       # A tag carrying release-attestation.json vouches for a build made and tested LOCALLY
       # (tools/attest.ts). The tarball just packed must contain exactly the files recorded
       # there, so what is staged is what was signed off, and the suite never runs here.
+      # A repo that DECLARES attested lanes must carry the attestation: without it, nothing ran
+      # those suites (CI can't), and only an accident stopped the publish (practices #1751).
+      - name: Attested lanes need an attestation
+        if: ${{ !inputs.verify_only }}
+        run: |
+          set -euo pipefail
+          LANES=$(node -p "((require('./package.json').releaseDoctor||{}).attestedLanes||[]).join(' ')")
+          if [ -n "$LANES" ] && [ ! -f release-attestation.json ]; then
+            echo "::error::package.json declares attested lanes ($LANES) but the tag has no release-attestation.json — run tools/attest.ts locally and tag again"
+            exit 1
+          fi
+          if [ -n "$LANES" ]; then echo "attested lanes: $LANES — attestation present"; else echo "no attested lanes declared"; fi
+
       - name: Tarball matches the attested build
         if: ${{ !inputs.verify_only && hashFiles('release-attestation.json') != '' }}
         env:
@@ -307,6 +327,14 @@ jobs:
             exit 1
           fi
           TARBALL=${FILES[0]}
+          # The bytes received must be the bytes PACKED, checked BEFORE anything is extracted
+          # (practices #2726): reading a tampered archive is already acting on it. Without this,
+          # a step that ran after Pack could swap the tarball.
+          INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | base64 -w0)"
+          if [ "$INTEGRITY" != "$PACKED_INTEGRITY" ]; then
+            echo "::error::the tarball received ($INTEGRITY) is not the one the build packed ($PACKED_INTEGRITY) — refusing to stage"
+            exit 1
+          fi
           tar -xzf "$TARBALL" -C "$RUNNER_TEMP/stage" package/package.json
           PKG="$RUNNER_TEMP/stage/package/package.json"
           NAME=$(node -p "require(process.argv[1]).name" "$PKG")
@@ -332,13 +360,6 @@ jobs:
               ;;
             *) DIST_TAG=latest ;;
           esac
-          INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | base64 -w0)"
-          # The bytes received must be the bytes PACKED. Without this, a step that ran after Pack
-          # could swap the tarball, and verify would still report "identical to what was staged".
-          if [ "$INTEGRITY" != "$PACKED_INTEGRITY" ]; then
-            echo "::error::the tarball received ($INTEGRITY) is not the one the build packed ($PACKED_INTEGRITY) — refusing to stage"
-            exit 1
-          fi
           {
             echo "tarball=$TARBALL"
             echo "name=$NAME"
@@ -451,6 +472,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: tonioloewald/tosijs-coding-practices
+          ref: ${{ env.PRACTICES_REF }}
           path: .practices
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
