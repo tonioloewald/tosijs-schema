@@ -29,6 +29,9 @@ practices: file, don't fix — never edit the other repo from here).
   `Type('x', { name, schema })` wrappers now fail closed. Suggests switching to
   the exported `isBuilder`. Filed 2026-09-26 from the v1.12.0 pre-release review
   (tjs-lang's suite passes unchanged against 1.12.0).
+  Update 2026-10-16: fixed on tjs-lang main in 2f3213f (all eight unwraps use
+  `isBuilder`, floor `^1.12.0`). Board #2416 is in tjs-lang's review; #58 closes
+  when tjs-lang's next release ships.
 
 ## Third-party upstream
 
