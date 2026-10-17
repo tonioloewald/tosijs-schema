@@ -1064,8 +1064,9 @@ export interface FilterOptions {
   fullScan?: boolean
   /**
    * Strip without validating the result. Best-effort: where no union branch
-   * fits, that part comes back UNSTRIPPED and nothing says so (without this
-   * flag the same case is an Error). Validate the result yourself if it matters.
+   * fits, that part comes back with only the keys a sibling
+   * `additionalProperties: false` forbids dropped, and nothing says so (without
+   * this flag the same case is an Error). Validate the result yourself if it matters.
    */
   skipValidation?: boolean
 }
@@ -1123,6 +1124,8 @@ function filterData(data: any, schema: any, fullScan = false): any {
   // non-object schema (null in a branch list off the wire) must not throw —
   // filter's contract is data-or-Error
   if (schema === null || typeof schema !== 'object') return data
+  // a merge stripSchema couldn't build (two unions met): shed only what a side forbids
+  if (schema instanceof Prune) return schema.sides.reduce((d, side) => pruneForbidden(d, side), data)
 
   // Unions. Their SIBLING keywords are AND-ed with them, exactly as validate
   // applies them (properties / additionalProperties beside an anyOf still
@@ -1212,6 +1215,35 @@ function filterData(data: any, schema: any, fullScan = false): any {
   return data
 }
 
+// The keys a schema FORBIDS outright: additionalProperties: false with the
+// key undeclared beside it. Validation rejects such a key whatever else the
+// schema says (additionalProperties only sees sibling `properties`, never a
+// union's), so dropping it can't lose valid data. Everything else is kept —
+// this is the floor filter falls back to where it can't fit a union branch
+// (#2757: that fallback used to return the data with forbidden keys intact).
+// Unions inside `schema` are ignored: what they'd keep is unknowable here.
+class Prune {
+  constructor(readonly sides: any[]) {}
+}
+function pruneForbidden(data: any, schema: any): any {
+  if (data === null || typeof data !== 'object' || schema === null || typeof schema !== 'object') return data
+  if (Array.isArray(data)) {
+    const items = schema.items
+    if (items === null || typeof items !== 'object') return data
+    return data.map((v: any, i: number) => pruneForbidden(v, Array.isArray(items) ? items[i] : items))
+  }
+  const props = schema.properties && typeof schema.properties === 'object' ? schema.properties : null
+  const ap = schema.additionalProperties
+  if (!props && ap !== false && (ap === null || typeof ap !== 'object')) return data
+  const out: Record<string, any> = {}
+  for (const k of Object.keys(data)) {
+    const declared = props !== null && hasOwn(props, k)
+    if (!declared && ap === false) continue
+    setKey(out, k, pruneForbidden(data[k], declared ? props[k] : ap))
+  }
+  return out
+}
+
 // What to KEEP when stripping against `branch` AND its union siblings: a key
 // that either one declares and NEITHER forbids (additionalProperties: false
 // with the key undeclared). Validation against each separately still decides
@@ -1221,10 +1253,11 @@ function stripSchema(rest: any, branch: any): any {
   if (branch === true || branch == null || typeof branch !== 'object') return rest
   // Two unions can't be merged into ONE strip schema (a spread would let one
   // side's anyOf/oneOf silently replace the other's and shed its keys, on
-  // VALID data). Strip nothing at this node; validation against each side
-  // still decides, so the worst case is a loud Error, never a silent loss.
+  // VALID data). Shed only what a side forbids at this node; validation
+  // against each side still decides, so the worst case is a loud Error,
+  // never a silent loss.
   const hasUnion = (x: any) => Array.isArray(x.anyOf) || Array.isArray(x.oneOf)
-  if (hasUnion(rest) && hasUnion(branch)) return {}
+  if (hasUnion(rest) && hasUnion(branch)) return new Prune([rest, branch])
   const out: any = { ...rest, ...branch }
   if (rest.properties || branch.properties) {
     const props: any = { ...rest.properties, ...branch.properties }
@@ -1274,7 +1307,7 @@ function filterAnyOf(data: any, branches: any[], rest: any, fullScan: boolean): 
     const candidate = filterData(data, stripSchema(rest, sub), fullScan)
     if (fitsBoth(candidate, rest, sub, fullScan)) return candidate
   }
-  return data
+  return pruneForbidden(data, rest)
 }
 
 // oneOf (exactly-one): prefer the branch the ORIGINAL (unstripped) data
@@ -1285,8 +1318,9 @@ function filterAnyOf(data: any, branches: any[], rest: any, fullScan: boolean): 
 // This never silently migrates data onto a different, narrower branch —
 // the bug where oneOf:[{a},{a,b}] filtered {a:1,b:2} down to {a:1} by
 // stripping b to satisfy branch 1, even though the data matched only
-// branch 2. Anything ambiguous (0 or >1 fit) returns unstripped so the
-// outer validate surfaces a loud Error rather than a lossy strip.
+// branch 2. Anything ambiguous (0 or >1 fit) returns unstripped, bar the
+// keys a sibling forbids (pruneForbidden), so the outer validate surfaces a
+// loud Error rather than a lossy strip.
 function filterOneOf(data: any, branches: any[], rest: any, fullScan: boolean): any {
   const origMatches: any[] = []
   for (const sub of branches) {
@@ -1294,12 +1328,12 @@ function filterOneOf(data: any, branches: any[], rest: any, fullScan: boolean): 
     if (origMatches.length > 1) break // >1 ⇒ not oneOf-valid; result is fixed
   }
   if (origMatches.length === 1) return filterData(data, stripSchema(rest, origMatches[0]), fullScan)
-  if (origMatches.length > 1) return data // matches >1 branch: not oneOf-valid
+  if (origMatches.length > 1) return pruneForbidden(data, rest) // matches >1 branch: not oneOf-valid
   // no branch matches as-is (genuine extras to shed) → strip against each
   // branch and, among the candidates that validate, keep the one that
   // RETAINS THE MOST data. Never shed a field a valid interpretation keeps
   // (that was the blocker: preferring a narrower branch dropped `b`). A tie
-  // at the top is genuinely ambiguous → return unstripped so the outer
+  // at the top is genuinely ambiguous → return unstripped (bar forbidden keys) so the outer
   // validate reports a loud Error instead of an arbitrary lossy strip.
   // recursive node count, not just top-level keys — a deeper strip that keeps
   // a nested field must outscore a shallower one, or `filter` over-rejects
@@ -1328,7 +1362,7 @@ function filterOneOf(data: any, branches: any[], rest: any, fullScan: boolean): 
       tie = true
     }
   }
-  return best !== null && !tie ? best : data
+  return best !== null && !tie ? best : pruneForbidden(data, rest)
 }
 
 // DIFF

@@ -728,6 +728,8 @@ function filterData(data, schema, fullScan = false) {
   }
   if (schema === null || typeof schema !== "object")
     return data;
+  if (schema instanceof Prune)
+    return schema.sides.reduce((d, side) => pruneForbidden(d, side), data);
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
     const { anyOf, oneOf, ...siblings } = schema;
     const rest = Object.keys(siblings).length ? siblings : null;
@@ -773,6 +775,35 @@ function filterData(data, schema, fullScan = false) {
   }
   return data;
 }
+
+class Prune {
+  sides;
+  constructor(sides) {
+    this.sides = sides;
+  }
+}
+function pruneForbidden(data, schema) {
+  if (data === null || typeof data !== "object" || schema === null || typeof schema !== "object")
+    return data;
+  if (Array.isArray(data)) {
+    const items = schema.items;
+    if (items === null || typeof items !== "object")
+      return data;
+    return data.map((v, i) => pruneForbidden(v, Array.isArray(items) ? items[i] : items));
+  }
+  const props = schema.properties && typeof schema.properties === "object" ? schema.properties : null;
+  const ap = schema.additionalProperties;
+  if (!props && ap !== false && (ap === null || typeof ap !== "object"))
+    return data;
+  const out = {};
+  for (const k of Object.keys(data)) {
+    const declared = props !== null && hasOwn(props, k);
+    if (!declared && ap === false)
+      continue;
+    setKey(out, k, pruneForbidden(data[k], declared ? props[k] : ap));
+  }
+  return out;
+}
 function stripSchema(rest, branch) {
   if (rest === true || rest == null || typeof rest !== "object")
     return branch;
@@ -780,7 +811,7 @@ function stripSchema(rest, branch) {
     return rest;
   const hasUnion = (x) => Array.isArray(x.anyOf) || Array.isArray(x.oneOf);
   if (hasUnion(rest) && hasUnion(branch))
-    return {};
+    return new Prune([rest, branch]);
   const out = { ...rest, ...branch };
   if (rest.properties || branch.properties) {
     const props = { ...rest.properties, ...branch.properties };
@@ -820,7 +851,7 @@ function filterAnyOf(data, branches, rest, fullScan) {
     if (fitsBoth(candidate, rest, sub, fullScan))
       return candidate;
   }
-  return data;
+  return pruneForbidden(data, rest);
 }
 function filterOneOf(data, branches, rest, fullScan) {
   const origMatches = [];
@@ -833,7 +864,7 @@ function filterOneOf(data, branches, rest, fullScan) {
   if (origMatches.length === 1)
     return filterData(data, stripSchema(rest, origMatches[0]), fullScan);
   if (origMatches.length > 1)
-    return data;
+    return pruneForbidden(data, rest);
   const size = (x) => {
     if (x === null || typeof x !== "object")
       return 0;
@@ -859,7 +890,7 @@ function filterOneOf(data, branches, rest, fullScan) {
       tie = true;
     }
   }
-  return best !== null && !tie ? best : data;
+  return best !== null && !tie ? best : pruneForbidden(data, rest);
 }
 function diff(a, b) {
   if (JSON.stringify(a) === JSON.stringify(b))

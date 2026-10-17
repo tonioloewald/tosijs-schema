@@ -1206,3 +1206,90 @@ describe('filter: the bare-union fast path behaves like the sibling path (v1.13.
     }
   }
 })
+
+describe('filter never returns a key an additionalProperties: false sibling forbids (v1.14.0, #2757)', () => {
+  // Under skipValidation, a union no branch fits used to come back with every
+  // key intact, including ones the union's own siblings forbid. Dropping a
+  // key that some side forbids is always safe: validation would reject it.
+  const role = (r: string) => ({ properties: { role: { const: r } }, required: ['role'] })
+  const closed = {
+    type: 'object',
+    properties: { a: { type: 'string' }, role: { type: 'string' } },
+    additionalProperties: false,
+  }
+  const hostile = { a: 'x', role: 'admin', isAdmin: true }
+
+  for (const u of ['anyOf', 'oneOf'] as const) {
+    test(`${u}: no branch fits → forbidden keys still dropped`, () => {
+      const schema = { ...closed, [u]: [role('user'), role('guest')] }
+      expect(filter(hostile, schema)).toBeInstanceOf(Error) // role:'admin' fits no branch
+      expect(filter(hostile, schema, { skipValidation: true })).toEqual({ a: 'x', role: 'admin' })
+    })
+
+    test(`${u}: forbidden keys dropped recursively through declared properties`, () => {
+      const schema = {
+        type: 'object',
+        properties: { user: { ...closed, properties: { ...closed.properties } } },
+        additionalProperties: false,
+        [u]: [{ properties: { user: role('user') } }, { properties: { user: role('guest') } }],
+      }
+      const out = filter({ user: hostile, junk: 1 }, schema, { skipValidation: true })
+      expect(out).toEqual({ user: { a: 'x', role: 'admin' } })
+    })
+  }
+
+  test('anyOf beside oneOf: the both-unions merge drops what either side forbids', () => {
+    // rest carries an anyOf and the oneOf branch has its own, so the two
+    // unions meet in one merge. 1.13.0 stripped nothing there and refused
+    // the input; dropping only the forbidden key makes it validate.
+    const schema = {
+      type: 'object',
+      properties: { a: { type: 'string' }, b: { type: 'number' } },
+      additionalProperties: false,
+      anyOf: [{ required: ['a'] }],
+      oneOf: [{ anyOf: [{ required: ['b'] }] }],
+    }
+    expect(filter({ a: 'x', b: 1, isAdmin: true }, schema)).toEqual({ a: 'x', b: 1 })
+  })
+
+  test('keys declared only inside a branch are not shed by the fallback', () => {
+    // the sibling is OPEN, so a branch-only key is legal beside it — the
+    // fallback must not strip down to the sibling's declared properties
+    const schema = {
+      type: 'object',
+      properties: { a: { type: 'string' } },
+      anyOf: [{ properties: { k: { const: 1 } }, required: ['k'] }],
+    }
+    expect(filter({ a: 'x', k: 2 }, schema, { skipValidation: true })).toEqual({ a: 'x', k: 2 })
+  })
+
+  test('hostile inputs: no forbidden key survives, with or without validation', () => {
+    const shapes: any[] = [
+      { ...closed, anyOf: [role('user')] },
+      { ...closed, oneOf: [role('user'), role('guest')] },
+      { ...closed, anyOf: [role('user')], oneOf: [{ anyOf: [role('guest')] }] },
+      { ...closed, oneOf: [{ oneOf: [role('user')] }, true, false, null] },
+      { type: 'array', items: { ...closed, anyOf: [role('user')] } },
+    ]
+    const inputs: any[] = [
+      hostile,
+      { ...hostile, role: 'user' },
+      { isAdmin: true },
+      { ['__proto__']: { isAdmin: true }, isAdmin: 1 },
+    ]
+    const forbidden = (x: any): boolean =>
+      Array.isArray(x) ? x.some(forbidden)
+        : x !== null && typeof x === 'object' &&
+          (Object.keys(x).some((k) => k !== 'a' && k !== 'role') || Object.values(x).some(forbidden))
+    for (const schema of shapes) {
+      for (const input of inputs) {
+        const data = schema.type === 'array' ? [input, input] : input
+        for (const opts of [{ skipValidation: true }, {}]) {
+          const out = filter(data, schema, opts)
+          if (out instanceof Error) continue
+          expect(forbidden(out)).toBeFalse()
+        }
+      }
+    }
+  })
+})

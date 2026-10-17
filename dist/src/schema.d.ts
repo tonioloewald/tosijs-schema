@@ -253,8 +253,9 @@ export interface FilterOptions {
     fullScan?: boolean;
     /**
      * Strip without validating the result. Best-effort: where no union branch
-     * fits, that part comes back UNSTRIPPED and nothing says so (without this
-     * flag the same case is an Error). Validate the result yourself if it matters.
+     * fits, that part comes back with only the keys a sibling
+     * `additionalProperties: false` forbids dropped, and nothing says so (without
+     * this flag the same case is an Error). Validate the result yourself if it matters.
      */
     skipValidation?: boolean;
 }

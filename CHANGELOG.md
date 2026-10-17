@@ -5,6 +5,38 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — 1.14.0
+
+**One narrow BREAKING change to `filter`'s output**, only with
+`skipValidation` and only for a schema with an `anyOf`/`oneOf`. See README
+"Upgrading → To 1.14.0". `validate` is unchanged.
+
+### Changed — BREAKING (narrow)
+
+- **`filter` no longer returns a key that `additionalProperties: false`
+  forbids where no union branch fits** (board #2757). That case used to come
+  back with every key intact, which under `skipValidation` was the result. It
+  now drops the keys a schema beside the union forbids outright, recursively
+  through declared `properties` and `items`, and keeps everything else.
+  - Example: `{ type: 'object', properties: { a: {}, role: {} }, additionalProperties: false, anyOf: [{ properties: { role: { const: 'user' } } }] }`
+    with `{ a: 'x', role: 'admin', isAdmin: true }` and `skipValidation`.
+    Before: `{ a: 'x', role: 'admin', isAdmin: true }`. After:
+    `{ a: 'x', role: 'admin' }`.
+  - **Migration:** read a forbidden key from the input, not from `filter`'s
+    result. Without `skipValidation` this case is an `Error`, as before.
+
+### Fixed
+
+- **Where an `anyOf` and a `oneOf` meet in one merge, `filter` drops the keys
+  either side forbids** instead of stripping nothing at that node. Data that
+  was valid apart from such a key used to come back as an `Error`; it now
+  filters. This is a loosening.
+
+### Size
+
+`filter` +202 B gzipped (4973 → 5175 B) for the forbidden-key fallback;
+`validate` and the other entry points are unchanged (±5 B).
+
 ## [1.13.0] — 2026-10-02
 
 **Contains two narrow BREAKING changes to `filter`'s output**, both when the
