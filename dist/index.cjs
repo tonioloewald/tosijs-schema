@@ -1108,7 +1108,7 @@ var createM = (r) => {
   return new M(r);
 };
 // src/contract.ts
-var ROOT_SEGMENT = /^[A-Za-z_$][\w$-]*$/;
+var ROOT_SEGMENT = /^(?!NaN$)[A-Za-z_$][\w$-]*$/;
 var ANY = null;
 function parsePath(path) {
   const segs = [];
@@ -1128,15 +1128,7 @@ function parsePath(path) {
         segs.push(ANY);
       else if (/^[0-9]+$/.test(body))
         segs.push(String(Number(body)));
-      else if (q === '"') {
-        let key;
-        try {
-          key = JSON.parse(body);
-        } catch {
-          return `malformed quoted key [${body}] at ${i}`;
-        }
-        segs.push(key);
-      } else if (q === "'" && body.length > 1 && body.endsWith("'") && !/['\\]/.test(body.slice(1, -1))) {
+      else if ((q === '"' || q === "'") && body.length > 1 && body.endsWith(q) && !/['"\\]/.test(body.slice(1, -1))) {
         segs.push(body.slice(1, -1));
       } else
         return `bracket [${body}] at ${i} holds no index, quoted key or selector`;

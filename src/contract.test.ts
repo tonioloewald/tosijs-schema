@@ -998,6 +998,9 @@ describe('agentContract — the path tokenizer (v1.14.0, #1349)', () => {
     const malformed = [
       'a..b', '.a', 'a.', 'a[', 'a]', 'a[0', 'a[]', 'a[x]', 'a[-1]', 'a[1abc]', 'a[0]b',
       'a.[0]', 'a["unterminated]', "a['x]", "a['it's']",
+      // appliers disagree on escapes: lodash strips the backslash, so
+      // `app["\\billing"]` WRITES app.billing while JSON reads "\x08illing"
+      'app["\\billing"].rate', 'app["\\tax"]', 'app["\\u0062illing"]', 'a["\\""]',
     ]
     for (const posture of ['allow', 'refuse'] as const) {
       const gate = agentContract({ 'app.billing': S }, { unknownPath: posture })
@@ -1014,6 +1017,9 @@ describe('agentContract — the path tokenizer (v1.14.0, #1349)', () => {
     for (const root of [
       '', 'app.', '.app', 'a..b', ' app', 'app ', '/app/order', 'app\\.x',
       'list[0]', 'list.0', 'list[id=666]', 'app["x"]', '0', 'a.b c',
+      // tosijs's applier writes the key 'NaN' for any non-numeric bracket on
+      // an array (`list["foo"]` → list.NaN), so no matcher can place it
+      'list.NaN', 'NaN',
     ]) {
       expect(() => agentContract({ [root]: S })).toThrow(/not a dotted name/)
     }

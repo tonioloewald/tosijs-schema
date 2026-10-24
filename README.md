@@ -567,7 +567,7 @@ gate.check('not.contracted', 1) // Error: … touches no contracted root
 
 Use `affectedRoots()` rather than hand-rolling `path === root || path.startsWith(root + '.')`: that misses **bracket indexing**, so `app.order[0].qty` reads as uncontracted and skips the gate — a bug invisible to any test suite written in dotted form. Note `affectedRoots` **throws** on a path it can't place: `TypeError` for a non-string, `SyntaxError` for a malformed string. Answering "touches no roots" to a question it cannot evaluate would fail open in the `length === 0` posture above. `check()` returns an `Error` for the same input, since never-throwing is its contract, not this helper's.
 
-**The path grammar (1.14.0).** The gate parses each path into segments and compares segment lists, so every spelling of a location is the same location:
+**The path grammar (1.14.0).** The gate parses each path into segments and compares segment lists, so the spellings it accepts for one location all match the same root. Where appliers could read a spelling differently (escapes inside quotes, for one), the gate refuses it rather than guess:
 
 | Path | Segments | Under root `app.billing`? |
 | --- | --- | --- |
@@ -583,9 +583,9 @@ The rules:
 - **Brackets:** a bracket holds one of three things:
   - a selector (anything containing `=`);
   - an index (`[0]`, read as the key `'0'`, so `list[0]` and `list.0` are the same element and `list.00` is not);
-  - a quoted key (`["…"]` as a JSON string, or `['…']` with no `'` or `\` inside).
-- **Malformed paths:** anything else fails closed. That covers `a..b`, `a.`, `a[`, `a[]`, `a[x]`, `a[-1]` and `a[0]b`: `check()` refuses the write whatever `unknownPath` says, and `affectedRoots()` throws.
-- **Roots:** a root must be a dotted name, each segment matching `/^[A-Za-z_$][\w$-]*$/`. An element-scoped root (`list[0]`, `list.0`, `list[id=666]`) is refused at construction, because which element it names is known only from the data; contract the containing array instead.
+  - a quoted key (`["…"]` or `['…']`), with no quote of either kind and no `\` inside. Escapes are refused because appliers disagree on them: lodash reads `app["\billing"]` as `app.billing`, JSON as a backspace. tosijs's own applier has no quoted keys at all; they are accepted for lodash-style surfaces.
+- **Malformed paths:** anything else fails closed. That covers `a..b`, `a.`, `a[`, `a[]`, `a[x]`, `a[-1]`, `a[0]b` and `a["\n"]`: `check()` refuses the write whatever `unknownPath` says, and `affectedRoots()` throws.
+- **Roots:** a root must be a dotted name, each segment matching `/^[A-Za-z_$][\w$-]*$/` and not `NaN` (tosijs writes the key `NaN` for any non-numeric bracket on an array). An element-scoped root (`list[0]`, `list.0`, `list[id=666]`) is refused at construction, because which element it names is known only from the data; contract the containing array instead.
 
 Through 1.13.0 the matcher was a string-prefix test, and a respelled multi-segment root (`app["billing"].rate`) read as uncontracted. 1.10.0's attempt to fix that with a canonicalizing regex was reverted; this tokenizer is the replacement, and parsing is linear in the path's length.
 
@@ -687,14 +687,14 @@ No `zod-to-json-schema`. No conversion artifacts. Fewer tokens.
 File             | % Funcs | % Lines | Uncovered Line #s
 -----------------|---------|---------|-------------------
 All files        |   99.54 |   99.69 |
- src/contract.ts |  100.00 |   99.33 | 754-755,783
+ src/contract.ts |  100.00 |   99.32 | 750-751,779
  src/formats.ts  |  100.00 |  100.00 |
  src/infer.ts    |  100.00 |  100.00 |
  src/monad.ts    |  100.00 |  100.00 |
  src/schema.ts   |   97.70 |   99.14 | 389-395
 ```
 
-370 tests, 1489 assertions.
+370 tests, 1515 assertions.
 <!-- /coverage:readme -->
 
 ## License

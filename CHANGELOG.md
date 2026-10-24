@@ -28,12 +28,13 @@ string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
     while the gate called it uncontracted. A selector now touches every root
     it might resolve to.
   - **A malformed path fails closed.** `a..b`, `a.`, `a[`, `a[]`, `a[x]`,
-    `a[-1]` and `a[0]b`: `check()` returns an `Error` whatever `unknownPath`
+    `a[-1]`, `a[0]b`, and a quoted key holding a backslash or quote
+    (`a["\n"]`, since appliers disagree on escapes): `check()` returns an `Error` whatever `unknownPath`
     says, and `affectedRoots()` throws `SyntaxError` (it used to answer by
     prefix, usually `[]`).
   - **Roots must be dotted names** (`/^[A-Za-z_$][\w$-]*$/` per segment).
-    `''`, `list[0]`, `list.0`, `list[id=5]`, `/app/order`, `' app'` and
-    `a..b` used to construct and now throw. An element-scoped root names an
+    `''`, `list[0]`, `list.0`, `list[id=5]`, `/app/order`, `' app'`, `a..b`
+    and a `NaN` segment used to construct and now throw. An element-scoped root names an
     element only at runtime, from the data, so no matcher can place it.
   - **Migration:** contract the containing array (`'app.list'`), not an
     element. A consumer that builds proposals with its own string-prefix test
@@ -62,10 +63,10 @@ string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
 
 ### Size
 
-`agentContract` +622 B gzipped (5857 → 6479 B) for the tokenizer and its
+`agentContract` +598 B gzipped (5857 → 6455 B) for the tokenizer and its
 refusal messages; `filter` +202 B (4973 → 5175 B) for the forbidden-key
 fallback. `validate`, `s`, `diff` and `infer` are unchanged (±3 B). The whole
-bundle is 10177 B (+782 B).
+bundle is 10154 B (+759 B).
 
 ## [1.13.0] — 2026-10-02
 

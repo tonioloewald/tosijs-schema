@@ -110,8 +110,8 @@ export interface AgentContract {
  * bracket  := '[' body ']'          body runs to the FIRST ']'
  * body     := selector              contains '='   → ANY (an element chosen by data)
  *           | digits                [0-9]+         → the key String(Number(digits))
- *           | '"' JSON string '"'                  → that key
- *           | "'" chars, no ' or \ "'"             → that key
+ *           | '"' chars '"'  |  "'" chars "'"      → that key
+ *                                   (chars: no quote of either kind, no \)
  * root     := name ( '.' name )*    name: ROOT_SEGMENT
  * ```
  *
@@ -130,7 +130,9 @@ export interface AgentContract {
  * `affectedRoots()` throws. The parse is one left-to-right pass: linear in
  * the path's length, with no backtracking.
  */
-const ROOT_SEGMENT = /^[A-Za-z_$][\w$-]*$/
+// `NaN` is excluded: tosijs's applier writes the key 'NaN' for ANY
+// non-numeric bracket on an array (`list["foo"]` → list.NaN, via parseInt)
+const ROOT_SEGMENT = /^(?!NaN$)[A-Za-z_$][\w$-]*$/
 const ANY = null
 type Segment = string | typeof ANY
 
@@ -149,15 +151,9 @@ function parsePath(path: string): Segment[] | string {
       const q = body[0]
       if (body.includes('=')) segs.push(ANY)
       else if (/^[0-9]+$/.test(body)) segs.push(String(Number(body)))
-      else if (q === '"') {
-        let key: unknown
-        try {
-          key = JSON.parse(body)
-        } catch {
-          return `malformed quoted key [${body}] at ${i}`
-        }
-        segs.push(key as string) // body starts with '"', so a parse is a string
-      } else if (q === "'" && body.length > 1 && body.endsWith("'") && !/['\\]/.test(body.slice(1, -1))) {
+      else if ((q === '"' || q === "'") && body.length > 1 && body.endsWith(q) && !/['"\\]/.test(body.slice(1, -1))) {
+        // no escapes: appliers disagree on them (JSON reads `"\\b"` as a
+        // backspace, lodash as `b`), and a disagreement is a bypass
         segs.push(body.slice(1, -1))
       } else return `bracket [${body}] at ${i} holds no index, quoted key or selector`
       i = close + 1

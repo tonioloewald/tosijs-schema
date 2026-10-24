@@ -111,9 +111,16 @@ contract.ts and in the README. Choices the original note left open:
 - **Indexes read as keys.** `[0]` is the key `'0'`, so `list[0]` and
   `list.0` are one location; `[00]` canonicalizes to `'0'` (the applier's
   `parseInt` does), while `list.00` is a distinct key.
-- **Quoted keys are accepted, both quote styles,** though tosijs's applier
-  has none: a lodash-style surface uses them, and refusing them would break
-  subtree paths the old prefix test accepted.
+- **Quoted keys are accepted, both quote styles, but never with escapes,**
+  though tosijs's applier has none: a lodash-style surface uses them, and
+  refusing them would break subtree paths the old prefix test accepted. The
+  first cut parsed `"…"` as JSON, and its own review found the bypass that
+  creates: lodash strips a backslash, so `app["\billing"].rate` wrote
+  `app.billing.rate` while JSON read a backspace. A body containing a
+  backslash or a quote is now malformed.
+- **`NaN` is not a root segment.** tosijs's applier writes the key `NaN` for
+  any non-numeric bracket on an array (`list["foo"]`, via `parseInt`), which
+  no textual matcher can place.
 - **Paths are permissive and roots are strict.** A path key is anything but
   `.`, `[` and `]`, because state really is keyed by user data (`'New York'`).
   Roots are written by the developer, so construction refuses anything but
