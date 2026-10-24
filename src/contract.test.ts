@@ -945,58 +945,102 @@ describe('agentContract — 1.9.1 review remediation', () => {
     expect(g.check('a.nums', big, { root: 'a.nums', proposed: big })).toBeInstanceOf(Error)
   })
 
-  test('the matcher grammar is a PREFIX test — both directions pinned', () => {
-    // Honest boundary. The prose used to say `root["x"]`/`root.0.x` read as
-    // uncontracted — FALSE, and it survived because the only test used a
-    // MULTI-segment root, where the claim happens to hold. Both directions are
-    // pinned now, so prose and behavior cannot diverge that way again.
-    //
-    // Rule: a path matches when it EQUALS the root or continues it with `.`/`[`.
+})
 
-    // (a) SINGLE-segment root — every subtree spelling keeps the `r.`/`r[`
-    //     prefix, so all of these DO match. Child spelling is not the gap.
-    const single = agentContract({ r: S })
-    for (const path of ['r.x', 'r[0].x', 'r["x"]', "r['x']", 'r.0.x']) {
-      expect(single.affectedRoots(path)).toEqual(['r'])
-    }
-    // …but a leading bracket or a foreign notation does NOT match
-    for (const path of ['["r"].x', '/r/x']) {
-      expect(single.affectedRoots(path)).toEqual([])
-      expect(single.check(path, 1)).toBe(true)
-    }
+describe('agentContract — the path tokenizer (v1.14.0, #1349)', () => {
+  const S = { type: 'number' }
+  const multi = agentContract({ 'app.billing': S })
 
-    // (b) MULTI-segment root — the ROOT's own spelling must match literally.
-    //     This is the real gap: respelling a root segment escapes the gate.
-    const multi = agentContract({ 'app.billing': S })
-    for (const path of ['app.billing', 'app.billing.rate', 'app.billing["rate"]', 'app.billing[0].rate']) {
+  test('every spelling of a location is the same location', () => {
+    // 1.13.0 matched by string prefix, so respelling a ROOT segment escaped
+    // the gate (these all answered [] and check() returned true)
+    for (const path of [
+      'app.billing', 'app.billing.rate', 'app.billing[0].rate', 'app.billing["rate"]',
+      'app["billing"].rate', "app['billing'].rate", '["app"].billing.rate', '["app"]["billing"]',
+    ]) {
       expect(multi.affectedRoots(path)).toEqual(['app.billing'])
+      expect(multi.check(path, 1)).toBeInstanceOf(Error) // no proposal → breach
     }
-    for (const path of ['app["billing"].rate', "app['billing'].rate", '/app/billing/rate']) {
+    // an ancestor write replaces the subtree
+    expect(multi.affectedRoots('app')).toEqual(['app.billing'])
+    expect(multi.affectedRoots('')).toEqual(['app.billing'])
+    // a quoted key is ONE segment: `app["billing.rate"]` is not app.billing.rate
+    expect(multi.affectedRoots('app["billing.rate"]')).toEqual([])
+    // non-root prefixes and siblings are still not matches
+    // a JSON Pointer is one key with slashes in it — and an applier writes it
+    // there, at the top level, not under app.billing
+    for (const path of ['app.billingX', 'app.other', 'apps.billing', 'billing', '/app/billing/rate']) {
       expect(multi.affectedRoots(path)).toEqual([])
-      expect(multi.check(path, 1)).toBe(true)
     }
-
-    // (c) the shipped remedy closes every escaping spelling, regardless of shape
-    const closed = agentContract({ 'app.billing': S }, { unknownPath: 'refuse' })
-    for (const path of ['app["billing"].rate', "app['billing'].rate", '/app/billing/rate', '["app"].billing.rate']) {
-      expect(closed.check(path, 1)).toBeInstanceOf(Error)
-    }
-
-    // a non-root prefix is still correctly NOT a match
-    expect(multi.affectedRoots('app.billingX')).toEqual([])
-    expect(single.affectedRoots('rX')).toEqual([])
+    // index and dotted digits reach the same element; leading zeros do not
+    const g = agentContract({ 'a.b': S })
+    expect(g.affectedRoots('a.b[0]')).toEqual(['a.b'])
+    expect(g.affectedRoots('a[0]')).toEqual([]) // the key '0', not 'b'
+    expect(g.affectedRoots('a["b"][00]')).toEqual(['a.b'])
   })
 
-  test('path matching is linear — no quadratic blowup on a hostile path', () => {
-    // v1.10.0's reverted regex was O(n^2) on unbalanced brackets: ~977ms at 40k
-    // chars, ~24s at 200k, on the agent-supplied field of a capability gate.
-    // The prefix test has no backtracking; this pins that it stays cheap.
-    const gate = agentContract({ 'app.billing': S })
-    const hostile = '['.repeat(200_000)
+  test("a selector could resolve to any key, so it touches every root it might reach", () => {
+    // tosijs's applier reads `[=billing]` as "the key billing" — so in
+    // 1.13.0 `app[=billing].rate` WROTE app.billing.rate while the gate
+    // called it uncontracted
+    expect(multi.affectedRoots('app[=billing].rate')).toEqual(['app.billing'])
+    expect(multi.check('app[=billing].rate', 1)).toBeInstanceOf(Error)
+    const two = agentContract({ 'a.x': S, 'b.x': S })
+    expect(two.affectedRoots('[id=1].x')).toEqual(['a.x', 'b.x'])
+    // a quoted body with '=' is a selector, as the applier reads it
+    expect(multi.affectedRoots('app["id=1"]')).toEqual(['app.billing'])
+    // a selector past the root is ordinary subtree addressing
+    const list = agentContract({ 'app.movies': { type: 'array' } })
+    expect(list.affectedRoots('app.movies[id=666].title')).toEqual(['app.movies'])
+  })
+
+  test('a malformed path fails closed, whatever unknownPath says', () => {
+    const malformed = [
+      'a..b', '.a', 'a.', 'a[', 'a]', 'a[0', 'a[]', 'a[x]', 'a[-1]', 'a[1abc]', 'a[0]b',
+      'a.[0]', 'a["unterminated]', "a['x]", "a['it's']",
+    ]
+    for (const posture of ['allow', 'refuse'] as const) {
+      const gate = agentContract({ 'app.billing': S }, { unknownPath: posture })
+      for (const path of malformed) {
+        const verdict = gate.check(path, 1)
+        expect(verdict).toBeInstanceOf(Error)
+        expect((verdict as Error).message).toContain('cannot place')
+        expect(() => gate.affectedRoots(path)).toThrow(SyntaxError)
+      }
+    }
+  })
+
+  test('roots outside the grammar are refused at construction', () => {
+    for (const root of [
+      '', 'app.', '.app', 'a..b', ' app', 'app ', '/app/order', 'app\\.x',
+      'list[0]', 'list.0', 'list[id=666]', 'app["x"]', '0', 'a.b c',
+    ]) {
+      expect(() => agentContract({ [root]: S })).toThrow(/not a dotted name/)
+    }
+    for (const root of ['app', 'app.billing_rules', 'my-app.$cache', '_x.y2']) {
+      expect(() => agentContract({ [root]: S })).not.toThrow()
+    }
+    // nesting is judged on segments, not string prefixes
+    expect(() => agentContract({ app: S, 'app.x': S })).toThrow('nested')
+    expect(() => agentContract({ app: S, app2: S, 'apps.x': S })).not.toThrow()
+  })
+
+  test('path parsing is linear — no blowup on hostile paths', () => {
+    // v1.10.0's reverted regex was O(n^2) on unbalanced brackets: ~977ms at
+    // 40k chars, ~24s at 200k, on the agent-supplied field of a capability gate
+    const gate = agentContract({ 'app.billing': S, 'app.other': S })
+    const N = 200_000
+    const hostile = [
+      '['.repeat(N), ']'.repeat(N), '.'.repeat(N), 'a'.repeat(N),
+      'a.'.repeat(N / 2) + 'a', '[0]'.repeat(N / 3), '[=x]'.repeat(N / 4),
+      'app[' + '"'.repeat(N), 'app["' + '\\'.repeat(N) + '"]',
+    ]
     const t = performance.now()
-    gate.check(hostile, 1)
-    gate.affectedRoots(hostile)
-    expect(performance.now() - t).toBeLessThan(100)
+    for (const path of hostile) {
+      gate.check(path, 1)
+      try { gate.affectedRoots(path) } catch {}
+    }
+    expect(performance.now() - t).toBeLessThan(250)
   })
 })
 

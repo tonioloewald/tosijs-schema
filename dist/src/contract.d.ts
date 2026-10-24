@@ -62,21 +62,14 @@ export interface AgentContract {
      * written in dotted form. This is the matcher `check()` itself uses, so the
      * two cannot disagree. — asked for in #10
      *
-     * **Grammar, stated honestly.** This is a prefix test, not a path parser: a
-     * path matches when it EQUALS the root or continues it with `.` or `[`.
-     * Consequences, both directions:
-     * - every spelling of the SUBTREE under a root matches — `r.x`, `r[0].x`,
-     *   `r["x"]`, `r.0.x` all match root `r`, because each keeps the `r.`/`r[`
-     *   prefix. Child-segment spelling is not the gap.
-     * - the ROOT's own spelling must match literally. A multi-segment root
-     *   (`app.billing`) is recognized only when the path spells those segments
-     *   the same way, so `app["billing"].rate` reads as UNCONTRACTED. A leading
-     *   bracket (`["app"].x`) and a JSON Pointer (`/app/billing/rate`) likewise.
-     *
-     * So the exposure is: a multi-segment root, plus an applier that accepts a
-     * respelling of it. `{ unknownPath: 'refuse' }` closes that regardless of
-     * spelling. Making the matcher grammar-complete needs a tokenizer, not more
-     * string rewriting — tracked on the board ("A path TOKENIZER").
+     * **Grammar (1.14.0).** Paths are parsed into segments and compared as
+     * segment lists (the grammar is written out above `parsePath` in
+     * contract.ts, and in the README). Every spelling of a location is the same
+     * location — `app.billing.rate`, `app["billing"].rate`, `["app"].billing.rate`
+     * — and a quoted key is one segment, so `app["billing.rate"]` is not under
+     * `app.billing`. A selector (`list[id=5]`, `[=key]`) could resolve to any
+     * key, so it matches every root it might reach. Through 1.13.0 this was a
+     * string-prefix test, and respelling a multi-segment root escaped the gate.
      *
      * Returns a FRESH array each call, safe for the caller to mutate or sort —
      * it is a copy of internal root names, never the gate's own state, so nothing
@@ -84,11 +77,11 @@ export interface AgentContract {
      * than left implicit: the rest of this module deep-copies obsessively, so the
      * one place handing out an array needed an explicit answer.)
      *
-     * Throws `TypeError` on a non-string `path`: the never-throw guarantee is
-     * `check()`'s (it refuses such a write with an `Error` before reaching here),
-     * and answering `[]` — "touches no contracted root" — to a question that
-     * cannot be evaluated would fail open in the documented
-     * `if (affectedRoots(path).length === 0)` posture.
+     * Throws `TypeError` on a non-string `path`, and `SyntaxError` on a path
+     * outside the grammar: the never-throw guarantee is `check()`'s (it refuses
+     * such a write with an `Error` instead), and answering `[]` — "touches no
+     * contracted root" — to a question that cannot be evaluated would fail open
+     * in the documented `if (affectedRoots(path).length === 0)` posture.
      */
     affectedRoots(path: string): string[];
 }

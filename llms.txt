@@ -36,12 +36,11 @@ source of truth; types are inferred from it, not the other way around. ~9kB gzip
 - `agentContract(schemas, options?)`: contract gate for agent write surfaces
   (tosijs). Fail-closed over CONTRACTED roots; a path touching none passes
   unless constructed with `{ unknownPath: 'refuse' }`. `affectedRoots(path)`
-  reports which roots a write touches. Its matcher is a PREFIX test: every
-  spelling of the subtree under a root matches (`r.x`, `r[0].x`, `r["x"]`,
-  `r.0.x` all match root `r`), but the ROOT's own spelling must match
-  literally — so `app["billing"].rate` MISSES root `app.billing`, as do a
-  leading bracket (`["r"].x`) and a JSON Pointer. Use
-  `{ unknownPath: 'refuse' }` when roots are multi-segment.
+  reports which roots a write touches. Since 1.14.0 it parses paths into
+  segments: `app["billing"].rate` is under root `app.billing`, a selector
+  (`[id=5]`) matches any segment, a malformed path is refused (check) or
+  throws SyntaxError (affectedRoots), and roots must be dotted names
+  (element-scoped roots like `list[0]` throw at construction).
   `checkExamples(schema)`: lints `examples` (must pass) and
   `$counterexamples` (must fail).
 - `inferSchema(sample, opts?)`: derive a JSON Schema from example data
@@ -51,7 +50,7 @@ source of truth; types are inferred from it, not the other way around. ~9kB gzip
 - `M` / `M.func`: railway-oriented pipelines with schema-validated I/O and
   timeouts.
 - Tree-shakeable: `sideEffects: false`, per-concern modules. Named imports
-  shake to ~3.9–5.7kB; `tosijs-schema/infer` is a self-contained ~1.5kB subpath.
+  shake to ~3.9–6.3kB; `tosijs-schema/infer` is a self-contained ~1.5kB subpath.
 
 ## Files
 

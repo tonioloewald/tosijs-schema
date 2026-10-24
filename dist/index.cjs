@@ -1108,6 +1108,62 @@ var createM = (r) => {
   return new M(r);
 };
 // src/contract.ts
+var ROOT_SEGMENT = /^[A-Za-z_$][\w$-]*$/;
+var ANY = null;
+function parsePath(path) {
+  const segs = [];
+  const n = path.length;
+  if (n === 0)
+    return segs;
+  let i = 0;
+  let needKey = false;
+  for (;; ) {
+    if (path[i] === "[" && !needKey) {
+      const close = path.indexOf("]", i + 1);
+      if (close < 0)
+        return `unclosed '[' at ${i}`;
+      const body = path.slice(i + 1, close);
+      const q = body[0];
+      if (body.includes("="))
+        segs.push(ANY);
+      else if (/^[0-9]+$/.test(body))
+        segs.push(String(Number(body)));
+      else if (q === '"') {
+        let key;
+        try {
+          key = JSON.parse(body);
+        } catch {
+          return `malformed quoted key [${body}] at ${i}`;
+        }
+        segs.push(key);
+      } else if (q === "'" && body.length > 1 && body.endsWith("'") && !/['\\]/.test(body.slice(1, -1))) {
+        segs.push(body.slice(1, -1));
+      } else
+        return `bracket [${body}] at ${i} holds no index, quoted key or selector`;
+      i = close + 1;
+    } else {
+      let j = i;
+      while (j < n && path[j] !== "." && path[j] !== "[") {
+        if (path[j] === "]")
+          return `stray ']' at ${j}`;
+        j++;
+      }
+      if (j === i)
+        return `empty key at ${i}`;
+      segs.push(path.slice(i, j));
+      i = j;
+    }
+    needKey = false;
+    if (i === n)
+      return segs;
+    if (path[i] === ".") {
+      needKey = true;
+      if (++i === n)
+        return `empty key at ${i}`;
+    } else if (path[i] !== "[")
+      return `expected '.' or '[' at ${i}`;
+  }
+}
 var toPlain = (schema) => isBuilder(schema) ? schema.schema : schema;
 var ANNOTATION_KEYWORDS = new Set([
   "title",
@@ -1278,20 +1334,40 @@ var agentContract = (schemas, options) => {
     predicated[root] = hasPredicate(copy);
   }
   const roots = Object.keys(plain);
-  const extendsPath = (child, parent) => child.startsWith(parent + ".") || child.startsWith(parent + "[") || parent === "";
+  const rootSegments = Object.create(null);
+  for (const root of roots) {
+    const segs = root.split(".");
+    if (!segs.every((seg) => ROOT_SEGMENT.test(seg))) {
+      throw new Error(`agentContract: root '${root}' is not a dotted name (each segment ` + `${ROOT_SEGMENT}). An element-scoped root ('list[0]', 'list.0', ` + `'list[id=5]') is refused: which element it names is known only at ` + `runtime, from the data, so contract the containing array instead`);
+    }
+    rootSegments[root] = segs;
+  }
   for (const a of roots) {
     for (const b of roots) {
-      if (a !== b && extendsPath(a, b)) {
+      const inner = rootSegments[a];
+      const outer = rootSegments[b];
+      if (a !== b && outer.length < inner.length && outer.every((seg, i) => seg === inner[i])) {
         throw new Error(`agentContract: root '${a}' is nested under root '${b}' — which ` + `root judges a deep write would be ambiguous; contract the outer root only`);
       }
     }
   }
+  const touched = (path) => roots.filter((root) => {
+    const segs = rootSegments[root];
+    const n = Math.min(segs.length, path.length);
+    for (let i = 0;i < n; i++)
+      if (path[i] !== ANY && path[i] !== segs[i])
+        return false;
+    return true;
+  });
   const affectedRoots = (path) => {
     if (typeof path !== "string") {
       throw new TypeError(`affectedRoots(path): path must be a string, got ${path === null ? "null" : typeof path} — cannot locate a write that has no path`);
     }
-    const at = roots.find((root) => path === root || extendsPath(path, root));
-    return at != null ? [at] : roots.filter((root) => extendsPath(root, path));
+    const segs = parsePath(path);
+    if (typeof segs === "string") {
+      throw new SyntaxError(`affectedRoots(path): ${segs} — cannot locate the write`);
+    }
+    return touched(segs);
   };
   return {
     affectedRoots,
@@ -1300,7 +1376,11 @@ var agentContract = (schemas, options) => {
         return new Error(`contract breach — path must be a string, got ${path === null ? "null" : typeof path}; the gate cannot judge a write it cannot locate`);
       }
       const at = path || "''";
-      const affected = affectedRoots(path);
+      const segs = parsePath(path);
+      if (typeof segs === "string") {
+        return new Error(`contract breach at ${at} — ${segs}; the gate cannot place this write`);
+      }
+      const affected = touched(segs);
       if (affected.length === 0) {
         if (unknownPath === "refuse") {
           return new Error(`contract breach at ${at} — path touches no contracted root and ` + `the gate is { unknownPath: 'refuse' }; contract this root or ` + `route the write around the gate deliberately`);

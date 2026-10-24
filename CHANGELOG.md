@@ -7,11 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — 1.14.0
 
-**One narrow BREAKING change to `filter`'s output**, only with
-`skipValidation` and only for a schema with an `anyOf`/`oneOf`. See README
-"Upgrading → To 1.14.0". `validate` is unchanged.
+**Two BREAKING changes, both toward correctness:** a narrow one to
+`filter`'s output (only with `skipValidation` and a union), and
+`agentContract`'s path matcher, which now parses paths instead of comparing
+string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
 
-### Changed — BREAKING (narrow)
+### Changed — BREAKING
+
+- **`agentContract` places writes with a path tokenizer** (board #1349, the
+  design decided in 1.10.0 — see DECISIONS.md). Paths parse into segments and
+  match roots by segment-list prefix. The grammar is written out in the README
+  ("The path grammar") and above `parsePath` in contract.ts.
+  - **Respelled roots are contracted now (a fail-open closed).** With root
+    `app.billing`, the paths `app["billing"].rate`, `app['billing'].rate` and
+    `["app"].billing.rate` were uncontracted, so `check()` returned `true`
+    without validating anything. They are now under the root and need its
+    proposal.
+  - **A selector matches any segment.** tosijs's applier reads `app[=billing]`
+    as the key `billing`, so `app[=billing].rate` wrote under `app.billing`
+    while the gate called it uncontracted. A selector now touches every root
+    it might resolve to.
+  - **A malformed path fails closed.** `a..b`, `a.`, `a[`, `a[]`, `a[x]`,
+    `a[-1]` and `a[0]b`: `check()` returns an `Error` whatever `unknownPath`
+    says, and `affectedRoots()` throws `SyntaxError` (it used to answer by
+    prefix, usually `[]`).
+  - **Roots must be dotted names** (`/^[A-Za-z_$][\w$-]*$/` per segment).
+    `''`, `list[0]`, `list.0`, `list[id=5]`, `/app/order`, `' app'` and
+    `a..b` used to construct and now throw. An element-scoped root names an
+    element only at runtime, from the data, so no matcher can place it.
+  - **Migration:** contract the containing array (`'app.list'`), not an
+    element. A consumer that builds proposals with its own string-prefix test
+    (tosijs's `agent.write` does) gets a refusal for a respelled path, since no
+    proposal arrives for it; that is the gate working. Build proposals from
+    `affectedRoots(path)` to accept respellings.
 
 - **`filter` no longer returns a key that `additionalProperties: false`
   forbids where no union branch fits** (board #2757). That case used to come
@@ -34,8 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Size
 
-`filter` +202 B gzipped (4973 → 5175 B) for the forbidden-key fallback;
-`validate` and the other entry points are unchanged (±5 B).
+`agentContract` +622 B gzipped (5857 → 6479 B) for the tokenizer and its
+refusal messages; `filter` +202 B (4973 → 5175 B) for the forbidden-key
+fallback. `validate`, `s`, `diff` and `infer` are unchanged (±3 B). The whole
+bundle is 10177 B (+782 B).
 
 ## [1.13.0] — 2026-10-02
 

@@ -88,7 +88,7 @@ the strictness. Export the screen so consumers can lint their own schemas
 (the enumerate tier, like `unenforcedKeywords`), and document its false
 negatives. That makes it a minor.
 
-## A path tokenizer for `agentContract` (decided in 1.10.0)
+## A path tokenizer for `agentContract` (decided in 1.10.0, shipped 1.14.0)
 
 Board: "A path TOKENIZER for `agentContract`'s matcher". 1.10.0 built a
 regex-canonicalizing matcher and reverted it before shipping. Four review passes
@@ -98,6 +98,30 @@ Decided design: parse roots and paths into segment arrays and match by array
 prefix. A parse failure fails closed. Write the grammar down first. Refuse
 element-scoped roots (`list[0]`, `list[id=666]`) at construction. Ship it with a
 hostile-input test (a 200k-char path must stay cheap).
+
+**As shipped (1.14.0).** The grammar is written above `parsePath` in
+contract.ts and in the README. Choices the original note left open:
+
+- **Read paths the way the applier does, and be the more conservative
+  reader where the two could differ.** tosijs's `pathParts` was the
+  reference: a bracket body runs to the first `]`, and a body containing `=`
+  is a selector even when quoted. A selector (including the key-by-value
+  `[=key]`) matches every segment, because only the data decides where it
+  lands.
+- **Indexes read as keys.** `[0]` is the key `'0'`, so `list[0]` and
+  `list.0` are one location; `[00]` canonicalizes to `'0'` (the applier's
+  `parseInt` does), while `list.00` is a distinct key.
+- **Quoted keys are accepted, both quote styles,** though tosijs's applier
+  has none: a lodash-style surface uses them, and refusing them would break
+  subtree paths the old prefix test accepted.
+- **Paths are permissive and roots are strict.** A path key is anything but
+  `.`, `[` and `]`, because state really is keyed by user data (`'New York'`).
+  Roots are written by the developer, so construction refuses anything but
+  dotted identifier-ish names: that catches `''`, JSON Pointers, stray
+  whitespace and all-digit (element) segments, loudly, where it is cheap.
+- **A JSON Pointer path is one key with slashes in it,** not a malformed
+  path. An applier writes it at that key, so it is correctly uncontracted.
+  Reconsider if a consumer's applier gives `/` meaning.
 
 ## `oneOf`: decided against, then reversed (2026-08-19 → 2026-08-23)
 

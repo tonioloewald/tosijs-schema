@@ -74,21 +74,14 @@ export interface AgentContract {
    * written in dotted form. This is the matcher `check()` itself uses, so the
    * two cannot disagree. — asked for in #10
    *
-   * **Grammar, stated honestly.** This is a prefix test, not a path parser: a
-   * path matches when it EQUALS the root or continues it with `.` or `[`.
-   * Consequences, both directions:
-   * - every spelling of the SUBTREE under a root matches — `r.x`, `r[0].x`,
-   *   `r["x"]`, `r.0.x` all match root `r`, because each keeps the `r.`/`r[`
-   *   prefix. Child-segment spelling is not the gap.
-   * - the ROOT's own spelling must match literally. A multi-segment root
-   *   (`app.billing`) is recognized only when the path spells those segments
-   *   the same way, so `app["billing"].rate` reads as UNCONTRACTED. A leading
-   *   bracket (`["app"].x`) and a JSON Pointer (`/app/billing/rate`) likewise.
-   *
-   * So the exposure is: a multi-segment root, plus an applier that accepts a
-   * respelling of it. `{ unknownPath: 'refuse' }` closes that regardless of
-   * spelling. Making the matcher grammar-complete needs a tokenizer, not more
-   * string rewriting — tracked on the board ("A path TOKENIZER").
+   * **Grammar (1.14.0).** Paths are parsed into segments and compared as
+   * segment lists (the grammar is written out above `parsePath` in
+   * contract.ts, and in the README). Every spelling of a location is the same
+   * location — `app.billing.rate`, `app["billing"].rate`, `["app"].billing.rate`
+   * — and a quoted key is one segment, so `app["billing.rate"]` is not under
+   * `app.billing`. A selector (`list[id=5]`, `[=key]`) could resolve to any
+   * key, so it matches every root it might reach. Through 1.13.0 this was a
+   * string-prefix test, and respelling a multi-segment root escaped the gate.
    *
    * Returns a FRESH array each call, safe for the caller to mutate or sort —
    * it is a copy of internal root names, never the gate's own state, so nothing
@@ -96,13 +89,95 @@ export interface AgentContract {
    * than left implicit: the rest of this module deep-copies obsessively, so the
    * one place handing out an array needed an explicit answer.)
    *
-   * Throws `TypeError` on a non-string `path`: the never-throw guarantee is
-   * `check()`'s (it refuses such a write with an `Error` before reaching here),
-   * and answering `[]` — "touches no contracted root" — to a question that
-   * cannot be evaluated would fail open in the documented
-   * `if (affectedRoots(path).length === 0)` posture.
+   * Throws `TypeError` on a non-string `path`, and `SyntaxError` on a path
+   * outside the grammar: the never-throw guarantee is `check()`'s (it refuses
+   * such a write with an `Error` instead), and answering `[]` — "touches no
+   * contracted root" — to a question that cannot be evaluated would fail open
+   * in the documented `if (affectedRoots(path).length === 0)` posture.
    */
   affectedRoots(path: string): string[]
+}
+
+/**
+ * THE PATH GRAMMAR. `agentContract` places a write by parsing its path into
+ * segments and comparing segment lists, never by string prefix:
+ *
+ * ```
+ * path     := ''                                   the whole state
+ *           | first ( '.' key | bracket )*
+ * first    := key | bracket
+ * key      := one or more characters, none of  .  [  ]
+ * bracket  := '[' body ']'          body runs to the FIRST ']'
+ * body     := selector              contains '='   → ANY (an element chosen by data)
+ *           | digits                [0-9]+         → the key String(Number(digits))
+ *           | '"' JSON string '"'                  → that key
+ *           | "'" chars, no ' or \ "'"             → that key
+ * root     := name ( '.' name )*    name: ROOT_SEGMENT
+ * ```
+ *
+ * So `a.b`, `a["b"]`, `a['b']` and `["a"].b` are the same location, and
+ * `a["b.c"]` is ONE key, never two levels. `list[0]` and `list.0` are the same
+ * element (both reach the key `'0'`); `list.00` is a different key. A selector
+ * (`list[id=5]`, or tosijs's key-by-value `[=billing]`) can resolve to anything
+ * at runtime, so it matches every segment: a write the gate cannot place
+ * touches every root it might reach. Body precedence is in that order, so a
+ * quoted body containing `=` is a selector, as tosijs's applier reads it.
+ *
+ * Anything else is MALFORMED and fails closed: an empty key (`a..b`, `.a`,
+ * `a.`), a stray or unclosed bracket, an empty or unrecognized body (`[]`,
+ * `[x]`, `[-1]`, `[1abc]`), or a key run straight after `]` (`a[0]b`).
+ * `check()` refuses such a write whatever `unknownPath` says, and
+ * `affectedRoots()` throws. The parse is one left-to-right pass: linear in
+ * the path's length, with no backtracking.
+ */
+const ROOT_SEGMENT = /^[A-Za-z_$][\w$-]*$/
+const ANY = null
+type Segment = string | typeof ANY
+
+/** a path's segments, or why it is malformed */
+function parsePath(path: string): Segment[] | string {
+  const segs: Segment[] = []
+  const n = path.length
+  if (n === 0) return segs
+  let i = 0
+  let needKey = false // just read a '.', so a key must follow
+  for (;;) {
+    if (path[i] === '[' && !needKey) {
+      const close = path.indexOf(']', i + 1)
+      if (close < 0) return `unclosed '[' at ${i}`
+      const body = path.slice(i + 1, close)
+      const q = body[0]
+      if (body.includes('=')) segs.push(ANY)
+      else if (/^[0-9]+$/.test(body)) segs.push(String(Number(body)))
+      else if (q === '"') {
+        let key: unknown
+        try {
+          key = JSON.parse(body)
+        } catch {
+          return `malformed quoted key [${body}] at ${i}`
+        }
+        segs.push(key as string) // body starts with '"', so a parse is a string
+      } else if (q === "'" && body.length > 1 && body.endsWith("'") && !/['\\]/.test(body.slice(1, -1))) {
+        segs.push(body.slice(1, -1))
+      } else return `bracket [${body}] at ${i} holds no index, quoted key or selector`
+      i = close + 1
+    } else {
+      let j = i
+      while (j < n && path[j] !== '.' && path[j] !== '[') {
+        if (path[j] === ']') return `stray ']' at ${j}`
+        j++
+      }
+      if (j === i) return `empty key at ${i}`
+      segs.push(path.slice(i, j))
+      i = j
+    }
+    needKey = false
+    if (i === n) return segs
+    if (path[i] === '.') {
+      needKey = true
+      if (++i === n) return `empty key at ${i}`
+    } else if (path[i] !== '[') return `expected '.' or '[' at ${i}`
+  }
 }
 
 /** a builder (`s.object(...)`) or a plain JSON Schema object */
@@ -447,32 +522,24 @@ export const agentContract = (
     predicated[root] = hasPredicate(copy)
   }
   const roots = Object.keys(plain)
-  const extendsPath = (child: string, parent: string): boolean =>
-    child.startsWith(parent + '.') ||
-    child.startsWith(parent + '[') ||
-    parent === '' // the empty path is an ancestor of every root
-  // NOTE: a PREFIX test over path strings, not a path parser. A path matches
-  // when it equals the root or continues it with `.` or `[` — so every spelling
-  // of the SUBTREE matches (`r["x"]` and `r.0.x` both keep the `r.`/`r[` prefix
-  // and DO match root `r`). The gap is the ROOT's own spelling: multi-segment
-  // roots must be spelled identically, so `app["billing"].rate` misses root
-  // `app.billing` and, under the default `unknownPath: 'allow'`, is not judged.
-  //
-  // v1.10.0 attempted to close that by canonicalizing every spelling with a
-  // regex, and it was reverted: four review passes found a further bypass each
-  // time (quoted, then leading, then unquoted/numeric, then dotted-key and
-  // element-scoped), the fold silently merged genuinely different locations
-  // (`a["b.c"]` is ONE key, not two levels), and the regex was quadratic on
-  // unbalanced brackets — a DoS on the least-trusted input in the system. The
-  // real fix is a tokenizer comparing SEGMENT ARRAYS plus a written-down
-  // grammar; that is its own change, tracked on the board ("A path TOKENIZER").
-  //
-  // Until then the honest posture is: this limitation is pre-existing, it is
-  // documented, and `{ unknownPath: 'refuse' }` closes it for a gate that is
-  // meant to cover a whole surface.
+  const rootSegments: Record<string, string[]> = Object.create(null)
+  for (const root of roots) {
+    const segs = root.split('.')
+    if (!segs.every((seg) => ROOT_SEGMENT.test(seg))) {
+      throw new Error(
+        `agentContract: root '${root}' is not a dotted name (each segment ` +
+          `${ROOT_SEGMENT}). An element-scoped root ('list[0]', 'list.0', ` +
+          `'list[id=5]') is refused: which element it names is known only at ` +
+          `runtime, from the data, so contract the containing array instead`
+      )
+    }
+    rootSegments[root] = segs
+  }
   for (const a of roots) {
     for (const b of roots) {
-      if (a !== b && extendsPath(a, b)) {
+      const inner = rootSegments[a]!
+      const outer = rootSegments[b]!
+      if (a !== b && outer.length < inner.length && outer.every((seg, i) => seg === inner[i])) {
         throw new Error(
           `agentContract: root '${a}' is nested under root '${b}' — which ` +
             `root judges a deep write would be ambiguous; contract the outer root only`
@@ -480,15 +547,26 @@ export const agentContract = (
       }
     }
   }
+  // A write touches a root when one segment list is a prefix of the other:
+  // at or under it (the path is longer) or above it (an ancestor write
+  // replaces the contracted subtree). A selector matches any segment — it
+  // could resolve to that key at runtime — so a write the gate cannot place
+  // counts as touching every root it might reach.
+  const touched = (path: Segment[]): string[] =>
+    roots.filter((root) => {
+      const segs = rootSegments[root]!
+      const n = Math.min(segs.length, path.length)
+      for (let i = 0; i < n; i++) if (path[i] !== ANY && path[i] !== segs[i]) return false
+      return true
+    })
   /** every contracted root this write would touch (at, under, or above) */
   const affectedRoots = (path: string): string[] => {
-    // A non-string path THROWS here rather than answering `[]`. The never-throw
-    // contract belongs to check() (which guards before ever calling this), not
-    // to a query helper — and `[]` would be actively dangerous, because the
-    // documented posture is `if (affectedRoots(path).length === 0) { …ungated… }`:
-    // a JSON-decoded array-of-segments would read as "touches nothing" and be
-    // waved through. Answering "no roots" to a question we cannot evaluate is
-    // the fail-open this whole release is about.
+    // A non-string or malformed path THROWS here rather than answering `[]`.
+    // The never-throw contract belongs to check() (which guards before ever
+    // calling this), not to a query helper — and `[]` would be actively
+    // dangerous, because the documented posture is
+    // `if (affectedRoots(path).length === 0) { …ungated… }`: a path the gate
+    // cannot place would read as "touches nothing" and be waved through.
     if (typeof path !== 'string') {
       throw new TypeError(
         `affectedRoots(path): path must be a string, got ${
@@ -496,8 +574,11 @@ export const agentContract = (
         } — cannot locate a write that has no path`
       )
     }
-    const at = roots.find((root) => path === root || extendsPath(path, root))
-    return at != null ? [at] : roots.filter((root) => extendsPath(root, path))
+    const segs = parsePath(path)
+    if (typeof segs === 'string') {
+      throw new SyntaxError(`affectedRoots(path): ${segs} — cannot locate the write`)
+    }
+    return touched(segs)
   }
   return {
     affectedRoots,
@@ -514,7 +595,14 @@ export const agentContract = (
         )
       }
       const at = path || "''"
-      const affected = affectedRoots(path)
+      const segs = parsePath(path)
+      if (typeof segs === 'string') {
+        // fails CLOSED regardless of `unknownPath`: a path the gate cannot
+        // parse is a path it cannot place, and "touches no root" was the
+        // fail-open in every round of 1.10.0's reverted matcher
+        return new Error(`contract breach at ${at} — ${segs}; the gate cannot place this write`)
+      }
+      const affected = touched(segs)
       if (affected.length === 0) {
         // touches no contracted root — allowed by default, a breach under
         // { unknownPath: 'refuse' }
