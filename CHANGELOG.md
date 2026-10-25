@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — 1.14.0
+## [1.14.0] — 2026-10-25
 
 **Two BREAKING changes, both toward correctness:** a narrow one to
 `filter`'s output (only with `skipValidation` and a union), and
@@ -74,10 +74,10 @@ string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
 
 ### Size
 
-`agentContract` +598 B gzipped (5857 → 6455 B) for the tokenizer and its
-refusal messages; `filter` +202 B (4973 → 5175 B) for the forbidden-key
+`agentContract` +617 B gzipped (5857 → 6474 B) for the tokenizer and its
+refusal messages; `filter` +201 B (4973 → 5174 B) for the forbidden-key
 fallback. `validate`, `s`, `diff` and `infer` are unchanged (±3 B). The whole
-bundle is 10154 B (+759 B).
+bundle is 10173 B (+778 B).
 
 ## [1.13.0] — 2026-10-02
 
