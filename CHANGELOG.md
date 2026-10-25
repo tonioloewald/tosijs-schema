@@ -61,6 +61,11 @@ string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
   was valid apart from such a key used to come back as an `Error`; it now
   filters. This is a loosening.
 
+### Docs and tooling
+
+- The bundle-size claims now say ~10kB (the whole library is 9.9 kB gzipped).
+  `pack` now fails when a size figure in the docs stops matching the build.
+
 ### Size
 
 `agentContract` +598 B gzipped (5857 → 6455 B) for the tokenizer and its

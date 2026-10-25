@@ -246,7 +246,7 @@ z.object({ email: z.string().email(), age: z.number().int().min(0) })
 | Output | Native JSON Schema | Proprietary | Native JSON Schema |
 | JSON Schema spec | Practical subset | N/A (not JSON Schema) | Draft 2020-12 compliant |
 | Syntax | `s.email` | `z.string().email()` | `Type.String({ format: 'email' })` |
-| Bundle | ~9kB (or ~1.5kB, `/infer` only) | ~14kB | ~64kB |
+| Bundle | ~10kB (or ~1.5kB, `/infer` only) | ~14kB | ~64kB |
 | Schema objects | Plain JSON (~200B) | Class instances (~3-5KB) | JSON Schema objects |
 | Runtime deps | 0 | 0 | 0 |
 | Performance | ~2x faster + O(1) sampling | O(n) | JIT compiled (~27x faster full scan) |
@@ -290,7 +290,7 @@ This matters for:
 
 ### JSON Schema Coverage
 
-tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~9kB bundle (tree-shakeable — see below) vs spec compliance.
+tosijs-schema implements a **practical subset** of JSON Schema - the features that cover real-world use cases, not the full specification. This is a deliberate tradeoff: ~10kB bundle (tree-shakeable — see below) vs spec compliance.
 
 **Supported:** `type`, `properties`, `required`, `items`, `enum`, `const`, `anyOf` (unions), `oneOf` (exactly-one), `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `minProperties`, `maxProperties`, `additionalProperties`, `format` (`email`, `uuid`, `uri`, `ipv4`, `date`, `date-time` — RFC 3339, `emoji`), boolean schemas (`true`/`false`), `$predicate` (with a registered evaluator), `default`, `title`, `description`
 
@@ -325,7 +325,7 @@ If you need full JSON Schema Draft 2020-12 compliance and `eval` is acceptable i
 - You have a fixed set of schemas known at startup (compile once, validate millions)
 - You need maximum validation throughput (high-traffic APIs, real-time pipelines)
 - You're building with Fastify or Elysia (native TypeBox support)
-- Bundle size isn't a primary concern (~64kB vs ~6kB)
+- Bundle size isn't a primary concern (~64kB vs ~10kB)
 - Note: JIT mode uses `new Function()`, but interpreted mode (`Value.Check()`) works in CSP environments at ~18x slower
 
 ### When to Use tosijs-schema

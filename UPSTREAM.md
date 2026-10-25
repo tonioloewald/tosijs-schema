@@ -32,6 +32,13 @@ practices: file, don't fix — never edit the other repo from here).
   Update 2026-10-16: fixed on tjs-lang main in 2f3213f (all eight unwraps use
   `isBuilder`, floor `^1.12.0`). Board #2416 is in tjs-lang's review; #58 closes
   when tjs-lang's next release ships.
+- [tosijs#52](https://github.com/tonioloewald/tosijs/issues/52) — `agent.write`
+  routes contract proposals with `extendsPath` (a string prefix), while
+  tosijs-schema 1.14.0's gate parses paths (#1349). A respelled write the gate
+  places under a root (`app[=billing].rate`, which `setByPath` really writes
+  under `app.billing`) arrives without a proposal and is refused: safe (it was
+  a bypass through 1.13.x) but unexplained. Suggests routing with
+  `contract.affectedRoots?.(path)`. Filed 2026-10-25, owner OK'd.
 
 ## Third-party upstream
 

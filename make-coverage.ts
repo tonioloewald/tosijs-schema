@@ -8,7 +8,7 @@
 // (non-zero exit) if a test fails or a target region can't be found, so a
 // silent no-op can't let the docs drift again.
 import { gzipSync } from 'bun'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -134,6 +134,46 @@ const version = (await Bun.file('package.json').json()).version
     throw new Error(
       `make-coverage: public runtime export(s) not mentioned in README.md or CONTEXT.md: ` +
         `${undocumented.join(', ')} — document them, or mark them @internal`
+    )
+  }
+}
+
+// --- size-CLAIM gate. The README table is generated, but the prose around
+// it is not: "~9kB" survived in the README, llms.txt and CLAUDE.md after the
+// bundle passed 9.9 kB, and "~6kB" outlived its release by several. Every
+// `N kB` figure in the hand-written docs must be what one of OUR measured
+// entry points rounds to at the claim's own precision (a range must be the
+// per-import min–max), or a competitor figure listed in EXTERNAL_KB. When
+// this fails, update the claim — or, for a new competitor figure, list it.
+// Limit: it matches by NUMBER, not by which entry a sentence means, so a
+// whole-library claim that happens to equal a per-import size (README's
+// "~64kB vs ~6kB" passed because agentContract rounds to 6) is not caught.
+{
+  const EXTERNAL_KB = [14, 64] // Zod and TypeBox bundles in the README comparison
+  const kib = (name: string) => gzBytes[name]! / 1024
+  const fits = (claim: string, value: number) =>
+    claim.includes('.') ? value.toFixed(claim.split('.')[1]!.length) === claim : String(Math.round(value)) === claim
+  const ours = Object.keys(gzBytes).map(kib)
+  const imports = ENTRY_POINTS.map(kib)
+  const stale: string[] = []
+  for (const file of ['README.md', 'llms.txt', 'CLAUDE.md', 'CONTEXT.md', 'AGENTS.md']) {
+    if (!existsSync(join(repoDir, file))) continue
+    readFileSync(join(repoDir, file), 'utf8').split('\n').forEach((line, i) => {
+      for (const m of line.matchAll(/(\d+(?:\.\d+)?)(?:\s?[–-]\s?(\d+(?:\.\d+)?))?\s?kB\b/g)) {
+        const [text, lo, hi] = m as unknown as [string, string, string | undefined]
+        const ok = hi
+          ? fits(lo, Math.min(...imports)) && fits(hi, Math.max(...imports))
+          : ours.some((v) => fits(lo, v)) || EXTERNAL_KB.includes(Number(lo))
+        if (!ok) stale.push(`${file}:${i + 1}: "${text}"`)
+      }
+    })
+  }
+  if (stale.length) {
+    const now = Object.entries(gzBytes).map(([n, b]) => `${n} ${(b / 1024).toFixed(2)}`).join(', ')
+    throw new Error(
+      `make-coverage: size claim(s) no longer match the build (kB gz: ${now}):\n  ` +
+        stale.join('\n  ') +
+        `\nupdate them, or add a competitor figure to EXTERNAL_KB`
     )
   }
 }
