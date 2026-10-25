@@ -1328,7 +1328,9 @@ function filterOneOf(data: any, branches: any[], rest: any, fullScan: boolean): 
     if (origMatches.length > 1) break // >1 ⇒ not oneOf-valid; result is fixed
   }
   if (origMatches.length === 1) return filterData(data, stripSchema(rest, origMatches[0]), fullScan)
-  if (origMatches.length > 1) return pruneForbidden(data, rest) // matches >1 branch: not oneOf-valid
+  // matches >1 branch: not oneOf-valid. The data already fits `rest`, so there
+  // is nothing it forbids to prune.
+  if (origMatches.length > 1) return data
   // no branch matches as-is (genuine extras to shed) → strip against each
   // branch and, among the candidates that validate, keep the one that
   // RETAINS THE MOST data. Never shed a field a valid interpretation keeps

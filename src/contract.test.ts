@@ -1023,6 +1023,8 @@ describe('agentContract — the path tokenizer (v1.14.0, #1349)', () => {
     ]) {
       expect(() => agentContract({ [root]: S })).toThrow(/not a dotted name/)
     }
+    expect(() => agentContract({ 'list[0]': S })).toThrow('contract the containing array')
+    expect(() => agentContract({ ' app': S })).not.toThrow('containing array')
     for (const root of ['app', 'app.billing_rules', 'my-app.$cache', '_x.y2']) {
       expect(() => agentContract({ [root]: S })).not.toThrow()
     }

@@ -1252,6 +1252,42 @@ describe('filter never returns a key an additionalProperties: false sibling forb
     expect(filter({ a: 'x', b: 1, isAdmin: true }, schema)).toEqual({ a: 'x', b: 1 })
   })
 
+  test('the both-unions merge prunes at a NESTED node too (Prune, not {})', () => {
+    // p's sibling and the oneOf branch's p both carry a union, so the merge
+    // meets two unions one level down. Stripping nothing there ({}) left junk
+    // in and the oneOf matched 0 branches.
+    const pNode = (closed: boolean) => ({
+      type: 'object',
+      properties: { a: { type: 'number' } },
+      ...(closed ? { additionalProperties: false } : {}),
+      anyOf: [{ required: ['a'] }],
+    })
+    const schema = {
+      type: 'object',
+      properties: { p: pNode(false) },
+      additionalProperties: false,
+      oneOf: [{ properties: { p: pNode(true) } }],
+    }
+    expect(filter({ p: { a: 1, junk: 2 } }, schema)).toEqual({ p: { a: 1 } })
+  })
+
+  test('the fallback prunes through array items and additionalProperties schemas', () => {
+    const closedRow = { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false }
+    const viaItems = { type: 'object', properties: { rows: { type: 'array', items: closedRow } }, anyOf: [{ required: ['nope'] }] }
+    expect(filter({ rows: [{ a: 'x', isAdmin: true }] }, viaItems, { skipValidation: true })).toEqual({ rows: [{ a: 'x' }] })
+    const viaAP = { type: 'object', additionalProperties: closedRow, anyOf: [{ required: ['nope'] }] }
+    expect(filter({ k: { a: 'x', isAdmin: true } }, viaAP, { skipValidation: true })).toEqual({ k: { a: 'x' } })
+  })
+
+  test('scope, stated honestly: only a SIBLING of the union is consulted', () => {
+    // A key forbidden only inside a branch is not dropped by the fallback —
+    // which branch's rule applies is unknowable when none fits. The docs
+    // promise "beside the union", and this pins that they don't promise more.
+    const schema = { type: 'object', anyOf: [{ properties: { role: { const: 'user' } }, additionalProperties: false }] }
+    expect(filter({ role: 'admin', isAdmin: true }, schema, { skipValidation: true })).toEqual({ role: 'admin', isAdmin: true })
+    expect(filter({ role: 'admin', isAdmin: true }, schema)).toBeInstanceOf(Error)
+  })
+
   test('keys declared only inside a branch are not shed by the fallback', () => {
     // the sibling is OPEN, so a branch-only key is legal beside it — the
     // fallback must not strip down to the sibling's declared properties

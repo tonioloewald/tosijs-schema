@@ -864,7 +864,7 @@ function filterOneOf(data, branches, rest, fullScan) {
   if (origMatches.length === 1)
     return filterData(data, stripSchema(rest, origMatches[0]), fullScan);
   if (origMatches.length > 1)
-    return pruneForbidden(data, rest);
+    return data;
   const size = (x) => {
     if (x === null || typeof x !== "object")
       return 0;
@@ -1330,7 +1330,7 @@ var agentContract = (schemas, options) => {
   for (const root of roots) {
     const segs = root.split(".");
     if (!segs.every((seg) => ROOT_SEGMENT.test(seg))) {
-      throw new Error(`agentContract: root '${root}' is not a dotted name (each segment ` + `${ROOT_SEGMENT}). An element-scoped root ('list[0]', 'list.0', ` + `'list[id=5]') is refused: which element it names is known only at ` + `runtime, from the data, so contract the containing array instead`);
+      throw new Error(`agentContract: root '${root}' is not a dotted name (each segment ` + `${ROOT_SEGMENT}, ASCII, not NaN)` + (/\[|(^|\.)\d+($|\.)/.test(root) ? `. An element-scoped root is refused: which element it names is ` + `known only at runtime, from the data, so contract the containing array instead` : ""));
     }
     rootSegments[root] = segs;
   }

@@ -22,7 +22,10 @@ string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
     `app.billing`, the paths `app["billing"].rate`, `app['billing'].rate` and
     `["app"].billing.rate` were uncontracted, so `check()` returned `true`
     without validating anything. They are now under the root and need its
-    proposal.
+    proposal. Affected: every release with `agentContract` (1.5.0–1.13.0)
+    under the default `unknownPath: 'allow'`; `{ unknownPath: 'refuse' }`
+    (1.10.0+) closed it. The respelled-root case was a documented limitation
+    from 1.10.0; the selector case below was not documented.
   - **A selector matches any segment.** tosijs's applier reads `app[=billing]`
     as the key `billing`, so `app[=billing].rate` wrote under `app.billing`
     while the gate called it uncontracted. A selector now touches every root
@@ -34,7 +37,8 @@ string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
     prefix, usually `[]`).
   - **Roots must be dotted names** (`/^[A-Za-z_$][\w$-]*$/` per segment).
     `''`, `list[0]`, `list.0`, `list[id=5]`, `/app/order`, `' app'`, `a..b`
-    and a `NaN` segment used to construct and now throw. An element-scoped root names an
+    and a `NaN` segment used to construct and now throw, as does any
+    non-ASCII name. An element-scoped root names an
     element only at runtime, from the data, so no matcher can place it.
   - **Migration:** contract the containing array (`'app.list'`), not an
     element. A consumer that builds proposals with its own string-prefix test
@@ -42,8 +46,10 @@ string prefixes. See README "Upgrading → To 1.14.0". `validate` is unchanged.
     proposal arrives for it; that is the gate working. Build proposals from
     `affectedRoots(path)` to accept respellings.
 
-- **`filter` no longer returns a key that `additionalProperties: false`
-  forbids where no union branch fits** (board #2757). That case used to come
+- **`filter` no longer returns a key that an `additionalProperties: false`
+  beside the union forbids, where no union branch fits** (board #2757). A
+  key forbidden only inside a branch can still come back under
+  `skipValidation`, since no branch fit. That case used to come
   back with every key intact, which under `skipValidation` was the result. It
   now drops the keys a schema beside the union forbids outright, recursively
   through declared `properties` and `items`, and keeps everything else.

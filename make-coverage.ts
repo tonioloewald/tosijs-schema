@@ -266,7 +266,7 @@ readme = replaceLine(
 )
 readme = replaceLine(
   readme,
-  /(importing `validate`, `s`, `filter`, or `diff` all land in the same )[\d.]+–[\d.]+( kB range)/,
+  /(importing `validate`, `s`, `filter`, `diff` or `agentContract` all land in the same )[\d.]+–[\d.]+( kB range)/,
   `$1${loKb}–${hiKb}$2`,
   'README.md',
   'per-import prose range',

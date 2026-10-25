@@ -41,6 +41,10 @@ source of truth; types are inferred from it, not the other way around. ~10kB gzi
   (`[id=5]`) matches any segment, a malformed path is refused (check) or
   throws SyntaxError (affectedRoots), and roots must be dotted names
   (element-scoped roots like `list[0]` throw at construction).
+  **1.14.0 is BREAKING** for agentContract (roots outside the grammar throw;
+  malformed paths are refused) and for filter under skipValidation (keys a
+  sibling `additionalProperties: false` forbids are dropped). See README →
+  Upgrading → To 1.14.0.
   `checkExamples(schema)`: lints `examples` (must pass) and
   `$counterexamples` (must fail).
 - `inferSchema(sample, opts?)`: derive a JSON Schema from example data
